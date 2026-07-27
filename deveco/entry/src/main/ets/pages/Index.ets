@@ -11,7 +11,9 @@ import { Taobao, TikTok, Wonderous } from './AppsArkTs';
  * below it. OpenHarmony's WebView is ArkTS-only, so this hybrid is how a
  * Splash-OH app hosts a WebView. Set false for the original WeChat benchmark.
  */
-const YOUTUBE_MODE: boolean = true;
+/** Start in the browser card, which is the app that exercises the web overlay.
+ *  Empty string starts in the benchmark harness instead. */
+const START_APP: string = 'browser';
 
 /**
  * The whole ArkTS surface of the app.
@@ -81,13 +83,75 @@ struct Index {
   private wc: WeChatArkTs | null = null;
   private load: LoadGenerator = new LoadGenerator();
   private useRust: boolean = true;
-  private webController: webview.WebviewController = new webview.WebviewController();
+  /**
+   * Web surfaces the current Splash tree asked for, as "id|url|x|y|w|h".
+   *
+   * There is no ARKUI_NODE_WEB, so Rust cannot build a web view; it builds a
+   * transparent placeholder and records where it went. This puts a real `Web`
+   * component at those coordinates, above the ContentSlot.
+   */
+  @State webSlots: Array<string> = [];
+  /** One controller per slot id, kept OUT of @State.
+   *
+   *  A controller reached through an @Observed/@State proxy is inert -- calls
+   *  like loadUrl() silently do nothing, no exception, no log. That cost a day
+   *  in octos-one. Plain Map, never decorated. */
+  private controllers: Map<string, webview.WebviewController> = new Map();
+  /** What each controller was last told to load, so a rebuild that did not
+   *  change the URL does not reload the page out from under the user. */
+  private loaded: Map<string, string> = new Map();
+
+  private controllerFor(id: string): webview.WebviewController {
+    let c = this.controllers.get(id);
+    if (c === undefined) {
+      c = new webview.WebviewController();
+      this.controllers.set(id, c);
+    }
+    return c;
+  }
+
+  /** Pull the declared slots from Rust; re-render only if they changed. */
+  private syncWebSlots(): void {
+    const next: Array<string> = splash.webSlots() as Array<string>;
+    if (next.length === this.webSlots.length) {
+      let same = true;
+      for (let i = 0; i < next.length; i++) {
+        if (next[i] !== this.webSlots[i]) {
+          same = false;
+          break;
+        }
+      }
+      if (same) {
+        return;
+      }
+    }
+    this.webSlots = next;
+  }
+
+  /** Load a slot's URL, once the Web component has bound its controller.
+   *
+   *  Deferred to onPageEnd rather than onControllerAttached: attached only
+   *  means the object is bound, not that the engine will accept a load. */
+  private loadSlot(id: string, url: string): void {
+    if (this.loaded.get(id) === url) {
+      return;
+    }
+    try {
+      this.controllerFor(id).loadUrl(url);
+      this.loaded.set(id, url);
+    } catch (e) {
+      console.error('web slot ' + id + ' loadUrl failed: ' + JSON.stringify(e));
+    }
+  }
 
   aboutToAppear(): void {
     splash.mount(this.content);
-    if (YOUTUBE_MODE) {
-      // Mount the native YouTube chrome bar; the Web below runs the app.
-      splash.youtubeRender();
+    if (START_APP !== '') {
+      splash.appRender(START_APP);
+      this.syncWebSlots();
+      // A tap inside the native tree cannot call back into ArkTS, so Rust
+      // rebuilds on its own and this polls for the geometry it declared.
+      setInterval(() => { this.syncWebSlots(); }, 250);
       return;
     }
     this.wc = new WeChatArkTs(this.getUIContext());
@@ -106,7 +170,7 @@ struct Index {
   }
 
   onPageShow(): void {
-    if (YOUTUBE_MODE) {
+    if (START_APP !== '') {
       return;
     }
     // Let the first frame settle, then run the comparison. Every trial is
@@ -562,29 +626,27 @@ struct Index {
   }
 
   build() {
-    Column() {
-      if (YOUTUBE_MODE) {
-        // Splash-OH native chrome bar (fixed height)...
-        Column() {
-          ContentSlot(this.content)
-        }
-        .width('100%')
-        .height(56)
-        // ...and the YouTube player filling the rest. The embed player is a
-        // self-contained player-only page — far more reliable inside a webview
-        // than the full watch page, whose player often won't lay out.
-        // autoplay+mute is required for browsers to auto-start; playsinline
-        // keeps it in the page instead of taking over full screen.
-        Web({ src: 'https://www.youtube.com/embed/jNQXAC9IVRw?autoplay=1&mute=1&playsinline=1',
-              controller: this.webController })
+    // The native tree underneath, web surfaces on top at the coordinates the
+    // DSL declared. A Stack rather than a Column because the overlay is
+    // positioned against the page, not laid out in flow with it.
+    Stack({ alignContent: Alignment.TopStart }) {
+      ContentSlot(this.content)
+
+      ForEach(this.webSlots, (slot: string) => {
+        Web({ src: slot.split('|')[1], controller: this.controllerFor(slot.split('|')[0]) })
           .javaScriptAccess(true)
           .domStorageAccess(true)
+          // Stops ArkWeb demanding a tap before it will play media.
           .mediaPlayGestureAccess(false)
-          .width('100%')
-          .layoutWeight(1)
-      } else {
-        ContentSlot(this.content)
-      }
+          .position({ x: Number(slot.split('|')[2]), y: Number(slot.split('|')[3]) })
+          .width(Number(slot.split('|')[4]))
+          .height(Number(slot.split('|')[5]))
+          .onPageEnd(() => {
+            // Flush here, not on onControllerAttached: attached means the
+            // object is bound, not that the engine will accept a load.
+            this.loadSlot(slot.split('|')[0], slot.split('|')[1]);
+          })
+      }, (slot: string) => slot)
     }
     .width('100%')
     .height('100%')

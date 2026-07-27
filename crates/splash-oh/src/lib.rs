@@ -18,6 +18,7 @@ pub mod dsl;
 pub mod mem;
 pub mod apps;
 pub mod net;
+pub mod webslot;
 pub mod wechat;
 
 use arkui::NodeContentHandle;
@@ -180,6 +181,16 @@ pub fn wechat_render() -> Vec<f64> {
     let node = crate::dsl::build_weather();
     app::set_root(node);
     vec![0.0, 0.0]
+}
+
+/// Web surfaces the current tree declared, as "id|url|x|y|w|h".
+///
+/// ArkTS positions a real `Web` component at each of these, above the
+/// `ContentSlot`. There is no `ARKUI_NODE_WEB`, so this is the only way a
+/// Splash tree can contain a webview -- see `webslot.rs`.
+#[napi(js_name = "webSlots")]
+pub fn web_slots() -> Vec<String> {
+    webslot::encoded()
 }
 
 /// Mount the YouTube app's native chrome bar into the slot. The video content

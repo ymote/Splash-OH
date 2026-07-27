@@ -88,11 +88,19 @@ pub fn init(slot: NodeContentHandle) {
 
 /// ArkUI event thread → here. Only the target id matters.
 extern "C" fn on_event(target_id: i32, _event_type: i32) {
-    // The WeChat demo owns the surface once it is mounted, so its ids win.
+    // Whichever ported app owns the surface handles the id and rebuilds.
+    //
+    // This used to call `wechat::handle` + `wechat::build` directly, from
+    // before the other three apps existed. The effect was that tapping a tab
+    // in Taobao, TikTok, Wonderous or the browser card rebuilt the *WeChat*
+    // tree over the top of it. It went unnoticed because the benchmark drives
+    // `build_route` rather than taps, and the on-device tour was driven by a
+    // timer -- nothing in the harness ever exercised a tap outside WeChat.
     if WECHAT_ACTIVE.with(|w| *w.borrow()) {
-        crate::wechat::handle(target_id);
-        let (node, _, _) = crate::wechat::build();
-        set_root(node);
+        if crate::apps::handle(target_id) {
+            let (node, _, _) = crate::apps::build();
+            set_root(node);
+        }
         return;
     }
     match target_id {
