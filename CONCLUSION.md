@@ -218,7 +218,47 @@ does not do.
 So the load prediction remains untested. What is now tested is that the ~2.5×
 holds on a real app with real navigation, which was speculative before.
 
-### The memory arm failed, and the failure is the finding
+### RAM
+
+The earlier attempt to measure this failed because both implementations shared a
+process. Redone properly: **one implementation per process launch**, since the
+contamination is within-process.
+
+**Steady state** — the app mounted and settled on the chat list, fresh process:
+
+| | RSS |
+|---|---|
+| Rust → NDK | 157 – 159 MB |
+| ArkTS → typeNode | 155 – 163 MB |
+
+**No meaningful difference.** Both sit around 157–160 MB, and essentially all of
+it is the ArkUI runtime baseline rather than the app. Which language builds the
+widgets does not change how much RAM the running app uses.
+
+**Marginal** — then stack 12 more copies of the whole app (6 screens each, so 72
+screens) and watch RSS climb:
+
+```
+held    Rust        ArkTS
+  4     235 MB      253 MB
+  8     321 MB      371 MB
+ 12     406 MB      451 MB
+```
+
+| | per app copy | per screen |
+|---|---|---|
+| Rust → NDK | **21.5 MB** | 3.6 MB |
+| ArkTS → typeNode | **24.8 MB** | 4.1 MB |
+
+**ArkTS costs ~15% more**, which is the JS wrapper object and its finalizer per
+node — the same 8% seen on bare `Text` nodes, a bit larger here because these
+trees are mixed `Row`/`Column`/`Image` and parented.
+
+So on memory the two are close, and the number that matters for a phone is that
+neither is cheap: a screen of this app is ~4 MB, and the framework floor is
+~157 MB before a single widget exists.
+
+### An earlier memory attempt failed, and the failure is worth keeping
 
 Stacking whole screens on each path and watching RSS produced this:
 

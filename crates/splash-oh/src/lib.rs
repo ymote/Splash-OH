@@ -178,6 +178,12 @@ pub fn wechat_render() -> Vec<f64> {
     vec![n as f64, us]
 }
 
+/// Build every screen once and keep them all alive, for the memory arm.
+#[napi(js_name = "wechatKeepAll")]
+pub fn wechat_keep_all() -> u32 {
+    wechat::keep_all() as u32
+}
+
 /// Whether the native header toggle was tapped since the last call. Polled by
 /// ArkTS, which then swaps which implementation owns the surface.
 #[napi(js_name = "wechatTakeToggle")]

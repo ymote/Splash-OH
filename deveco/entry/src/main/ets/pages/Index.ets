@@ -38,6 +38,19 @@ const WC_WARMUP: number = 4;
  *  "under load" look FASTER than idle — which load does not do. */
 const WC_COND: Array<boolean> = [false, true, true, false, true, false, false, true];
 
+/** Memory mode: skip the timing suite and measure RAM only.
+ *
+ *  One implementation per process launch, because the contamination is
+ *  within-process: measuring both in one run showed whoever went second
+ *  refilling pages the first freed but the allocator retained, which made it
+ *  look nearly free and in one case negative. A fresh process each is the only
+ *  way to get a number that means anything. */
+const MEM_MODE: boolean = false;
+/** Which implementation this build measures. Flip and rebuild for the other. */
+const MEM_RUST: boolean = true;
+/** Copies of the whole app held at once, for the marginal figure. */
+const MEM_COPIES: number = 12;
+
 @Entry
 @Component
 struct Index {
@@ -68,7 +81,80 @@ struct Index {
     // driven one per event-loop tick: doing the suite inline blocks the JS
     // thread long enough that its timer queue stops being serviced and the
     // rest of the benchmark silently never runs.
+    if (MEM_MODE) {
+      setTimeout(() => { this.memStep(0); }, 3000);
+      return;
+    }
     setTimeout(() => { this.wcStep(0); }, 2500);
+  }
+
+  /** Screens held to measure marginal cost. */
+  private heldArk: Array<Object> = new Array<Object>();
+
+  /**
+   * RAM, measured in two ways.
+   *
+   * 1. **Steady state** — a fresh process with one implementation mounted and
+   *    settled on the chat list. This is what "how much RAM does the app use"
+   *    actually means.
+   * 2. **Marginal** — then stack `MEM_COPIES` more copies of every screen and
+   *    watch RSS climb, which gives the per-screen cost without the allocator
+   *    reuse that ruined the earlier two-paths-in-one-process attempt.
+   */
+  private memStep(i: number): void {
+    const which: string = MEM_RUST ? 'rust' : 'arkts';
+
+    if (i === 0) {
+      // Make sure the measured implementation is the one mounted.
+      if (MEM_RUST) {
+        splash.wechatRender();
+      } else {
+        this.mountArkTs();
+      }
+      splash.wechatLog('RAM ' + which + ' mounted, settling');
+    } else if (i <= 3) {
+      splash.wechatLog('RAM ' + which + ' steady rss=' + splash.rssKb()
+        + 'kB peak=' + splash.peakRssKb() + 'kB');
+    } else if (i === 4) {
+      splash.wechatLog('RAM ' + which + ' stacking ' + MEM_COPIES + ' copies');
+    } else if (i <= 4 + MEM_COPIES) {
+      // One whole app (all six screens) per tick.
+      if (MEM_RUST) {
+        splash.wechatKeepAll();
+      } else {
+        this.keepAllArkTs();
+      }
+      if ((i - 4) % 4 === 0) {
+        splash.wechatLog('RAM ' + which + ' held=' + (i - 4)
+          + ' rss=' + splash.rssKb() + 'kB');
+      }
+    } else if (i === 5 + MEM_COPIES) {
+      splash.wechatLog('RAM ' + which + ' held=' + MEM_COPIES
+        + ' rss=' + splash.rssKb() + 'kB peak=' + splash.peakRssKb() + 'kB');
+    } else {
+      return;
+    }
+    setTimeout(() => { this.memStep(i + 1); }, 500);
+  }
+
+  /** Build every screen once and keep them all alive. */
+  private keepAllArkTs(): void {
+    const saveTab = this.wc!.tab;
+    const saveRoute = this.wc!.route;
+    for (let k = 0; k < TOUR.length; k++) {
+      const parts: Array<string> = TOUR[k].split('|');
+      this.wc!.tab = parseInt(parts[0]);
+      this.wc!.route = Index.routeOf(parts[1]);
+      this.wc!.chatId = 1;
+      this.wc!.build();
+      const n = this.wc!.node();
+      if (n !== null) {
+        this.heldArk.push(n);
+      }
+      this.wc!.clear();
+    }
+    this.wc!.tab = saveTab;
+    this.wc!.route = saveRoute;
   }
 
   /** Swap which implementation owns the surface, mid-flight. */

@@ -481,6 +481,33 @@ pub fn build() -> (Option<Node>, usize, f64) {
     (built, n, us)
 }
 
+/// Screens kept alive for the memory arm.
+thread_local! {
+    static KEPT: RefCell<Vec<Node>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Build every screen once and keep them. Returns the total kept.
+pub fn keep_all() -> usize {
+    let tours: [(usize, Route); 6] = [
+        (0, Route::Root),
+        (1, Route::Root),
+        (2, Route::Root),
+        (3, Route::Root),
+        (0, Route::Chat(1)),
+        (0, Route::Moments),
+    ];
+    let saved = NAV.with(|n| *n.borrow());
+    for (tab, route) in tours {
+        NAV.with(|n| *n.borrow_mut() = Nav { tab, route });
+        let (node, _, _) = build();
+        if let Some(node) = node {
+            KEPT.with(|k| k.borrow_mut().push(node));
+        }
+    }
+    NAV.with(|n| *n.borrow_mut() = saved);
+    KEPT.with(|k| k.borrow().len())
+}
+
 /// Build without keeping the result — for timing only.
 pub fn build_timed(tab: usize, route: Route) -> (usize, f64) {
     let saved = NAV.with(|n| {
