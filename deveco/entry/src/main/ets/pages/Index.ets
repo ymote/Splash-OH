@@ -12,6 +12,13 @@ import { WeChatArkTs, LoadGenerator, RouteKind } from './WeChatArkTs';
  */
 const YOUTUBE_MODE: boolean = true;
 
+// NB: YouTube's own player will not play inside an embedded WebView — it needs
+// Widevine DRM / a full browser and blocks embedded playback (blank player /
+// "error 153"). The WebView's media stack itself is fine: a plain HTML5 <video>
+// (direct MP4) plays here. So this hosts the browsable YouTube app; for actual
+// playback of YouTube content a Piped/Invidious front-end (plain video streams)
+// would be needed.
+
 /**
  * The whole ArkTS surface of the app.
  *
@@ -356,12 +363,10 @@ struct Index {
         }
         .width('100%')
         .height(56)
-        // ...and the YouTube player filling the rest. The embed player is a
-        // self-contained player-only page — far more reliable inside a webview
-        // than the full watch page, whose player often won't lay out.
-        // autoplay+mute is required for browsers to auto-start; playsinline
-        // keeps it in the page instead of taking over full screen.
-        Web({ src: 'https://www.youtube.com/embed/jNQXAC9IVRw?autoplay=1&mute=1&playsinline=1',
+        // ...and the YouTube player filling the rest, hosted via loadData so
+        // the embed iframe gets a real https origin (see YT_HTML). A bare embed
+        // URL loaded as the top-level page fails with "error 153".
+        Web({ src: 'https://m.youtube.com/feed/trending',
               controller: this.webController })
           .javaScriptAccess(true)
           .domStorageAccess(true)
