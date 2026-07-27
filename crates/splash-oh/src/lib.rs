@@ -15,6 +15,9 @@ pub mod arkui;
 pub mod bench;
 pub mod catalog;
 pub mod dsl;
+pub mod mem;
+pub mod apps;
+pub mod wechat;
 
 use arkui::NodeContentHandle;
 use napi_derive_ohos::napi;
@@ -122,6 +125,251 @@ pub fn report_arkts(n: u32, trials_ms: Vec<f64>) {
 /// own, which is the cheap direction: a direct call, not a queued post.
 #[napi(js_name = "noop")]
 pub fn noop() {}
+
+// ---------------------------------------------------------------------------
+// Memory harness. Both sides read the same RSS counter in the same process, so
+// there is nothing to normalise between them.
+// ---------------------------------------------------------------------------
+
+/// Resident set size, KiB.
+#[napi(js_name = "rssKb")]
+pub fn rss_kb() -> u32 {
+    mem::rss_kb() as u32
+}
+
+/// Peak resident set size, KiB — what an OOM kill would have been judged on.
+#[napi(js_name = "peakRssKb")]
+pub fn peak_rss_kb() -> u32 {
+    mem::peak_rss_kb() as u32
+}
+
+/// Build `n` more nodes through the NDK and hold them. Returns the total held.
+#[napi(js_name = "memHold")]
+pub fn mem_hold(n: u32) -> u32 {
+    mem::hold(n as usize) as u32
+}
+
+/// Drop every held node. Returns how many were dropped.
+#[napi(js_name = "memRelease")]
+pub fn mem_release() -> u32 {
+    mem::release() as u32
+}
+
+/// Log one labelled sample, so the whole ramp lands in `hilog` in order.
+#[napi(js_name = "memLog")]
+pub fn mem_log(label: String, held: u32) {
+    log(&format!(
+        "mem {label}: held={held} rss={} kB peak={} kB",
+        mem::rss_kb(),
+        mem::peak_rss_kb()
+    ));
+}
+
+// ---------------------------------------------------------------------------
+// The WeChat demo. See `wechat/mod.rs`.
+// ---------------------------------------------------------------------------
+
+/// Build the app for its current navigation state and mount it. Returns
+/// [nodes built, µs].
+#[napi(js_name = "wechatRender")]
+pub fn wechat_render() -> Vec<f64> {
+    app::set_wechat_active(true);
+    let (node, n, us) = wechat::build();
+    app::set_root(node);
+    vec![n as f64, us]
+}
+
+/// Build every screen once and keep them all alive, for the memory arm.
+#[napi(js_name = "wechatKeepAll")]
+pub fn wechat_keep_all() -> u32 {
+    wechat::keep_all() as u32
+}
+
+/// Data the ArkTS twins render, so both sides draw the same content.
+/// Keyed as "<app>.<what>"; each entry is pipe-separated fields.
+#[napi(js_name = "appData")]
+pub fn app_data(key: String) -> Vec<String> {
+    use apps::{taobao, tiktok, wonderous};
+    match key.as_str() {
+        "taobao.products" => taobao::PRODUCTS
+            .iter()
+            .map(|(a, b, c, d)| format!("{a}|{b}|{c}|{d}"))
+            .collect(),
+        "taobao.tabs" => taobao::TABS.iter().map(|(a, b)| format!("{a}|{b}")).collect(),
+        "tiktok.reels" => tiktok::REELS
+            .iter()
+            .map(|(a, b, c, d, e)| format!("{a}|{b}|{c}|{d}|{e}"))
+            .collect(),
+        "wonderous.wonders" => wonderous::WONDERS
+            .iter()
+            .map(|(a, b, c)| format!("{a}|{b}|{c}"))
+            .collect(),
+        "wonderous.tabs" => wonderous::TABS.iter().map(|(a, b)| format!("{a}|{b}")).collect(),
+        "wonderous.sections" => wonderous::sections()
+            .iter()
+            .map(|(a, b)| format!("{a}|{b}"))
+            .collect(),
+        "wonderous.artifacts" => wonderous::artifacts_list().iter().map(|s| s.to_string()).collect(),
+        "wonderous.timeline" => wonderous::timeline_list()
+            .iter()
+            .map(|(a, b)| format!("{a}|{b}"))
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// Switch which app is on screen and mount it. Returns [nodes, µs].
+#[napi(js_name = "appRender")]
+pub fn app_render(app: String) -> Vec<f64> {
+    apps::set_app(apps::App::from_id(&app));
+    app::set_wechat_active(true);
+    let (node, n, us) = apps::build();
+    app::set_root(node);
+    vec![n as f64, us]
+}
+
+/// Build one route of one app without mounting it. Returns [nodes, µs].
+#[napi(js_name = "appTime")]
+pub fn app_time(app: String, tab: u32, route: String) -> Vec<f64> {
+    let (n, us) = apps::build_route(apps::App::from_id(&app), tab as usize, &route);
+    vec![n as f64, us]
+}
+
+/// The tour for an app, as "tab|route" entries.
+#[napi(js_name = "appTour")]
+pub fn app_tour(app: String) -> Vec<String> {
+    apps::App::from_id(&app)
+        .tour()
+        .iter()
+        .map(|s| s.to_string())
+        .collect()
+}
+
+/// Build every screen of an app and keep them, for the memory arm.
+#[napi(js_name = "appKeepAll")]
+pub fn app_keep_all(app: String) -> u32 {
+    apps::keep_all(apps::App::from_id(&app)) as u32
+}
+
+#[napi(js_name = "appDropKept")]
+pub fn app_drop_kept() -> u32 {
+    apps::drop_kept() as u32
+}
+
+/// Whether the native header toggle was tapped since the last call. Polled by
+/// ArkTS, which then swaps which implementation owns the surface.
+#[napi(js_name = "wechatTakeToggle")]
+pub fn wechat_take_toggle() -> u32 {
+    if wechat::take_toggle() { 1 } else { 0 }
+}
+
+/// Detach the native tree and give up the surface, so the ArkTS
+/// implementation can mount its own into the same slot.
+#[napi(js_name = "wechatDetach")]
+pub fn wechat_detach() {
+    app::set_wechat_active(false);
+    app::detach_root();
+}
+
+/// Feed a click id in and re-render if it changed the navigation state.
+/// Returns 1 if it did.
+#[napi(js_name = "wechatClick")]
+pub fn wechat_click(target: i32) -> u32 {
+    if wechat::handle(target) {
+        let (node, _, _) = wechat::build();
+        app::set_root(node);
+        1
+    } else {
+        0
+    }
+}
+
+/// Build one route without mounting it, for timing. Returns [nodes, µs].
+#[napi(js_name = "wechatTime")]
+pub fn wechat_time(tab: u32, route: String, chat_id: u32) -> Vec<f64> {
+    let r = match route.as_str() {
+        "chat" => wechat::Route::Chat(chat_id as u64),
+        "moments" => wechat::Route::Moments,
+        "addcontact" => wechat::Route::AddContact,
+        "myprofile" => wechat::Route::MyProfile,
+        _ => wechat::Route::Root,
+    };
+    let (n, us) = wechat::build_timed(tab as usize, r);
+    vec![n as f64, us]
+}
+
+/// The data the ArkTS implementation renders, so both draw the same content.
+#[napi(js_name = "wechatChats")]
+pub fn wechat_chats() -> Vec<String> {
+    wechat::db::CHATS
+        .iter()
+        .map(|c| format!("{}|{}|{}|{}", c.username, c.preview.text(), c.timestamp, c.avatar))
+        .collect()
+}
+
+/// Asset lists the ArkTS implementation needs, so both render the same icons.
+/// Each entry is "label|file".
+#[napi(js_name = "wechatAssets")]
+pub fn wechat_assets(which: String) -> Vec<String> {
+    let pairs: &[(&str, &str)] = match which.as_str() {
+        "tabs" => wechat::db::TAB_ICONS,
+        "discover" => wechat::db::DISCOVER,
+        "profile" => wechat::db::PROFILE,
+        "contacts" => wechat::db::CONTACT_ACTIONS,
+        _ => &[],
+    };
+    pairs.iter().map(|(a, b)| format!("{a}|{b}")).collect()
+}
+
+/// Contact names paired with the avatar each should use.
+#[napi(js_name = "wechatContacts")]
+pub fn wechat_contacts() -> Vec<String> {
+    const POOL: &[&str] = &[
+        "user1.png", "user2.png", "user3.png", "user4.png", "user5.png", "user6.png",
+    ];
+    let mut out = Vec::new();
+    let mut k = 0usize;
+    for (initial, names) in wechat::db::CONTACT_GROUPS {
+        out.push(format!("#|{initial}"));
+        for n in *names {
+            out.push(format!("{n}|{}", POOL[k % POOL.len()]));
+            k += 1;
+        }
+    }
+    out
+}
+
+/// Moments feed as "author|body|avatar|photo".
+#[napi(js_name = "wechatMoments")]
+pub fn wechat_moments() -> Vec<String> {
+    wechat::db::MOMENTS
+        .iter()
+        .map(|(a, b, av, p)| format!("{a}|{b}|{av}|{p}"))
+        .collect()
+}
+
+/// Messages for a chat, as "direction|text|avatar".
+#[napi(js_name = "wechatMessages")]
+pub fn wechat_messages(chat_id: u32) -> Vec<String> {
+    (0..wechat::db::MESSAGES_PER_CHAT)
+        .map(|i| {
+            let m = wechat::db::message(chat_id as u64, i);
+            let d = if matches!(m.direction, wechat::db::Direction::Outgoing) { "o" } else { "i" };
+            let av = if matches!(m.direction, wechat::db::Direction::Outgoing) {
+                wechat::db::MY_AVATAR
+            } else {
+                wechat::db::peer_avatar(chat_id as u64)
+            };
+            format!("{d}|{}|{av}", m.text)
+        })
+        .collect()
+}
+
+/// One line of results, so everything lands in `hilog` in order.
+#[napi(js_name = "wechatLog")]
+pub fn wechat_log(line: String) {
+    log(&format!("wechat {line}"));
+}
 
 /// Warm both paths before any timing starts.
 #[napi(js_name = "rustWarmup")]

@@ -43,6 +43,8 @@ mod raw {
         pub static splash_a_radio_checked: i32;
         pub static splash_a_toggle_value: i32;
         pub static splash_a_toggle_color: i32;
+        pub static splash_a_image_src: i32;
+        pub static splash_a_image_fit: i32;
         pub static splash_a_alignment: i32;
         pub static splash_a_opacity: i32;
         pub static splash_a_visibility: i32;
@@ -125,6 +127,8 @@ pub mod attr {
         radio_checked => splash_a_radio_checked,
         toggle_value => splash_a_toggle_value,
         toggle_color => splash_a_toggle_color,
+        image_src => splash_a_image_src,
+        image_fit => splash_a_image_fit,
     }
 }
 
