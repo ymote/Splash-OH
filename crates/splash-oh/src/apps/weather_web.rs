@@ -276,6 +276,10 @@ body{{width:{w:.0}px;height:{h:.0}px;overflow:hidden;
  <div class=k>JS &#8594; Splash VM</div>
  <div class=v id=vm style="font-size:14px">checking&#8230;</div>
 </div>
+<div class=tile style="margin-top:10px">
+ <div class=k>Capability gate</div>
+ <div class=v id=gate style="font-size:13px">checking&#8230;</div>
+</div>
 <script>
 // Not decoration: this is the page proving on-device that it can call into
 // Rust and get an answer back. If the bridge regresses, the card says so.
@@ -307,6 +311,23 @@ body{{width:{w:.0}px;height:{h:.0}px;overflow:hidden;
   }}).then(function (r) {{
     vmEl.textContent = 'peak ' + r + '\u00b0 (computed in Splash)';
   }}).catch(function (e) {{ vmEl.textContent = 'failed: ' + e.message; }});
+
+  // The gate should refuse these three even from a trusted page. If any of
+  // them succeeds, the allowlist or the SSRF guard has regressed.
+  var gEl = document.getElementById('gate');
+  var probes = [
+    ['off-allowlist', 'https://example.com/'],
+    ['loopback', 'https://127.0.0.1/'],
+    ['plain http', 'http://api.open-meteo.com/']
+  ];
+  Promise.all(probes.map(function (p) {{
+    return splash.invoke('http.get', p[1])
+      .then(function () {{ return p[0] + ':ALLOWED'; }})
+      .catch(function () {{ return p[0] + ':blocked'; }});
+  }})).then(function (rs) {{
+    var bad = rs.filter(function (r) {{ return r.indexOf('ALLOWED') >= 0; }});
+    gEl.textContent = bad.length ? 'LEAK ' + bad.join(' ') : 'all 3 blocked';
+  }});
 }})();
 </script>
 </div></body></html>"#,
