@@ -570,10 +570,16 @@ struct Index {
         }
         .width('100%')
         .height(56)
-        // ...and the YouTube web app filling the rest.
-        Web({ src: 'https://m.youtube.com', controller: this.webController })
+        // ...and the YouTube player filling the rest. The embed player is a
+        // self-contained player-only page — far more reliable inside a webview
+        // than the full watch page, whose player often won't lay out.
+        // autoplay+mute is required for browsers to auto-start; playsinline
+        // keeps it in the page instead of taking over full screen.
+        Web({ src: 'https://www.youtube.com/embed/jNQXAC9IVRw?autoplay=1&mute=1&playsinline=1',
+              controller: this.webController })
           .javaScriptAccess(true)
           .domStorageAccess(true)
+          .mediaPlayGestureAccess(false)
           .width('100%')
           .layoutWeight(1)
       } else {
