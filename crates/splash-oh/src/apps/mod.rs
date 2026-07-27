@@ -6,6 +6,7 @@
 //! | [`taobao`] | two-column product grid | many nodes *and* many images |
 //! | [`tiktok`] | full-screen media plus overlays | few nodes, one big image |
 //! | [`wonderous`] | editorial and photo grid | moderate nodes, large images |
+//! | [`browser`] | native chrome around a web surface | exercises `webslot` |
 //!
 //! Four different widget mixes rather than four versions of the same list,
 //! because a single app cannot tell you whether the Rust-vs-ArkTS gap is a
@@ -16,6 +17,7 @@
 //! Every app's assets are the reference app's own, shipped under
 //! `rawfile/<app>/`.
 
+pub mod browser;
 pub mod taobao;
 pub mod tiktok;
 pub mod ui;
@@ -32,6 +34,9 @@ pub enum App {
     Taobao,
     TikTok,
     Wonderous,
+    /// Not part of the benchmark set — it contains an ArkTS `Web` surface, so
+    /// it has no ArkTS twin to be compared against and no meaningful node count.
+    Browser,
 }
 
 impl App {
@@ -41,6 +46,7 @@ impl App {
             App::Taobao => "taobao",
             App::TikTok => "tiktok",
             App::Wonderous => "wonderous",
+            App::Browser => "browser",
         }
     }
     pub fn from_id(s: &str) -> App {
@@ -48,6 +54,7 @@ impl App {
             "taobao" => App::Taobao,
             "tiktok" => App::TikTok,
             "wonderous" => App::Wonderous,
+            "browser" => App::Browser,
             _ => App::WeChat,
         }
     }
@@ -58,6 +65,7 @@ impl App {
             App::Taobao => &["0|root", "1|root", "2|root", "3|root", "4|root", "0|detail"],
             App::TikTok => &["1|reel0", "1|reel1", "1|reel2", "0|root", "1|sheet", "1|feed"],
             App::Wonderous => &["0|root", "1|root", "2|root", "3|root", "0|w1", "1|w2"],
+            App::Browser => &["0|root", "1|root", "2|root", "3|root", "0|root", "1|root"],
         }
     }
 }
@@ -156,6 +164,16 @@ pub fn handle(target: i32) -> bool {
                 }
                 _ => false,
             },
+            App::Browser => match target {
+                t if (browser::TAB_BASE..browser::TAB_BASE + 4).contains(&t) => {
+                    nav.tab = (t - browser::TAB_BASE) as usize;
+                    true
+                }
+                // Reload re-declares the same slot, which is enough for ArkTS
+                // to rebind and re-load the page.
+                browser::RELOAD => true,
+                _ => false,
+            },
             App::WeChat => crate::wechat::handle(target),
         }
     })
@@ -172,6 +190,7 @@ pub fn build() -> (Option<Node>, usize, f64) {
         return crate::wechat::build();
     }
     ui::reset_count();
+    crate::webslot::reset();
     let t0 = Instant::now();
     let node = match app {
         App::Taobao => taobao::build(tab, if pushed { Some(sub) } else { None }),
@@ -183,6 +202,7 @@ pub fn build() -> (Option<Node>, usize, f64) {
             }
         }
         App::Wonderous => wonderous::build(tab, sub % wonderous::WONDERS.len()),
+        App::Browser => browser::build(tab),
         App::WeChat => unreachable!(),
     };
     let us = t0.elapsed().as_nanos() as f64 / 1000.0;
@@ -216,6 +236,7 @@ pub fn build_route(app: App, tab: usize, route: &str) -> (usize, f64) {
             let w = route.strip_prefix('w').and_then(|s| s.parse().ok()).unwrap_or(0usize);
             wonderous::build(tab, w % wonderous::WONDERS.len())
         }
+        App::Browser => browser::build(tab),
         App::WeChat => unreachable!(),
     };
     let us = t0.elapsed().as_nanos() as f64 / 1000.0;
