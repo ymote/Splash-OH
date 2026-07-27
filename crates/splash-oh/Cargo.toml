@@ -8,6 +8,11 @@ description = "Splash DSL rendered to OpenHarmony native ArkUI widgets, without 
 crate-type = ["cdylib"]
 
 [dependencies]
+# The Splash VM. Renderer-free by construction: it depends only on error-log,
+# math, live-id, smallvec, regex and html — no makepad-platform, no draw, no
+# widgets. Pinned to a public revision (the crate is not on crates.io).
+makepad-script = { git = "https://github.com/octos-org/makepad.git", rev = "b6cd8db5113b0cb61c0323e829a013c4aaaeab36" }
+
 napi-derive-ohos = "0.0.9"
 napi-ohos = "0.1.3"
 

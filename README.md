@@ -92,9 +92,44 @@ hard errors in C. Hence `shim.cpp`, not `shim.c`.
 **3. `DEVECO_SDK_HOME` is DevEco's own `sdk/` directory** — not a versioned
 symlink farm. Pointing it elsewhere yields `SDK component missing`.
 
-## Where the Splash DSL plugs in
+## The DSL drives it
 
-The catalog builds its tree by hand today. The DSL slots in above it, unchanged:
+`assets/catalog.splash` **is** the app. The VM evaluates it at runtime and Rust
+walks the resulting tree into ArkUI nodes — `fn`s, `for` loops, `while`,
+arithmetic and `s.len()` all run on device:
+
+```
+fn argb(a, r, g, b) { return ((a * 256 + r) * 256 + g) * 256 + b }
+let primary = argb(255, 103, 80, 164)
+
+fn filled_button(label, tap) {
+    return {t: "button", label: label, w: CARDW, h: 40, radius: 20,
+            margin: 4, bg: primary, color: on_primary, tap: tap}
+}
+
+let chips = []
+for c in [primary, secondary, tertiary, error, outline] { chips.push(swatch(c)) }
+```
+
+A node is `{t: "<type>", ...attrs, c: [children]}`. Plain data rather than
+makepad's `Button{...}` component syntax, because that syntax resolves through
+makepad's **widget registry** — exactly the coupling this repo avoids.
+
+### Three things the DSL integration cost
+
+- **Arrays are their own heap type.** `c: [...]` is a `ScriptArray`, not an
+  object with a vec, so `as_object()` returns None and every subtree silently
+  vanished. Use `as_array()` + `array_storage()`.
+- **`0xFF6750A4` hex literals evaluate to 0**, which made every colour
+  transparent — text and cards rendered invisible while default-coloured
+  widgets looked fine. Hence `argb()`.
+- **Native ArkUI nodes do not auto-size.** A `Text` with no width measures to
+  zero and draws nothing; wrapped text needs its height computed, or it
+  overlaps whatever follows.
+
+## Backend mapping
+
+The DSL is renderer-agnostic:
 `makepad-script` (the Splash VM, ~52k lines) depends only on `error-log`,
 `math`, `live-id`, `smallvec`, `regex` and `html` — **no platform, no draw, no
 widgets**. It is already renderer-free, which
@@ -130,6 +165,7 @@ Working: native tree creation, attributes, containers, scrolling, event
 registration, mounting, and the catalog on a real device (HarmonyOS 6.1,
 SUP-AL90).
 
-Not done yet: the Splash VM is not wired in (the catalog is hand-built), the
-event *receiver* is registered but callbacks are not yet dispatched back into
-Rust handlers, and there is no diffing — the tree is built once.
+Not done yet: the event *receiver* is registered but callbacks are not yet
+dispatched back into Rust handlers, there is no diffing (the tree is built
+once), and layout is explicit — the DSL sizes every leaf because ArkUI native
+nodes do not measure themselves.

@@ -69,6 +69,95 @@ dependencies = [
 ]
 
 [[package]]
+name = "makepad-error-log"
+version = "1.0.0"
+source = "git+https://github.com/octos-org/makepad.git?rev=b6cd8db5113b0cb61c0323e829a013c4aaaeab36#b6cd8db5113b0cb61c0323e829a013c4aaaeab36"
+dependencies = [
+ "makepad-micro-serde",
+]
+
+[[package]]
+name = "makepad-html"
+version = "1.0.0"
+source = "git+https://github.com/octos-org/makepad.git?rev=b6cd8db5113b0cb61c0323e829a013c4aaaeab36#b6cd8db5113b0cb61c0323e829a013c4aaaeab36"
+dependencies = [
+ "makepad-live-id",
+]
+
+[[package]]
+name = "makepad-live-id"
+version = "1.0.0"
+source = "git+https://github.com/octos-org/makepad.git?rev=b6cd8db5113b0cb61c0323e829a013c4aaaeab36#b6cd8db5113b0cb61c0323e829a013c4aaaeab36"
+dependencies = [
+ "makepad-live-id-macros",
+]
+
+[[package]]
+name = "makepad-live-id-macros"
+version = "1.0.0"
+source = "git+https://github.com/octos-org/makepad.git?rev=b6cd8db5113b0cb61c0323e829a013c4aaaeab36#b6cd8db5113b0cb61c0323e829a013c4aaaeab36"
+dependencies = [
+ "makepad-micro-proc-macro",
+]
+
+[[package]]
+name = "makepad-math"
+version = "1.0.0"
+source = "git+https://github.com/octos-org/makepad.git?rev=b6cd8db5113b0cb61c0323e829a013c4aaaeab36#b6cd8db5113b0cb61c0323e829a013c4aaaeab36"
+dependencies = [
+ "makepad-micro-serde",
+]
+
+[[package]]
+name = "makepad-micro-proc-macro"
+version = "1.0.0"
+source = "git+https://github.com/octos-org/makepad.git?rev=b6cd8db5113b0cb61c0323e829a013c4aaaeab36#b6cd8db5113b0cb61c0323e829a013c4aaaeab36"
+
+[[package]]
+name = "makepad-micro-serde"
+version = "1.0.0"
+source = "git+https://github.com/octos-org/makepad.git?rev=b6cd8db5113b0cb61c0323e829a013c4aaaeab36#b6cd8db5113b0cb61c0323e829a013c4aaaeab36"
+dependencies = [
+ "makepad-live-id",
+ "makepad-micro-serde-derive",
+]
+
+[[package]]
+name = "makepad-micro-serde-derive"
+version = "1.0.0"
+source = "git+https://github.com/octos-org/makepad.git?rev=b6cd8db5113b0cb61c0323e829a013c4aaaeab36#b6cd8db5113b0cb61c0323e829a013c4aaaeab36"
+dependencies = [
+ "makepad-micro-proc-macro",
+]
+
+[[package]]
+name = "makepad-regex"
+version = "0.1.0"
+source = "git+https://github.com/octos-org/makepad.git?rev=b6cd8db5113b0cb61c0323e829a013c4aaaeab36#b6cd8db5113b0cb61c0323e829a013c4aaaeab36"
+
+[[package]]
+name = "makepad-script"
+version = "1.0.0"
+source = "git+https://github.com/octos-org/makepad.git?rev=b6cd8db5113b0cb61c0323e829a013c4aaaeab36#b6cd8db5113b0cb61c0323e829a013c4aaaeab36"
+dependencies = [
+ "makepad-error-log",
+ "makepad-html",
+ "makepad-live-id",
+ "makepad-math",
+ "makepad-regex",
+ "makepad-script-derive",
+ "smallvec",
+]
+
+[[package]]
+name = "makepad-script-derive"
+version = "1.0.0"
+source = "git+https://github.com/octos-org/makepad.git?rev=b6cd8db5113b0cb61c0323e829a013c4aaaeab36#b6cd8db5113b0cb61c0323e829a013c4aaaeab36"
+dependencies = [
+ "makepad-micro-proc-macro",
+]
+
+[[package]]
 name = "memchr"
 version = "2.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -183,10 +272,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 
 [[package]]
+name = "smallvec"
+version = "1.15.1"
+source = "git+https://github.com/octos-org/makepad.git?rev=b6cd8db5113b0cb61c0323e829a013c4aaaeab36#b6cd8db5113b0cb61c0323e829a013c4aaaeab36"
+
+[[package]]
 name = "splash-oh"
 version = "0.1.0"
 dependencies = [
  "cc",
+ "makepad-script",
  "napi-derive-ohos",
  "napi-ohos",
 ]

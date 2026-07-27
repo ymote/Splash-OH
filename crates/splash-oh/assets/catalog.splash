@@ -1,0 +1,208 @@
+// Material Components catalog, in the Splash DSL.
+//
+// Modelled on material-components-android's catalog app: a "Components" index
+// followed by one demo section per component family.
+//
+// Everything below is evaluated by the Splash VM at runtime — the `fn`s, the
+// loops, the palette lookups, the string building. The Rust side only walks the
+// resulting object tree and creates ArkUI widgets. Nothing here is makepad.
+
+// ---- Material 3 baseline palette ----
+// NOTE: `0xFF6750A4`-style hex literals evaluate to 0 in this VM, which renders
+// every colour transparent. Build the ARGB word arithmetically instead — which
+// also shows the VM doing real work rather than carrying constants.
+fn argb(a, r, g, b) { return ((a * 256 + r) * 256 + g) * 256 + b }
+
+let primary      = argb(255, 103,  80, 164)
+let on_primary   = argb(255, 255, 255, 255)
+let secondary    = argb(255,  98,  91, 113)
+let tertiary     = argb(255, 125,  82,  96)
+let error        = argb(255, 179,  38,  30)
+let surface      = argb(255, 255, 251, 254)
+let surface_var  = argb(255, 231, 224, 236)
+let on_surface   = argb(255,  28,  27,  31)
+let on_surface_v = argb(255,  73,  69,  79)
+let outline      = argb(255, 121, 116, 126)
+let bg           = argb(255, 244, 241, 248)
+
+let FULL = 402
+
+// ---- element helpers ----
+// Native ArkUI nodes do NOT auto-size the way ArkTS components do: a Text with
+// no width measures to zero and renders nothing. Every leaf gets an explicit
+// width and height.
+let CARDW = FULL - 56
+
+// Height must allow for wrapping: a native Text is given a fixed box, so a
+// one-line estimate silently overlaps whatever follows. Roughly 2.2 chars per
+// vp of width at these sizes.
+fn text_lines(s, size, w) {
+    let per_line = w * 2.2 / size
+    let n = 1
+    let len = s.len()
+    while n * per_line < len { n = n + 1 }
+    return n
+}
+
+fn text_w(s, size, weight, color, w) {
+    return {t: "text", text: s, size: size, weight: weight, color: color,
+            w: w, h: text_lines(s, size, w) * size * 1.45 + 10}
+}
+
+fn text(s, size, weight, color) { return text_w(s, size, weight, color, CARDW) }
+
+fn title(s)   { return {t: "text", text: s, size: 30, weight: 7,
+                        color: on_surface, w: FULL - 28, h: 48} }
+fn section(s) { return {t: "text", text: s, size: 12, weight: 6,
+                        color: primary, w: FULL - 28, h: 26, margin: 4} }
+fn body(s)    { return text(s, 14, 4, on_surface_v) }
+fn caption(s) { return text(s, 11, 4, outline) }
+
+// A Material "card": filled surface, rounded, outlined.
+fn card(children) {
+    return {t: "column", w: FULL - 28, bg: surface, radius: 12, pad: 14,
+            margin: 6, border: 1, bordercolor: surface_var, c: children}
+}
+
+// Filled / outlined / text button variants, as the catalog demonstrates them.
+fn filled_button(label, tap) {
+    return {t: "button", label: label, w: CARDW, h: 40, radius: 20,
+            margin: 4, bg: primary, color: on_primary, tap: tap}
+}
+fn tonal_button(label, tap) {
+    return {t: "button", label: label, w: CARDW, h: 40, radius: 20,
+            margin: 4, bg: surface_var, color: on_surface, tap: tap}
+}
+fn outlined_button(label, tap) {
+    return {t: "button", label: label, w: CARDW, h: 40, radius: 20,
+            margin: 4, bg: surface, color: primary, border: 1,
+            bordercolor: outline, tap: tap}
+}
+
+fn swatch(c) { return {t: "column", w: 56, h: 40, bg: c, radius: 8, margin: 4} }
+
+// A labelled demo block: caption + the widget itself.
+fn demo(label, widget) {
+    return {t: "column", w: FULL - 56, c: [caption(label), widget]}
+}
+
+// ---- sections ----------------------------------------------------------
+// Each returns a list of nodes, concatenated into the page below.
+
+fn sec_buttons() {
+    return [
+        section("BUTTONS"),
+        card([
+            body("Common buttons"),
+            filled_button("Filled", 101),
+            tonal_button("Tonal", 102),
+            outlined_button("Outlined", 103),
+        ]),
+    ]
+}
+
+fn sec_selection() {
+    return [
+        section("SELECTION CONTROLS"),
+        card([
+            body("Switch, checkbox, radio"),
+            demo("Switch", {t: "toggle", w: 52, h: 34, tap: 201}),
+            demo("Checkbox", {t: "checkbox", w: 34, h: 34, tap: 202}),
+            demo("Radio button", {t: "radio", w: 34, h: 34, tap: 203}),
+        ]),
+    ]
+}
+
+fn sec_sliders() {
+    return [
+        section("SLIDERS & PROGRESS"),
+        card([
+            body("Continuous slider"),
+            {t: "slider", w: CARDW, h: 40, tap: 301},
+            caption("Determinate progress — 62%"),
+            {t: "progress", w: CARDW, h: 20, value: 62, total: 100},
+            caption("Indeterminate"),
+            {t: "loading", w: 40, h: 32},
+        ]),
+    ]
+}
+
+fn sec_textfields() {
+    return [
+        section("TEXT FIELDS"),
+        card([
+            body("Filled and multiline"),
+            {t: "input", placeholder: "Label", w: CARDW, h: 46, bg: surface_var,
+             radius: 8, pad: 10, margin: 4, tap: 401},
+            {t: "textarea", w: CARDW, h: 76, bg: surface_var, radius: 8, pad: 10, margin: 4},
+        ]),
+    ]
+}
+
+// The VM does real work here: build the colour row with a loop rather than
+// listing nine literals.
+fn sec_color() {
+    let tones = [primary, secondary, tertiary, error, outline]
+    let chips = []
+    for c in tones {
+        chips.push(swatch(c))
+    }
+    return [
+        section("COLOR"),
+        card([
+            body("Key colours"),
+            {t: "row", h: 52, c: chips},
+            caption("primary · secondary · tertiary · error · outline"),
+        ]),
+    ]
+}
+
+fn sec_layout() {
+    return [
+        section("LAYOUT"),
+        card([
+            body("Row, and Stack with overlap"),
+            {t: "row", h: 48, c: [swatch(primary), swatch(secondary), swatch(tertiary)]},
+            {t: "stack", h: 60, c: [
+                {t: "column", w: 130, h: 52, bg: surface_var, radius: 10},
+                text("overlaid", 12, 5, on_surface),
+            ]},
+        ]),
+    ]
+}
+
+fn sec_pickers() {
+    return [
+        section("PICKERS"),
+        card([
+            body("System date picker"),
+            {t: "datepicker", w: CARDW, h: 150},
+        ]),
+    ]
+}
+
+// ---- page ---------------------------------------------------------------
+
+let kids = [
+    title("Components"),
+    text_w("Rendered to OpenHarmony native widgets. The tree is evaluated by the Splash VM; Rust turns it into ArkUI nodes.",
+           14, 4, on_surface_v, FULL - 28),
+]
+
+// Concatenate every section. `for` over a list of lists keeps the page
+// declaration short and makes ordering obvious.
+let sections = [
+    sec_buttons(), sec_selection(), sec_sliders(),
+    sec_textfields(), sec_color(), sec_layout(), sec_pickers(),
+]
+for s in sections {
+    for node in s {
+        kids.push(node)
+    }
+}
+kids.push({t: "column", h: 32})
+
+// The evaluated value of the script IS the tree.
+{t: "scroll", w: FULL, bg: bg, c: [
+    {t: "column", w: FULL, pad: 14, c: kids}
+]}
