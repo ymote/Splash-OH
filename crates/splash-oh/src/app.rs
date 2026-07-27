@@ -174,7 +174,10 @@ pub fn rebuild() {
     });
     let bench = crate::bench::report();
 
-    let Some(new_root) = crate::dsl::build_screen(&screen, Some(&bench)) else {
+    // DEMO: mount the LLM-generated weather card instead of the catalog. The
+    // weather DSL is self-contained (data inlined), so screen/bench are unused.
+    let _ = (&screen, &bench);
+    let Some(new_root) = crate::dsl::build_weather() else {
         crate::log("app: DSL build failed");
         return;
     };

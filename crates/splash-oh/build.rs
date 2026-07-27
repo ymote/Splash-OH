@@ -44,5 +44,7 @@ fn main() {
     // The ArkUI native node API and the NodeContent bridge.
     println!("cargo:rustc-link-lib=dylib=ace_ndk.z");
     println!("cargo:rustc-link-lib=dylib=ace_napi.z");
+    // OpenHarmony's native HTTP stack — lets the Splash VM fetch live data.
+    println!("cargo:rustc-link-lib=dylib=net_http");
 }
 

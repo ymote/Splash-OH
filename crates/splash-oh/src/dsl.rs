@@ -66,6 +66,13 @@ fn display_lines(s: &str, per_line: usize) -> usize {
         .max(1)
 }
 
+/// Evaluate the LLM-generated weather card (`assets/weather.splash`) → native
+/// ArkUI tree. Self-contained (data inlined), so it needs no bound host vars.
+pub fn build_weather() -> Option<Node> {
+    const WEATHER: &str = include_str!("../assets/weather.splash");
+    build(WEATHER)
+}
+
 /// Evaluate Splash source and build the native tree it describes.
 pub fn build(src: &str) -> Option<Node> {
     let mut std_slot = 0;
@@ -75,6 +82,9 @@ pub fn build(src: &str) -> Option<Node> {
         std: &mut std_slot,
         bx: Box::new(ScriptVmBase::new()),
     };
+
+    // Give the DSL its network capability, so the card fetches its own data.
+    register_net_capabilities(vm);
 
     let value = vm.eval(ScriptMod {
         cargo_manifest_path: String::new(),
@@ -91,6 +101,76 @@ pub fn build(src: &str) -> Option<Node> {
         return None;
     }
     walk(vm, value, 0)
+}
+
+/// Expose the network capability to the DSL as injected global functions, so
+/// the weather card fetches its own live data instead of shipping a snapshot.
+/// Responses are cached by URL (see `net`), so the ~30 field reads the card
+/// does are two HTTP requests: one for weather, one for air quality.
+fn register_net_capabilities(vm: &mut ScriptVm) {
+    // `fetch_num(url, path, i)` -> the number at a dotted JSON path (i>=0 adds
+    // one array index, for the per-day forecast). nil when missing.
+    let f_num = add_global_fn(
+        vm,
+        &[(id!(url), ScriptValue::NIL), (id!(path), ScriptValue::NIL), (id!(i), ScriptValue::NIL)],
+        |vm, a| {
+            let url = string_prop(vm, a, id!(url)).unwrap_or_default();
+            let path = string_prop(vm, a, id!(path)).unwrap_or_default();
+            let i = num_prop(vm, a, id!(i)).unwrap_or(-1.0) as i32;
+            match crate::net::fetch_num(&url, &path, i) {
+                Some(n) => ScriptValue::from_f64(n),
+                None => ScriptValue::NIL,
+            }
+        },
+    );
+    vm.set_injected_global(id!(fetch_num), f_num);
+
+    // `fetch_fmt(url, path, i, suffix)` -> the number rounded + suffixed, e.g.
+    // "22°", "89%", "10 µg/m³".
+    let f_fmt = add_global_fn(
+        vm,
+        &[
+            (id!(url), ScriptValue::NIL),
+            (id!(path), ScriptValue::NIL),
+            (id!(i), ScriptValue::NIL),
+            (id!(suffix), ScriptValue::NIL),
+        ],
+        |vm, a| {
+            let url = string_prop(vm, a, id!(url)).unwrap_or_default();
+            let path = string_prop(vm, a, id!(path)).unwrap_or_default();
+            let i = num_prop(vm, a, id!(i)).unwrap_or(-1.0) as i32;
+            let suffix = string_prop(vm, a, id!(suffix)).unwrap_or_default();
+            let s = crate::net::fetch_fmt(&url, &path, i, &suffix);
+            vm.bx.heap.new_string_from_str(&s)
+        },
+    );
+    vm.set_injected_global(id!(fetch_fmt), f_fmt);
+
+    // `fetch_weekday(url, path, i)` -> "Tue" for the ISO date at that path.
+    let f_wd = add_global_fn(
+        vm,
+        &[(id!(url), ScriptValue::NIL), (id!(path), ScriptValue::NIL), (id!(i), ScriptValue::NIL)],
+        |vm, a| {
+            let url = string_prop(vm, a, id!(url)).unwrap_or_default();
+            let path = string_prop(vm, a, id!(path)).unwrap_or_default();
+            let i = num_prop(vm, a, id!(i)).unwrap_or(-1.0) as i32;
+            let s = crate::net::fetch_weekday(&url, &path, i).unwrap_or_else(|| "--".to_string());
+            vm.bx.heap.new_string_from_str(&s)
+        },
+    );
+    vm.set_injected_global(id!(fetch_weekday), f_wd);
+}
+
+/// Register a native function on the VM and return it as a value ready to inject
+/// as a global. The closure receives the call's argument object as a value.
+fn add_global_fn<F>(vm: &mut ScriptVm, args: &[(LiveId, ScriptValue)], f: F) -> ScriptValue
+where
+    F: Fn(&mut ScriptVm, ScriptValue) -> ScriptValue + 'static,
+{
+    let base = &mut *vm.bx;
+    let mut native = base.code.native.borrow_mut();
+    let obj = native.add_fn(&mut base.heap, args, move |vm, args| f(vm, args.into()));
+    obj.into()
 }
 
 /// One DSL object → one ArkUI node, recursing into `c`.
@@ -141,6 +221,16 @@ fn walk(vm: &mut ScriptVm, value: ScriptValue, depth: usize) -> Option<Node> {
     }
     if let Some(s) = string_prop(vm, value, id!(placeholder)) {
         node = node.string_attr(attr::input_placeholder(), &s);
+    }
+    // `src`/`fit` are what make an image node actually show pixels: a rawfile
+    // resource ref (`resource://RAWFILE/...`) and an ArkUI ObjectFit. Without
+    // these the DSL could name an `image` node but never give it a source, so
+    // it rendered blank — which is exactly why the LLM card showed no images.
+    if let Some(s) = string_prop(vm, value, id!(src)) {
+        node = node.string_attr(attr::image_src(), &s);
+    }
+    if let Some(v) = num_prop(vm, value, id!(fit)) {
+        node = node.i32_attr(attr::image_fit(), v as i32);
     }
     if let Some(v) = num_prop(vm, value, id!(w)) {
         node = node.width(v as f32);

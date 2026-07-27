@@ -16,6 +16,7 @@ pub mod bench;
 pub mod catalog;
 pub mod dsl;
 pub mod mem;
+pub mod net;
 pub mod wechat;
 
 use arkui::NodeContentHandle;
@@ -172,10 +173,12 @@ pub fn mem_log(label: String, held: u32) {
 /// [nodes built, µs].
 #[napi(js_name = "wechatRender")]
 pub fn wechat_render() -> Vec<f64> {
-    app::set_wechat_active(true);
-    let (node, n, us) = wechat::build();
+    // DEMO: the ArkTS entry page (Index.ets) hardwires this call as its mount
+    // path. Show the LLM-generated weather card (native ArkUI, evaluated from
+    // the Splash DSL in assets/weather.splash) instead of the WeChat benchmark.
+    let node = crate::dsl::build_weather();
     app::set_root(node);
-    vec![n as f64, us]
+    vec![0.0, 0.0]
 }
 
 /// Build every screen once and keep them all alive, for the memory arm.
