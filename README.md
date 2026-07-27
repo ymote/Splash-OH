@@ -178,12 +178,16 @@ Timing a whole frame instead would mostly be timing layout, which both pay.
 
 Four separate runs (median of five trials each, plus the spread within a run):
 
+Six runs:
+
 | | µs per node | across runs | within a run |
 |---|---|---|---|
-| **A — Rust → ArkUI NDK** | **~24** | 23.4 – 24.4 | 22.8 – 25.7 |
-| **B — ArkTS → typeNode** | **~60** | 54.5 – 62.1 | 45.4 – 78.3 |
+| **A — Rust → ArkUI NDK** | **~17** | 16.5 – 20.3 | 12 – 35 |
+| **B — ArkTS → typeNode** | **~52** | 50.4 – 53.2 | 43 – 85 |
 
-**Rust is 2.2–2.6× faster at construction.** That is the defensible number.
+**Rust is 2.6–3.2× faster at construction**, depending on how loaded the heap is
+when the trial runs. The medians are stable across runs even though individual
+trials are not. That is the defensible number.
 ArkTS is doing the same native work plus an interpreter, a per-call attribute
 object, and GC pressure from 2000 live handles — a constant factor, not an order
 of magnitude. Note also that B is much noisier than A, which is itself the
@@ -195,6 +199,13 @@ A different question: if the logic is in Rust and the widgets are in ArkTS, what
 does crossing cost? Measured as a **true round trip** — a worker thread posts to
 the JS thread and blocks until JS has run and called back. Not fire-and-forget,
 and not pipelined; each crossing is awaited.
+
+> **Status:** these figures are from an earlier build. After the benchmark was
+> restructured to drive every trial from ArkTS one event-loop tick at a time,
+> measurement C stopped completing — the JS side no longer acknowledges the
+> worker's posts, and I have not found why. The harness now reports that as a
+> failure instead of parking the worker thread forever, which is what it used to
+> do. **A, B and D below reproduce on every run; C does not currently run at all.**
 
 | | µs | across runs |
 |---|---|---|
@@ -212,23 +223,70 @@ the opposite of the prediction this benchmark was written to confirm. The bridge
 is only ~31 µs, so it was never the dominant term; per-widget cost is JS-side
 work either way.
 
-### So what happened to 1.05 ms?
+### So why is ArkTS slower? Not the bridge, and not warm-up
+
+The obvious guesses are both wrong, and the decomposition says so. Each row is
+measured directly — no subtracting one noisy trial from another:
+
+| per call | Rust | ArkTS | ratio |
+|---|---|---|---|
+| `createNode` | 14.0 – 17.3 µs | 34.6 – 41.2 µs | 2.1 – 2.6× |
+| `setAttribute` | **0.025 µs** | **1.15 µs** | **46×** |
+| one JS → native napi call | — | **0.058 µs** | — |
+| one empty JS loop iteration | — | 0.017 µs | — |
+
+The two lower rows barely move between runs — 1.146 / 1.149 / 1.152 / 1.154 /
+1.158 / 1.162 µs for the attribute, 0.058 / 0.059 µs for the crossing — which is
+why they carry the argument. The noisy full-node numbers above do not have to.
+
+**It is not per-call VM entry.** A JS → native napi call costs **59 ns**. That
+direction is a direct call, not a queued post, and it is essentially free.
+Setting one attribute from ArkTS costs 1158 ns, of which the boundary is 59 —
+about 5%. The other 95% is JS-side: the `attribute` modifier object, boxing the
+argument, dispatching to the right setter, validating it. Rust's 25 ns is a
+function-pointer call and a small struct.
+
+**It is not warm-up either.** Trials in order, ten of them:
+
+```
+A  Rust    12.9 12.3 14.1 16.4 20.2 20.4 20.9 25.4 16.5 21.1
+B  ArkTS   53.2 78.0 73.7 50.5 52.7 57.3 43.9 44.9 49.2 83.2
+```
+
+Warm-up would fall monotonically. B does not fall; it oscillates by ±20 µs
+with no trend.
+And when the trials were run back-to-back without yielding, B climbed
+monotonically — 37.9 → 87.4 — which is the opposite of warming up. That is a
+heap filling with 2000 wrapper objects per trial and a collector working
+progressively harder. Giving the event loop room between trials changes the
+shape from a ramp to a bounce, which is the signature of collection, not JIT.
+
+(A drifts upward too, 12 → 21, with no allocator in it. That is the device
+warming; both sides are interleaved specifically so it hits them equally.)
+
+**So the cost is object churn, in both places it appears.** `typeNode.createNode`
+does not just create the native node — it builds a JS wrapper, registers a
+finalizer, and wires up cross-language reference tracking. That is the 24 µs
+gap on creation, and it is also what the collector has to clean up afterwards,
+which is the rest of the gap between the decomposition (≈38 + 5×1.15 ≈ 44 µs)
+and the measured full node (≈53 µs).
+
+### And the 1.05 ms?
 
 The old claim projected ArkTS at 1051 µs per widget, from a round trip measured
-in the octos-one port. Here the same crossing is **~31 µs**. Both measurements
-are real. The difference is the JS thread: in octos-one it was busy, so 730 µs
-of that 1051 was the post sitting in a queue. Here it is idle.
+in the octos-one port. Here the same crossing is **~31 µs** on an idle thread —
+and the JS → native direction is 59 **nanoseconds**. Both measurements were
+real. The difference is what the JS thread was doing: in octos-one it was busy,
+so 730 µs of that 1051 was the post sitting in a queue.
 
-That reframes the argument, and it is the actual finding:
+**napi is not slow. Waiting behind a busy JS thread is slow.** Bridge latency is
+a function of load, and a widget tree is load. So the case for the NDK path is
+not that it wins a microbenchmark by 45×. It is ~2.5–3.8× on construction, and
+— more importantly — its cost does not degrade as the UI thread fills up,
+because it never queues behind it.
 
-**napi is not slow. Waiting behind a busy JS thread is slow.** Bridge latency
-is not a constant, it is a function of load — and building a widget tree *is*
-load. So the case for the NDK path is not that it wins a microbenchmark by 45×.
-It is that it wins by ~2.5× on construction and, more importantly, that its cost
-does not degrade as the UI thread fills up, because it never queues behind it.
-
-That is a weaker claim than the one this README started with, and it is the one
-the evidence supports.
+That is a weaker claim than this README started with, and it is the one the
+evidence supports.
 
 ### What is not measured
 

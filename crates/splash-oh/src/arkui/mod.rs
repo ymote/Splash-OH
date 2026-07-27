@@ -188,6 +188,13 @@ impl Node {
         self
     }
 
+    /// Set a float attribute on a raw handle, bypassing the builder. Only for
+    /// the benchmark, which needs to time `setAttribute` on its own without a
+    /// `Node` move in the loop.
+    pub fn set_f32_attr_raw(raw: NodeHandle, a: i32, v: f32) {
+        unsafe { splash_set_f32(raw, a, v) };
+    }
+
     pub fn f32_attr(self, a: i32, v: f32) -> Self {
         unsafe { splash_set_f32(self.raw, a, v) };
         self

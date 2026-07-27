@@ -2,6 +2,13 @@ import { NodeContent, typeNode } from '@kit.ArkUI';
 import { systemDateTime } from '@kit.BasicServicesKit';
 import splash from 'libsplash_oh.so';
 
+// Module scope, not `static` members of the struct: an ArkTS @Component struct
+// is not a class, and statics declared inside one read back as undefined at
+// runtime — which made the benchmark's state machine fall straight through
+// without an error.
+const N: number = 2000;
+const TRIALS: number = 10;
+
 /**
  * The entire ArkTS surface of this app.
  *
@@ -30,13 +37,83 @@ struct Index {
     splash.setBridge((n: number) => this.bridgeWork(n));
   }
 
+  private rustFull: Array<number> = new Array<number>();
+  private rustCreate: Array<number> = new Array<number>();
+  private arktsFull: Array<number> = new Array<number>();
+  private arktsCreate: Array<number> = new Array<number>();
+
   onPageShow(): void {
-    // Let the first frame settle before measuring, so we are not timing
-    // against the app's own startup layout.
-    setTimeout(() => {
-      this.benchArkTs();
+    // Block body, not `() => this.step(0)`: the concise form silently never
+    // fires here.
+    setTimeout(() => { this.step(0); }, 2000);
+  }
+
+  /**
+   * The suite as a state machine, one trial per timer tick.
+   *
+   * Both sides are driven from here, alternating, so neither monopolises the
+   * JS thread. That is not cosmetic: running the suite inline blocks the event
+   * loop for seconds, the system watchdog fires at THREAD_BLOCK_6S, and — more
+   * insidiously — the timer queue stops being serviced, so the rest of the
+   * benchmark silently never runs. Interleaving also means both sides see the
+   * same heap and thermal conditions rather than one of them running first on
+   * a cold device.
+   */
+  private step(i: number): void {
+    if (i === 0) {
+      // Two full-size warm-ups per side: 128 nodes was not enough, and the
+      // first 2000-node trial came in at twice the steady-state rate.
+      splash.rustWarmup();
+      splash.rustTrial(0);
+      splash.rustTrial(1);
+      this.trial(N);
+      this.trialCreateOnly(N);
+      this.trialNoop(1000);
+      this.trialEmptyLoop(1000);
+    } else if (i <= TRIALS) {
+      // All four in the same tick, so the create-vs-full subtraction is a
+      // paired comparison. Taking it between medians of separately-run batches
+      // crossed different heap and thermal states and produced a negative
+      // per-attribute cost for Rust — an impossible number, and the tell.
+      this.rustFull.push(splash.rustTrial(0));
+      this.rustCreate.push(splash.rustTrial(1));
+      this.arktsFull.push(this.trial(N) / N);
+      this.arktsCreate.push(this.trialCreateOnly(N) / N);
+    } else if (i === TRIALS + 1) {
+      // The two floors underneath everything: one JS -> native napi call, and
+      // one iteration of the same loop without a call in it.
+      const M = 20000;
+      const noopUs: Array<number> = new Array<number>();
+      const emptyUs: Array<number> = new Array<number>();
+      for (let t = 0; t < 5; t++) {
+        noopUs.push(this.trialNoop(M) / M);
+        emptyUs.push(this.trialEmptyLoop(M) / M);
+      }
+      const empty = this.median(emptyUs);
+
+      // Attributes, measured directly on both sides.
+      const K = 50000;
+      this.trialAttrOnly(1000);
+      const rustAttr: Array<number> = new Array<number>();
+      const arktsAttr: Array<number> = new Array<number>();
+      for (let t = 0; t < 5; t++) {
+        rustAttr.push(splash.rustTrial(2));
+        arktsAttr.push(this.trialAttrOnly(K));
+      }
+
+      splash.reportAll(
+        this.rustFull, this.rustCreate,
+        this.arktsFull, this.arktsCreate,
+        this.median(rustAttr), this.median(arktsAttr),
+        this.median(noopUs) - empty, empty);
+      // Measurement C, started here rather than from another tick: the chain
+      // did not survive one more hop after reportAll.
       splash.runBridgeBench();
-    }, 3000);
+      return; // C drives itself from here
+    } else {
+      return;
+    }
+    setTimeout(() => { this.step(i + 1); }, 80);
   }
 
   /**
@@ -70,15 +147,62 @@ struct Index {
     return us;
   }
 
-  /** Measurement B: same shape as Rust's — warm up, five trials, report all. */
-  private benchArkTs(): void {
-    const N = 2000;
-    this.trial(128); // warm up: the first loop pays JIT
-    const trialsMs: Array<number> = new Array<number>();
-    for (let t = 0; t < 5; t++) {
-      trialsMs.push(this.trial(N) / 1000);
+  /** Node with no attributes touched, so attribute cost can be subtracted. */
+  private trialCreateOnly(n: number): number {
+    const ctx = this.getUIContext();
+    const sink: Array<typeNode.Text> = new Array<typeNode.Text>();
+    const t0 = this.nowUs();
+    for (let i = 0; i < n; i++) {
+      sink.push(typeNode.createNode(ctx, 'Text'));
     }
-    splash.reportArkts(N, trialsMs);
+    const us = this.nowUs() - t0;
+    sink.length = 0;
+    return us;
+  }
+
+  /**
+   * One attribute set `n` times on a single already-created node. Measured
+   * directly, not as (full − create-only): the difference of two 2000-node
+   * trials has a noise floor of several µs and the signal is under 1 µs, so
+   * subtraction produced a negative cost for Rust — impossible, and the tell.
+   */
+  private trialAttrOnly(n: number): number {
+    const node: typeNode.Text = typeNode.createNode(this.getUIContext(), 'Text');
+    const attr = node.attribute;
+    const t0 = this.nowUs();
+    for (let i = 0; i < n; i++) {
+      attr.fontSize(14);
+    }
+    return (this.nowUs() - t0) / n;
+  }
+
+  /** One trivial JS -> native napi call, `n` times. The cheap direction. */
+  private trialNoop(n: number): number {
+    const t0 = this.nowUs();
+    for (let i = 0; i < n; i++) {
+      splash.noop();
+    }
+    return this.nowUs() - t0;
+  }
+
+  /** The same loop with no crossing at all — the interpreter's own floor. */
+  private trialEmptyLoop(n: number): number {
+    let acc = 0;
+    const t0 = this.nowUs();
+    for (let i = 0; i < n; i++) {
+      acc = acc + i;
+    }
+    const us = this.nowUs() - t0;
+    if (acc < 0) {
+      console.log('unreachable'); // keep the loop from being optimised away
+    }
+    return us;
+  }
+
+  private median(v: Array<number>): number {
+    const c = v.slice();
+    c.sort((a: number, b: number) => a - b);
+    return c[Math.floor(c.length / 2)];
   }
 
   /**

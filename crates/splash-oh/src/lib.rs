@@ -118,12 +118,58 @@ pub fn report_arkts(n: u32, trials_ms: Vec<f64>) {
     app::rebuild();
 }
 
+/// Does nothing. Used to measure what one JS -> native napi call costs on its
+/// own, which is the cheap direction: a direct call, not a queued post.
+#[napi(js_name = "noop")]
+pub fn noop() {}
+
+/// Warm both paths before any timing starts.
+#[napi(js_name = "rustWarmup")]
+pub fn rust_warmup() {
+    bench::rust_warmup();
+}
+
+/// One Rust trial. `kind` 0 = node with five attributes, 1 = node alone,
+/// 2 = one setAttribute call (returns µs per call, not per node). Called once per event-loop tick so neither side
+/// monopolises the JS thread.
+#[napi(js_name = "rustTrial")]
+pub fn rust_trial(kind: u32) -> f64 {
+    bench::rust_trial(kind)
+}
+
+/// Everything, once ArkTS has collected both sides.
+#[napi(js_name = "reportAll")]
+#[allow(clippy::too_many_arguments)]
+pub fn report_all(
+    rust_full: Vec<f64>,
+    rust_create: Vec<f64>,
+    arkts_full: Vec<f64>,
+    arkts_create: Vec<f64>,
+    rust_attr: f64,
+    arkts_attr: f64,
+    crossing: f64,
+    empty_loop: f64,
+) {
+    bench::record_all(
+        rust_full,
+        rust_create,
+        arkts_full,
+        arkts_create,
+        rust_attr,
+        arkts_attr,
+        crossing,
+        empty_loop,
+    );
+    app::rebuild();
+}
+
 /// Hand Rust a JS function so it can measure the native -> JS direction.
 #[napi(js_name = "setBridge")]
 pub fn set_bridge(cb: JsFunction) -> napi_ohos::Result<()> {
     let tsfn: ThreadsafeFunction<u32, ErrorStrategy::Fatal> =
         cb.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
-    let _ = BRIDGE.set(tsfn);
+    let ok = BRIDGE.set(tsfn).is_ok();
+    log(&format!("bench C: bridge registered = {ok}"));
     Ok(())
 }
 
@@ -149,16 +195,29 @@ pub fn bench_refresh() {
 pub fn run_bridge_bench() {
     std::thread::spawn(|| {
         let Some(tsfn) = BRIDGE.get() else {
+            crate::log("bench C: no bridge registered, skipping");
             return;
         };
+        crate::log("bench C: starting");
         let s = signal();
 
-        // Block until JS has completed `target` crossings in total.
-        let wait_until = |target: u64| {
+        // Block until JS has completed `target` crossings in total — but never
+        // forever. If the JS side does not acknowledge, this thread used to
+        // park permanently and measurement C simply never appeared, with no
+        // error anywhere. A bounded wait turns that into a reported failure.
+        let wait_until = |target: u64| -> bool {
             let mut g = s.count.lock().unwrap();
             while *g < target {
-                g = s.cv.wait(g).unwrap();
+                let (ng, t) = s
+                    .cv
+                    .wait_timeout(g, std::time::Duration::from_millis(2000))
+                    .unwrap();
+                g = ng;
+                if t.timed_out() && *g < target {
+                    return false;
+                }
             }
+            true
         };
 
         // Same widget count both ways, so the two numbers are directly
@@ -174,12 +233,14 @@ pub fn run_bridge_bench() {
         // point: firing them all and waiting once at the end measures pipelined
         // throughput, which is a different and much flatterier number than the
         // round-trip latency an interactive caller actually experiences.
-        let crossing = |n: u32| {
+        let crossing = |n: u32| -> Option<f64> {
             let base = *s.count.lock().unwrap();
             let t0 = std::time::Instant::now();
             tsfn.call(n, ThreadsafeFunctionCallMode::Blocking);
-            wait_until(base + 1);
-            t0.elapsed().as_nanos() as f64 / 1000.0
+            if !wait_until(base + 1) {
+                return None;
+            }
+            Some(t0.elapsed().as_nanos() as f64 / 1000.0)
         };
 
         let median = |mut v: Vec<f64>| -> f64 {
@@ -188,29 +249,42 @@ pub fn run_bridge_bench() {
         };
 
         for _ in 0..8 {
-            crossing(1); // warm up
+            if crossing(1).is_none() {
+                crate::log(
+                    "bench C: JS never acknowledged a crossing within 2 s — \
+                     measurement C abandoned",
+                );
+                return;
+            }
         }
 
         // Control: a crossing that carries no work at all, so JS acknowledges
         // it immediately. This is the pure round-trip latency of the boundary,
         // and subtracting it from the others separates "what the bridge costs"
         // from "what the widget costs".
-        let empty = median((0..M as usize).map(|_| crossing(EMPTY)).collect::<Vec<_>>());
+        let collect = |f: &dyn Fn() -> Option<f64>, n: usize| -> Option<Vec<f64>> {
+            (0..n).map(|_| f()).collect()
+        };
+        let Some(empty_v) = collect(&|| crossing(EMPTY), M as usize) else {
+            crate::log("bench C: timed out during the control");
+            return;
+        };
+        let empty = median(empty_v);
         crate::log(&format!("bench C control: empty crossing {empty:.1} µs"));
 
         // Unbatched: one awaited crossing per widget.
-        let unbatched = median(
-            (0..M as usize)
-                .map(|_| crossing(1))
-                .collect::<Vec<_>>(),
-        );
+        let Some(unbatched_v) = collect(&|| crossing(1), M as usize) else {
+            crate::log("bench C: timed out during the unbatched pass");
+            return;
+        };
+        let unbatched = median(unbatched_v);
 
         // Batched: one awaited crossing carrying all M widgets.
-        let batched = median(
-            (0..REPS)
-                .map(|_| crossing(M) / M as f64)
-                .collect::<Vec<_>>(),
-        );
+        let Some(batched_v) = collect(&|| crossing(M).map(|v| v / M as f64), REPS) else {
+            crate::log("bench C: timed out during the batched pass");
+            return;
+        };
+        let batched = median(batched_v);
 
         bench::record_bridge(empty, unbatched, batched);
 

@@ -72,10 +72,10 @@ pub fn init(slot: NodeContentHandle) {
         })
     });
     unsafe { splash_set_event_handler(on_event) };
-    // Measurement A runs at startup so it is in the log even if nobody opens
-    // the Performance screen. B and C are kicked off from ArkTS and land
-    // later, each triggering their own rebuild.
-    crate::bench::run_rust();
+    // Nothing heavy here. Benchmarking at startup blocked the JS thread long
+    // enough that its timer queue stopped being serviced, which stopped the
+    // ArkTS half of the benchmark from ever running. ArkTS drives the whole
+    // suite now, one trial per event-loop tick.
     rebuild();
 }
 
@@ -84,7 +84,8 @@ extern "C" fn on_event(target_id: i32, _event_type: i32) {
     match target_id {
         NAV_BACK => set_screen(String::new()),
         BENCH_RUN => {
-            crate::bench::run_rust();
+            // The suite is driven from ArkTS so it can yield between trials;
+            // this only redraws whatever has landed so far.
             rebuild();
         }
         id if id >= NAV_BASE => {
