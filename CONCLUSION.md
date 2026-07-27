@@ -152,6 +152,89 @@ seconds, and mounted widgets — every node here is detached, so none of the
 layout, text-shaping or render-node memory a visible tree would add is counted.
 The real per-widget figure on screen is higher than 46 KB, on both paths.
 
+## A real app: rebuilding makepad_wechat both ways
+
+The microbenchmark above builds 2000 identical `Text` nodes, which is not an
+app. So the six screens of
+[project-robius/makepad_wechat](https://github.com/project-robius/makepad_wechat)
+were rebuilt twice — once through the ArkUI NDK from Rust
+([`wechat.rs`](crates/splash-oh/src/wechat.rs)), once in ArkTS through
+`typeNode` ([`WeChatArkTs.ets`](deveco/entry/src/main/ets/pages/WeChatArkTs.ets))
+— with the row shapes taken from the reference app: chat preview 6 nodes,
+message bubble 4, contact 3, discover entry 4, moment 5.
+
+Both sides build the same tree. Node counts are asserted against a shared
+contract at runtime, because "the other version is faster because it quietly
+builds less" is the obvious way for a comparison like this to be wrong.
+
+### Result
+
+A tour of all six screens, ~600 nodes total. Median of 4 tours per condition,
+after 4 discarded warm-up tours.
+
+| condition | Rust → NDK | ArkTS → typeNode | ratio |
+|---|---|---|---|
+| **JS thread idle** | 23–27 ms | 78–87 ms | **2.9 – 3.6×** |
+| **JS thread under load** | 24–25 ms | 73–90 ms | **3.0 – 3.8×** |
+
+Per screen, the densest one (`chats`, 20 rows, 135 nodes) is **6.5 ms vs
+20 ms**. Five runs, ratios clustering 2.4–4.5× per screen.
+
+This lines up with the 2.6–3.2× from the synthetic benchmark, which is
+reassuring — a real tree of mixed `Row`/`Column`/`Text`/`Image` nodes behaves
+like the microbenchmark said it would.
+
+### Load did not widen the gap, and I expected it to
+
+The reason for building this was a specific prediction: that a super-app's JS
+thread is never idle, that the napi round trip degrades badly under exactly that
+condition (31 µs idle → 1051 µs busy, measured in octos-one), and that the gap
+would therefore blow out to something like 30× rather than 3×.
+
+**It did not.** Under a synthetic super-app load — JSON parse/stringify of
+message batches, array churn, promise resolution, every 8 ms — the ratio moved
+from ~3.0× to ~3.4×. Within run-to-run noise of no change at all.
+
+The honest reason is a limitation of the harness, not a refutation of the idea:
+**both paths run on the JS thread here.** Rust is invoked through napi from
+ArkTS, so it queues behind the same load ArkTS does. The real architecture does
+not work that way — in Splash-OH a rebuild is driven from the ArkUI event
+thread, which never touches the JS loop. Measuring *that* needs the build
+triggered off-thread, which this harness does not do.
+
+So the load prediction is still untested. What is now tested is that **the ~3×
+is real on a real app's screens**, which is the part that was speculative before.
+
+### The memory arm failed, and the failure is the finding
+
+Stacking 30 whole screens on each path and watching RSS produced this:
+
+| | goes first | goes second |
+|---|---|---|
+| Rust-first run | Rust **+3613 kB/screen** | ArkTS +691 kB/screen |
+| ArkTS-first run | ArkTS **+1861 kB/screen** | Rust **negative** |
+
+Whoever measures second refills pages the first one freed but the allocator
+retained, so it looks nearly free — and in one case RSS *fell* while 30 screens
+were being built. The numbers track build order, not memory. **This method
+cannot measure per-widget memory with both paths in one process**, and flipping
+the order was the only way to find that out; either run on its own looks like a
+clean result.
+
+The per-node memory figure that does hold is the one from the dedicated
+single-path ramp above: **~46 KB per widget, ~8% more in ArkTS**. That worked
+because it measured one path, monotonically, from a clean baseline.
+
+### What a super-app should take from this
+
+Roughly 3× on construction, on real screens, confirmed. On one screen that is
+14 ms rather than 4 ms — invisible. It becomes real when construction is
+continuous: a fling that rebuilds 1000 widgets is ~7 ms in Rust and ~22 ms in
+ArkTS, and only one of those fits in a 120 Hz frame.
+
+The stronger argument — that Rust never queues behind a busy JS thread — remains
+unmeasured, and this harness is structurally unable to measure it.
+
 ## Caveats
 
 - **Measurement C (the napi round trip) does not run** in the current build.

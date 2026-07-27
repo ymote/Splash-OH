@@ -16,6 +16,7 @@ pub mod bench;
 pub mod catalog;
 pub mod dsl;
 pub mod mem;
+pub mod wechat;
 
 use arkui::NodeContentHandle;
 use napi_derive_ohos::napi;
@@ -161,6 +162,47 @@ pub fn mem_log(label: String, held: u32) {
         mem::rss_kb(),
         mem::peak_rss_kb()
     ));
+}
+
+// ---------------------------------------------------------------------------
+// The WeChat-shaped app, built through the NDK. See `wechat.rs`.
+// ---------------------------------------------------------------------------
+
+/// Build one screen natively. Returns [nodes built, µs, nodes expected].
+#[napi(js_name = "wechatBuild")]
+pub fn wechat_build(screen: String) -> Vec<f64> {
+    let (n, us) = wechat::build(&screen);
+    vec![n as f64, us, wechat::expected(&screen) as f64]
+}
+
+/// Build a screen and keep it alive, stacking with previously kept ones.
+#[napi(js_name = "wechatKeep")]
+pub fn wechat_keep(screen: String) -> u32 {
+    wechat::keep(&screen) as u32
+}
+
+/// Drop every kept native screen.
+#[napi(js_name = "wechatDropKept")]
+pub fn wechat_drop_kept() -> u32 {
+    wechat::drop_kept() as u32
+}
+
+/// Drop the held native screen.
+#[napi(js_name = "wechatClear")]
+pub fn wechat_clear() {
+    wechat::clear();
+}
+
+/// Screen ids, in tour order.
+#[napi(js_name = "wechatScreens")]
+pub fn wechat_screens() -> Vec<String> {
+    wechat::SCREENS.iter().map(|s| s.id.to_string()).collect()
+}
+
+/// One line of results, so everything lands in `hilog` in order.
+#[napi(js_name = "wechatLog")]
+pub fn wechat_log(line: String) {
+    log(&format!("wechat {line}"));
 }
 
 /// Warm both paths before any timing starts.
