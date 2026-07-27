@@ -69,6 +69,12 @@ mod raw {
         pub static splash_t_column: i32;
         pub static splash_t_row: i32;
         pub static splash_t_flex: i32;
+        pub static splash_t_timepicker: i32;
+        pub static splash_t_textpicker: i32;
+        pub static splash_t_swiper: i32;
+        pub static splash_t_grid: i32;
+        pub static splash_t_waterflow: i32;
+        pub static splash_t_refresh: i32;
         pub static splash_e_click: i32;
     }
 }
@@ -89,6 +95,9 @@ pub mod ty {
         datepicker => splash_t_datepicker, slider => splash_t_slider, radio => splash_t_radio,
         stack => splash_t_stack, scroll => splash_t_scroll, list => splash_t_list,
         column => splash_t_column, row => splash_t_row, flex => splash_t_flex,
+        timepicker => splash_t_timepicker, textpicker => splash_t_textpicker,
+        swiper => splash_t_swiper, grid => splash_t_grid,
+        waterflow => splash_t_waterflow, refresh => splash_t_refresh,
     }
 }
 
@@ -221,6 +230,17 @@ impl Node {
     pub fn on_event(self, event_type: i32, id: i32) -> Self {
         unsafe { splash_register_event(self.raw, event_type, id) };
         self
+    }
+
+    /// Mount and hand the node back, so the caller can detach it later on a
+    /// rebuild. `mount` forgets the tree; this keeps ownership.
+    pub fn mount_keep(self, content: NodeContentHandle) -> Result<Node, &'static str> {
+        let r = unsafe { splash_content_add(content, self.raw) };
+        if r == 0 {
+            Ok(self)
+        } else {
+            Err("OH_ArkUI_NodeContent_AddNode failed")
+        }
     }
 
     /// Mount as the root of an ArkTS-provided slot. Consumes self and leaks it

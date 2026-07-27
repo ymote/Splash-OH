@@ -1,41 +1,51 @@
-// Material Components catalog, in the Splash DSL.
+// Material Components catalog for OpenHarmony, in the Splash DSL.
 //
-// Modelled on material-components-android's catalog app: a "Components" index
-// followed by one demo section per component family.
+// Modelled on material-components-android's catalog app: an index of component
+// families, each opening its own demo screen with a back button.
 //
-// Everything below is evaluated by the Splash VM at runtime — the `fn`s, the
-// loops, the palette lookups, the string building. The Rust side only walks the
-// resulting object tree and creates ArkUI widgets. Nothing here is makepad.
+// The host binds two variables before evaluating this file:
+//   screen  — "" for the index, else a component id
+//   bench   — last benchmark report, or ""
+//
+// Everything else — the palette arithmetic, the layout helpers, the per-screen
+// dispatch, the loops that build the index and the swatch rows — is evaluated
+// by the Splash VM on device.
 
 // ---- Material 3 baseline palette ----
-// NOTE: `0xFF6750A4`-style hex literals evaluate to 0 in this VM, which renders
-// every colour transparent. Build the ARGB word arithmetically instead — which
-// also shows the VM doing real work rather than carrying constants.
+// `0xFF6750A4`-style hex literals evaluate to 0 in this VM, which renders every
+// colour transparent. Compose the ARGB word arithmetically instead.
 fn argb(a, r, g, b) { return ((a * 256 + r) * 256 + g) * 256 + b }
 
 let primary      = argb(255, 103,  80, 164)
 let on_primary   = argb(255, 255, 255, 255)
+let pri_cont     = argb(255, 234, 221, 255)
 let secondary    = argb(255,  98,  91, 113)
+let sec_cont     = argb(255, 232, 222, 248)
 let tertiary     = argb(255, 125,  82,  96)
 let error        = argb(255, 179,  38,  30)
+let err_cont     = argb(255, 249, 222, 220)
 let surface      = argb(255, 255, 251, 254)
 let surface_var  = argb(255, 231, 224, 236)
 let on_surface   = argb(255,  28,  27,  31)
 let on_surface_v = argb(255,  73,  69,  79)
 let outline      = argb(255, 121, 116, 126)
 let bg           = argb(255, 244, 241, 248)
+let green        = argb(255,  56, 142,  60)
+let amber        = argb(255, 245, 166,  35)
 
-let FULL = 402
-
-// ---- element helpers ----
-// Native ArkUI nodes do NOT auto-size the way ArkTS components do: a Text with
-// no width measures to zero and renders nothing. Every leaf gets an explicit
-// width and height.
+let FULL  = 402
+let PAGEW = FULL - 28
 let CARDW = FULL - 56
 
-// Height must allow for wrapping: a native Text is given a fixed box, so a
-// one-line estimate silently overlaps whatever follows. Roughly 2.2 chars per
-// vp of width at these sizes.
+// ---- event ids (must match app.rs) ----
+let NAV_BASE  = 1000
+let NAV_BACK  = 999
+let BENCH_RUN = 900
+
+// ---- text -------------------------------------------------------------
+// Native ArkUI nodes do not auto-size: a Text with no width measures to zero,
+// and a fixed box means wrapped text overlaps whatever follows unless we
+// compute the height. ~2.2 chars per vp at these sizes.
 fn text_lines(s, size, w) {
     let per_line = w * 2.2 / size
     let n = 1
@@ -50,159 +60,404 @@ fn text_w(s, size, weight, color, w) {
 }
 
 fn text(s, size, weight, color) { return text_w(s, size, weight, color, CARDW) }
-
-fn title(s)   { return {t: "text", text: s, size: 30, weight: 7,
-                        color: on_surface, w: FULL - 28, h: 48} }
-fn section(s) { return {t: "text", text: s, size: 12, weight: 6,
-                        color: primary, w: FULL - 28, h: 26, margin: 4} }
 fn body(s)    { return text(s, 14, 4, on_surface_v) }
 fn caption(s) { return text(s, 11, 4, outline) }
 
-// A Material "card": filled surface, rounded, outlined.
+fn section(s) {
+    return {t: "text", text: s, size: 12, weight: 6, color: primary,
+            w: PAGEW, h: 26, margin: 4}
+}
+
+// ---- containers -------------------------------------------------------
 fn card(children) {
-    return {t: "column", w: FULL - 28, bg: surface, radius: 12, pad: 14,
+    return {t: "column", w: PAGEW, bg: surface, radius: 12, pad: 14,
             margin: 6, border: 1, bordercolor: surface_var, c: children}
 }
 
-// Filled / outlined / text button variants, as the catalog demonstrates them.
-fn filled_button(label, tap) {
-    return {t: "button", label: label, w: CARDW, h: 40, radius: 20,
-            margin: 4, bg: primary, color: on_primary, tap: tap}
+fn row(h, children) { return {t: "row", w: CARDW, h: h, c: children} }
+fn spacer(h)        { return {t: "column", w: 4, h: h} }
+fn box(w, h, c, r)  { return {t: "column", w: w, h: h, bg: c, radius: r, margin: 4} }
+fn swatch(c)        { return box(56, 40, c, 8) }
+fn divider()        { return {t: "column", w: CARDW, h: 1, bg: surface_var, margin: 6} }
+
+// ---- controls ---------------------------------------------------------
+fn button(label, w, bgc, fgc, r, brd, tap) {
+    return {t: "button", label: label, w: w, h: 40, radius: r, margin: 4,
+            bg: bgc, color: fgc, border: brd, bordercolor: outline, tap: tap}
 }
-fn tonal_button(label, tap) {
-    return {t: "button", label: label, w: CARDW, h: 40, radius: 20,
-            margin: 4, bg: surface_var, color: on_surface, tap: tap}
-}
-fn outlined_button(label, tap) {
-    return {t: "button", label: label, w: CARDW, h: 40, radius: 20,
-            margin: 4, bg: surface, color: primary, border: 1,
-            bordercolor: outline, tap: tap}
+fn filled(l, tap)   { return button(l, CARDW, primary,  on_primary, 20, 0, tap) }
+fn tonal(l, tap)    { return button(l, CARDW, sec_cont, on_surface, 20, 0, tap) }
+fn outlined(l, tap) { return button(l, CARDW, surface,  primary,    20, 1, tap) }
+fn danger(l, tap)   { return button(l, CARDW, err_cont, error,      20, 0, tap) }
+fn small(l, w, tap) { return button(l, w, surface_var, on_surface,  16, 0, tap) }
+fn chip(label, w)   { return button(label, w, sec_cont, on_surface, 16, 0, 0) }
+
+fn labelled(label, widget) {
+    return {t: "column", w: CARDW, c: [caption(label), widget]}
 }
 
-fn swatch(c) { return {t: "column", w: 56, h: 40, bg: c, radius: 8, margin: 4} }
+// ---- index ------------------------------------------------------------
+// The component list is data; the VM builds the rows and the ids.
+let COMPONENTS = [
+    ["buttons",    "Buttons",                "Filled, tonal, outlined"],
+    ["fab",        "Floating action button", "Regular, small, extended"],
+    ["checkbox",   "Checkbox",               "Selected, unselected"],
+    ["radio",      "Radio button",           "Grouped single selection"],
+    ["switch",     "Switch",                 "On, off"],
+    ["slider",     "Slider",                 "Continuous value"],
+    ["progress",   "Progress indicators",    "Linear and circular"],
+    ["textfield",  "Text fields",            "Filled, outlined, multiline"],
+    ["chips",      "Chips",                  "Assist, filter, input"],
+    ["cards",      "Cards",                  "Elevated, filled, outlined"],
+    ["lists",      "Lists",                  "One, two and three line"],
+    ["dividers",   "Dividers",               "Full and inset"],
+    ["badges",     "Badges",                 "Small and large"],
+    ["tabs",       "Tabs",                   "Primary tabs"],
+    ["appbar",     "Top app bar",            "Small and large"],
+    ["bottomnav",  "Bottom navigation",      "Three destinations"],
+    ["datepicker", "Date picker",            "System date wheel"],
+    ["timepicker", "Time picker",            "System time wheel"],
+    ["textpicker", "Text picker",            "Single column"],
+    ["swiper",     "Swiper / carousel",      "Paged content"],
+    ["grid",       "Grid",                   "Uniform tiles"],
+    ["waterflow",  "Water flow",             "Staggered heights"],
+    ["refresh",    "Pull to refresh",        "Refresh container"],
+    ["image",      "Image",                  "Fit modes"],
+    ["typography", "Typography",             "Display to label"],
+    ["color",      "Color",                  "Key and container roles"],
+    ["layout",     "Layout",                 "Row, column, stack"],
+    ["bench",      "Performance",            "Rust NDK vs ArkTS napi"],
+]
 
-// A labelled demo block: caption + the widget itself.
-fn demo(label, widget) {
-    return {t: "column", w: FULL - 56, c: [caption(label), widget]}
+fn index_row(name, desc, idx) {
+    return {t: "column", w: PAGEW, bg: surface, radius: 12, pad: 12, margin: 4,
+            border: 1, bordercolor: surface_var, tap: NAV_BASE + idx, c: [
+        text_w(name, 16, 6, on_surface, PAGEW - 24),
+        text_w(desc, 12, 4, on_surface_v, PAGEW - 24),
+    ]}
 }
 
-// ---- sections ----------------------------------------------------------
-// Each returns a list of nodes, concatenated into the page below.
-
-fn sec_buttons() {
-    return [
-        section("BUTTONS"),
-        card([
-            body("Common buttons"),
-            filled_button("Filled", 101),
-            tonal_button("Tonal", 102),
-            outlined_button("Outlined", 103),
-        ]),
+fn screen_index() {
+    let kids = [
+        {t: "text", text: "Components", size: 30, weight: 7,
+         color: on_surface, w: PAGEW, h: 48},
+        text_w("Material catalog rendered to OpenHarmony native widgets. Evaluated by the Splash VM; Rust turns it into ArkUI nodes. Tap any component.",
+               13, 4, on_surface_v, PAGEW),
     ]
+    let i = 0
+    for c in COMPONENTS {
+        kids.push(index_row(c[1], c[2], i))
+        i = i + 1
+    }
+    kids.push({t: "column", w: 4, h: 32})
+    return kids
 }
 
-fn sec_selection() {
-    return [
-        section("SELECTION CONTROLS"),
-        card([
-            body("Switch, checkbox, radio"),
-            demo("Switch", {t: "toggle", w: 52, h: 34, tap: 201}),
-            demo("Checkbox", {t: "checkbox", w: 34, h: 34, tap: 202}),
-            demo("Radio button", {t: "radio", w: 34, h: 34, tap: 203}),
-        ]),
-    ]
-}
+// ---- demo screens -----------------------------------------------------
 
-fn sec_sliders() {
-    return [
-        section("SLIDERS & PROGRESS"),
-        card([
-            body("Continuous slider"),
-            {t: "slider", w: CARDW, h: 40, tap: 301},
-            caption("Determinate progress — 62%"),
-            {t: "progress", w: CARDW, h: 20, value: 62, total: 100},
-            caption("Indeterminate"),
-            {t: "loading", w: 40, h: 32},
-        ]),
-    ]
-}
+fn s_buttons() { return [
+    section("COMMON BUTTONS"),
+    card([body("Filled, tonal and outlined are the three most common."),
+          filled("Filled", 1), tonal("Tonal", 2), outlined("Outlined", 3)]),
+    section("EMPHASIS"),
+    card([body("Error container for destructive actions."), danger("Delete", 4)]),
+    section("SMALL"),
+    card([body("Compact buttons in a row."),
+          row(52, [small("One", 92, 5), spacer(40), small("Two", 92, 6),
+                   spacer(40), small("Three", 100, 7)])]),
+] }
 
-fn sec_textfields() {
-    return [
-        section("TEXT FIELDS"),
-        card([
-            body("Filled and multiline"),
-            {t: "input", placeholder: "Label", w: CARDW, h: 46, bg: surface_var,
-             radius: 8, pad: 10, margin: 4, tap: 401},
-            {t: "textarea", w: CARDW, h: 76, bg: surface_var, radius: 8, pad: 10, margin: 4},
-        ]),
-    ]
-}
+fn s_fab() { return [
+    section("FLOATING ACTION BUTTON"),
+    card([body("Regular, small and extended."),
+          row(72, [button("+", 56, primary, on_primary, 28, 0, 10), spacer(60),
+                   button("+", 40, pri_cont, primary, 20, 0, 11)]),
+          button("Extended", 160, pri_cont, primary, 20, 0, 12)]),
+] }
 
-// The VM does real work here: build the colour row with a loop rather than
-// listing nine literals.
-fn sec_color() {
-    let tones = [primary, secondary, tertiary, error, outline]
-    let chips = []
-    for c in tones {
-        chips.push(swatch(c))
+fn s_checkbox() { return [
+    section("CHECKBOX"),
+    card([body("Native ARKUI_NODE_CHECKBOX."),
+          labelled("Unselected", {t: "checkbox", w: 34, h: 34, tap: 20}),
+          labelled("Second", {t: "checkbox", w: 34, h: 34, tap: 21}),
+          labelled("Third", {t: "checkbox", w: 34, h: 34, tap: 22})]),
+] }
+
+fn s_radio() { return [
+    section("RADIO BUTTON"),
+    card([body("Single selection within a group."),
+          labelled("Option A", {t: "radio", w: 34, h: 34, tap: 30}),
+          labelled("Option B", {t: "radio", w: 34, h: 34, tap: 31}),
+          labelled("Option C", {t: "radio", w: 34, h: 34, tap: 32})]),
+] }
+
+fn s_switch() { return [
+    section("SWITCH"),
+    card([body("Native ARKUI_NODE_TOGGLE."),
+          labelled("Wi-Fi", {t: "toggle", w: 52, h: 34, tap: 40}),
+          labelled("Bluetooth", {t: "toggle", w: 52, h: 34, tap: 41})]),
+] }
+
+fn s_slider() { return [
+    section("SLIDER"),
+    card([body("Continuous value selection."),
+          {t: "slider", w: CARDW, h: 40, tap: 50},
+          caption("A second track"),
+          {t: "slider", w: CARDW, h: 40, tap: 51}]),
+] }
+
+fn s_progress() { return [
+    section("PROGRESS INDICATORS"),
+    card([body("Determinate linear progress."),
+          {t: "progress", w: CARDW, h: 20, value: 25, total: 100},
+          {t: "progress", w: CARDW, h: 20, value: 62, total: 100},
+          {t: "progress", w: CARDW, h: 20, value: 90, total: 100},
+          divider(),
+          caption("Indeterminate circular"),
+          {t: "loading", w: 40, h: 40}]),
+] }
+
+fn s_textfield() { return [
+    section("TEXT FIELDS"),
+    card([body("Filled and multiline, with a real IME."),
+          {t: "input", placeholder: "Label", w: CARDW, h: 46, bg: surface_var,
+           radius: 8, pad: 10, margin: 4, tap: 60},
+          {t: "input", placeholder: "Outlined", w: CARDW, h: 46, bg: surface,
+           radius: 8, pad: 10, margin: 4, border: 1, bordercolor: outline, tap: 61},
+          {t: "textarea", w: CARDW, h: 84, bg: surface_var, radius: 8,
+           pad: 10, margin: 4}]),
+] }
+
+fn s_chips() { return [
+    section("CHIPS"),
+    card([body("Assist, filter and suggestion chips."),
+          row(52, [chip("Assist", 88), spacer(36), chip("Filter", 84),
+                   spacer(36), chip("Input", 80)]),
+          row(52, [chip("Suggestion", 116), spacer(36), chip("Choice", 92)])]),
+] }
+
+fn s_cards() { return [
+    section("CARDS"),
+    card([body("Elevated card — filled surface with a subtle outline.")]),
+    {t: "column", w: PAGEW, bg: sec_cont, radius: 12, pad: 14, margin: 6,
+     c: [text_w("Filled card — a tonal container.", 14, 4, on_surface, CARDW)]},
+    {t: "column", w: PAGEW, bg: surface, radius: 12, pad: 14, margin: 6,
+     border: 2, bordercolor: outline,
+     c: [text_w("Outlined card — heavier border, no fill.", 14, 4, on_surface, CARDW)]},
+] }
+
+fn s_lists() { return [
+    section("LISTS"),
+    card([body("One, two and three line items."),
+          divider(),
+          text_w("Single line item", 15, 5, on_surface, CARDW),
+          divider(),
+          text_w("Two line item", 15, 5, on_surface, CARDW),
+          caption("Supporting text underneath"),
+          divider(),
+          text_w("Three line item", 15, 5, on_surface, CARDW),
+          caption("Supporting text that runs on for a second line so the row grows")]),
+] }
+
+fn s_dividers() { return [
+    section("DIVIDERS"),
+    card([body("Full width and inset."),
+          divider(),
+          {t: "column", w: CARDW - 40, h: 1, bg: outline, margin: 8},
+          divider()]),
+] }
+
+fn s_badges() { return [
+    section("BADGES"),
+    card([body("Small dot and large numeric badges."),
+          row(56, [box(10, 10, error, 5), spacer(30),
+                   box(22, 22, error, 11), spacer(30),
+                   box(34, 22, error, 11)])]),
+] }
+
+fn s_tabs() { return [
+    section("TABS"),
+    card([body("Primary tabs as a row of segments."),
+          row(52, [chip("Overview", 106), spacer(24), chip("Specs", 78),
+                   spacer(24), chip("Reviews", 96)]),
+          {t: "column", w: 106, h: 3, bg: primary, margin: 2}]),
+] }
+
+fn s_appbar() { return [
+    section("TOP APP BAR"),
+    {t: "column", w: PAGEW, bg: sec_cont, radius: 12, pad: 14, margin: 6,
+     c: [text_w("Small top app bar", 18, 6, on_surface, CARDW)]},
+    {t: "column", w: PAGEW, bg: sec_cont, radius: 12, pad: 20, margin: 6,
+     c: [text_w("Large top app bar", 26, 7, on_surface, CARDW)]},
+] }
+
+fn s_bottomnav() { return [
+    section("BOTTOM NAVIGATION"),
+    card([body("Three to five destinations."),
+          row(60, [chip("Home", 78), spacer(16), chip("Search", 90),
+                   spacer(16), chip("Profile", 90)])]),
+] }
+
+fn s_datepicker() { return [
+    section("DATE PICKER"),
+    card([body("The system date wheel."), {t: "datepicker", w: CARDW, h: 160}]),
+] }
+
+fn s_timepicker() { return [
+    section("TIME PICKER"),
+    card([body("The system time wheel."), {t: "timepicker", w: CARDW, h: 160}]),
+] }
+
+fn s_textpicker() { return [
+    section("TEXT PICKER"),
+    card([body("A single-column picker."), {t: "textpicker", w: CARDW, h: 160}]),
+] }
+
+fn s_swiper() { return [
+    section("SWIPER"),
+    card([body("Paged content — swipe horizontally."),
+          {t: "swiper", w: CARDW, h: 120, c: [
+              box(CARDW, 110, pri_cont, 10),
+              box(CARDW, 110, sec_cont, 10),
+              box(CARDW, 110, err_cont, 10)]}]),
+] }
+
+fn s_grid() { return [
+    section("GRID"),
+    card([body("Uniform grid of tiles."),
+          row(60, [box(84, 52, pri_cont, 8), box(84, 52, sec_cont, 8),
+                   box(84, 52, err_cont, 8)]),
+          row(60, [box(84, 52, sec_cont, 8), box(84, 52, err_cont, 8),
+                   box(84, 52, pri_cont, 8)])]),
+] }
+
+fn s_waterflow() { return [
+    section("WATER FLOW"),
+    card([body("Staggered heights."),
+          row(96, [box(84, 88, pri_cont, 8), box(84, 60, sec_cont, 8),
+                   box(84, 76, err_cont, 8)])]),
+] }
+
+fn s_refresh() { return [
+    section("PULL TO REFRESH"),
+    card([body("A refresh container wrapping scrollable content."),
+          {t: "refresh", w: CARDW, h: 90, c: [box(CARDW, 80, surface_var, 8)]}]),
+] }
+
+fn s_image() { return [
+    section("IMAGE"),
+    card([body("Colour fills stand in for image assets."),
+          row(76, [box(68, 68, pri_cont, 8), box(68, 68, sec_cont, 34),
+                   box(68, 68, err_cont, 8)])]),
+] }
+
+fn s_typography() { return [
+    section("TYPOGRAPHY"),
+    card([text("Display large", 32, 7, on_surface),
+          text("Headline medium", 24, 6, on_surface),
+          text("Title large", 20, 6, on_surface),
+          text("Body large", 16, 4, on_surface),
+          text("Body medium", 14, 4, on_surface_v),
+          text("Label small", 11, 5, outline)]),
+] }
+
+fn s_color() {
+    let roles = [primary, pri_cont, secondary, sec_cont, tertiary,
+                 error, err_cont, outline, green, amber]
+    let a = []
+    let b = []
+    let i = 0
+    for c in roles {
+        if i < 5 { a.push(swatch(c)) } else { b.push(swatch(c)) }
+        i = i + 1
     }
     return [
         section("COLOR"),
-        card([
-            body("Key colours"),
-            {t: "row", h: 52, c: chips},
-            caption("primary · secondary · tertiary · error · outline"),
-        ]),
+        card([body("Key colours and their containers."),
+              {t: "row", w: CARDW, h: 52, c: a},
+              {t: "row", w: CARDW, h: 52, c: b},
+              caption("primary · container · secondary · container · tertiary"),
+              caption("error · container · outline · success · warning")]),
     ]
 }
 
-fn sec_layout() {
-    return [
-        section("LAYOUT"),
-        card([
-            body("Row, and Stack with overlap"),
-            {t: "row", h: 48, c: [swatch(primary), swatch(secondary), swatch(tertiary)]},
-            {t: "stack", h: 60, c: [
-                {t: "column", w: 130, h: 52, bg: surface_var, radius: 10},
-                text("overlaid", 12, 5, on_surface),
-            ]},
-        ]),
+fn s_layout() { return [
+    section("LAYOUT"),
+    card([body("Row — children laid out horizontally."),
+          row(56, [swatch(primary), swatch(secondary), swatch(tertiary)]),
+          body("Stack — children overlap."),
+          {t: "stack", w: CARDW, h: 70, c: [
+              box(150, 60, surface_var, 10),
+              text_w("overlaid", 13, 6, on_surface, 100)]}]),
+] }
+
+fn s_bench() {
+    let out = [
+        section("PERFORMANCE"),
+        card([body("Widget construction: Rust through the ArkUI NDK versus driving ArkTS over napi. Both end at the same native components."),
+              filled("Run benchmark", BENCH_RUN)]),
     ]
-}
-
-fn sec_pickers() {
-    return [
-        section("PICKERS"),
-        card([
-            body("System date picker"),
-            {t: "datepicker", w: CARDW, h: 150},
-        ]),
-    ]
-}
-
-// ---- page ---------------------------------------------------------------
-
-let kids = [
-    title("Components"),
-    text_w("Rendered to OpenHarmony native widgets. The tree is evaluated by the Splash VM; Rust turns it into ArkUI nodes.",
-           14, 4, on_surface_v, FULL - 28),
-]
-
-// Concatenate every section. `for` over a list of lists keeps the page
-// declaration short and makes ordering obvious.
-let sections = [
-    sec_buttons(), sec_selection(), sec_sliders(),
-    sec_textfields(), sec_color(), sec_layout(), sec_pickers(),
-]
-for s in sections {
-    for node in s {
-        kids.push(node)
+    if bench.len() > 0 {
+        out.push(section("RESULT"))
+        out.push(card([text_w(bench, 12, 4, on_surface, CARDW)]))
+    } else {
+        out.push(card([caption("Tap Run benchmark to measure on this device.")]))
     }
+    return out
 }
-kids.push({t: "column", h: 32})
 
-// The evaluated value of the script IS the tree.
+// ---- dispatch ---------------------------------------------------------
+fn screen_body(id) {
+    if id == "buttons"    { return s_buttons() }
+    if id == "fab"        { return s_fab() }
+    if id == "checkbox"   { return s_checkbox() }
+    if id == "radio"      { return s_radio() }
+    if id == "switch"     { return s_switch() }
+    if id == "slider"     { return s_slider() }
+    if id == "progress"   { return s_progress() }
+    if id == "textfield"  { return s_textfield() }
+    if id == "chips"      { return s_chips() }
+    if id == "cards"      { return s_cards() }
+    if id == "lists"      { return s_lists() }
+    if id == "dividers"   { return s_dividers() }
+    if id == "badges"     { return s_badges() }
+    if id == "tabs"       { return s_tabs() }
+    if id == "appbar"     { return s_appbar() }
+    if id == "bottomnav"  { return s_bottomnav() }
+    if id == "datepicker" { return s_datepicker() }
+    if id == "timepicker" { return s_timepicker() }
+    if id == "textpicker" { return s_textpicker() }
+    if id == "swiper"     { return s_swiper() }
+    if id == "grid"       { return s_grid() }
+    if id == "waterflow"  { return s_waterflow() }
+    if id == "refresh"    { return s_refresh() }
+    if id == "image"      { return s_image() }
+    if id == "typography" { return s_typography() }
+    if id == "color"      { return s_color() }
+    if id == "layout"     { return s_layout() }
+    if id == "bench"      { return s_bench() }
+    return [card([body("Unknown screen.")])]
+}
+
+fn title_for(id) {
+    for c in COMPONENTS {
+        if c[0] == id { return c[1] }
+    }
+    return "Component"
+}
+
+// ---- page -------------------------------------------------------------
+let kids = []
+if screen.len() == 0 {
+    kids = screen_index()
+} else {
+    kids.push(button("‹  Back", 120, surface, primary, 18, 1, NAV_BACK))
+    kids.push({t: "text", text: title_for(screen), size: 28, weight: 7,
+               color: on_surface, w: PAGEW, h: 44})
+    for n in screen_body(screen) { kids.push(n) }
+    kids.push({t: "column", w: 4, h: 32})
+}
+
 {t: "scroll", w: FULL, bg: bg, c: [
     {t: "column", w: FULL, pad: 14, c: kids}
 ]}

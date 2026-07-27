@@ -8,7 +8,9 @@
 //! through ArkTS measured ~1.0 ms (70% of it just waiting for the JS event loop
 //! to become free), and that cost scales with widget count.
 
+pub mod app;
 pub mod arkui;
+pub mod bench;
 pub mod catalog;
 pub mod dsl;
 
@@ -44,20 +46,7 @@ pub fn mount(env: Env, content: JsObject) -> napi_ohos::Result<()> {
         return Ok(());
     }
 
-    // The catalog is Splash DSL, evaluated by the VM at runtime. The Rust
-    // fallback exists only so a broken script still shows something.
-    const CATALOG: &str = include_str!("../assets/catalog.splash");
-    let tree = dsl::build(CATALOG).or_else(|| {
-        log("splash-oh: DSL build failed, falling back to the hand-built tree");
-        catalog::build()
-    });
-    match tree {
-        Some(root) => match root.mount(slot) {
-            Ok(()) => log("splash-oh: catalog mounted from Splash DSL (0 ArkTS widgets)"),
-            Err(e) => log(&format!("splash-oh: mount failed: {e}")),
-        },
-        None => log("splash-oh: catalog build failed"),
-    }
+    app::init(slot);
     Ok(())
 }
 

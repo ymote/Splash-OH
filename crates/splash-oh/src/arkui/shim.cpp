@@ -118,6 +118,11 @@ int splash_content_add(ArkUI_NodeContentHandle content, ArkUI_NodeHandle root) {
     return OH_ArkUI_NodeContent_AddNode(content, root);
 }
 
+int splash_content_remove(ArkUI_NodeContentHandle content, ArkUI_NodeHandle root) {
+    if (!content || !root) return -1;
+    return OH_ArkUI_NodeContent_RemoveNode(content, root);
+}
+
 // ---- events ---------------------------------------------------------------
 
 int splash_register_event(ArkUI_NodeHandle n, int event_type, int32_t id) {
@@ -125,9 +130,19 @@ int splash_register_event(ArkUI_NodeHandle n, int event_type, int32_t id) {
     return g_api->registerNodeEvent(n, (ArkUI_NodeEventType)event_type, id, NULL);
 }
 
-void splash_register_receiver(void (*recv)(ArkUI_NodeEvent *)) {
-    if (!g_api) return;
-    g_api->registerNodeEventReceiver(recv);
+// Rust installs one handler; the C side unpacks the event and forwards the
+// target id, so Rust never has to know ArkUI_NodeEvent's layout.
+static void (*g_rust_handler)(int32_t target_id, int32_t event_type) = nullptr;
+
+static void splash_event_trampoline(ArkUI_NodeEvent *e) {
+    if (!e || !g_rust_handler) return;
+    g_rust_handler(OH_ArkUI_NodeEvent_GetTargetId(e),
+                   (int32_t)OH_ArkUI_NodeEvent_GetEventType(e));
+}
+
+void splash_set_event_handler(void (*h)(int32_t, int32_t)) {
+    g_rust_handler = h;
+    if (g_api) g_api->registerNodeEventReceiver(splash_event_trampoline);
 }
 
 int32_t splash_event_target_id(ArkUI_NodeEvent *e) {
@@ -182,8 +197,14 @@ SPLASH_CONST(splash_t_slider,   ARKUI_NODE_SLIDER)
 SPLASH_CONST(splash_t_radio,    ARKUI_NODE_RADIO)
 SPLASH_CONST(splash_t_stack,    ARKUI_NODE_STACK)
 SPLASH_CONST(splash_t_scroll,   ARKUI_NODE_SCROLL)
-SPLASH_CONST(splash_t_list,     ARKUI_NODE_LIST)
 SPLASH_CONST(splash_t_column,   ARKUI_NODE_COLUMN)
 SPLASH_CONST(splash_t_row,      ARKUI_NODE_ROW)
 SPLASH_CONST(splash_t_flex,     ARKUI_NODE_FLEX)
+SPLASH_CONST(splash_t_timepicker, ARKUI_NODE_TIME_PICKER)
+SPLASH_CONST(splash_t_textpicker, ARKUI_NODE_TEXT_PICKER)
+SPLASH_CONST(splash_t_swiper,   ARKUI_NODE_SWIPER)
+SPLASH_CONST(splash_t_grid,     ARKUI_NODE_GRID)
+SPLASH_CONST(splash_t_waterflow, ARKUI_NODE_WATER_FLOW)
+SPLASH_CONST(splash_t_refresh,  ARKUI_NODE_REFRESH)
+SPLASH_CONST(splash_t_list,     ARKUI_NODE_LIST)
 SPLASH_CONST(splash_e_click,    NODE_ON_CLICK)

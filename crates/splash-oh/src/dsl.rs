@@ -32,6 +32,22 @@ use makepad_script::array::ScriptArrayStorage;
 use makepad_script::traits::*;
 use makepad_script::*;
 
+/// Evaluate the catalog for a given screen.
+///
+/// `screen` and `bench` are bound as ordinary `let`s prepended to the source —
+/// the simplest way to pass host state into a script without a scope object.
+pub fn build_screen(screen: &str, bench: Option<&str>) -> Option<Node> {
+    const CATALOG: &str = include_str!("../assets/catalog.splash");
+    let esc = |s: &str| s.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n");
+    let src = format!(
+        "let screen = \"{}\"\nlet bench = \"{}\"\n{}",
+        esc(screen),
+        esc(bench.unwrap_or("")),
+        CATALOG
+    );
+    build(&src)
+}
+
 /// Evaluate Splash source and build the native tree it describes.
 pub fn build(src: &str) -> Option<Node> {
     let mut std_slot = 0;
@@ -68,6 +84,13 @@ fn walk(vm: &mut ScriptVm, value: ScriptValue, depth: usize) -> Option<Node> {
     let tag = string_prop(vm, value, id!(t)).unwrap_or_default();
     let node_ty = match tag.as_str() {
         "column" => ty::column(),
+        "timepicker" => ty::timepicker(),
+        "textpicker" => ty::textpicker(),
+        "swiper" => ty::swiper(),
+        "grid" => ty::grid(),
+        "waterflow" => ty::waterflow(),
+        "refresh" => ty::refresh(),
+        "list" => ty::list(),
         "row" => ty::row(),
         "stack" => ty::stack(),
         "scroll" => ty::scroll(),

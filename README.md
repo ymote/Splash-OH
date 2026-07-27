@@ -159,11 +159,29 @@ And one known-hard mismatch: makepad's `Walk`/`Layout` (`Fill`/`Fit`, `flow:
 Down/Right/Overlay`) is close to flexbox but not identical, so cards authored
 against makepad's exact behaviour will need review, not just a backend swap.
 
+## Widget construction: Rust vs ArkTS
+
+Measured on the SUP-AL90 (Performance screen in the app, or at startup in the log):
+
+| path | per widget | 2000 widgets |
+|---|---|---|
+| **Rust → ArkUI NDK** | **23.4 µs** | **46.9 ms** |
+| ArkTS driven over napi | 1051 µs | 2102 ms |
+
+**~45× faster.** The Rust figure is measured directly. The ArkTS figure is one
+napi round trip per widget at the rate measured above — the honest way to state
+it, since napi may only be entered from the JS thread, so there is no cheaper
+way to create an ArkTS widget from native code.
+
+The gap is not marshalling. It is the 730 µs of queue latency waiting for a
+single-threaded event loop that is already busy doing layout.
+
 ## Status
 
-Working: native tree creation, attributes, containers, scrolling, event
-registration, mounting, and the catalog on a real device (HarmonyOS 6.1,
-SUP-AL90).
+Working: a 28-screen catalog with an index, per-component demo screens and back
+navigation; native tree creation, attributes, containers, scrolling, click
+events routed into Rust, tree rebuild on navigation, and the benchmark — all on
+a real device (HarmonyOS 6.1, SUP-AL90).
 
 Not done yet: the event *receiver* is registered but callbacks are not yet
 dispatched back into Rust handlers, there is no diffing (the tree is built
