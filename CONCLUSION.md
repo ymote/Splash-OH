@@ -83,6 +83,75 @@ So: ~3× on construction, and — more importantly — a cost that does not degr
 as the UI thread fills up, because it never queues behind it. That is a weaker
 claim than this repo started with, and it is the one the evidence supports.
 
+## Memory
+
+Same node, same process, RSS from `/proc/self/status`, sampled around each
+phase. 8000 widgets built 1000 per event-loop tick, then released, then ten
+samples over four seconds with nothing else allocating.
+
+### Bytes per widget
+
+| | marginal cost per node |
+|---|---|
+| **Rust → ArkUI NDK** | **~46 KB** |
+| **ArkTS → typeNode** | **~50 KB** |
+
+Measured over the 1000→8000 range, so the first chunk's setup is excluded:
+`(496 928 − 175 032) / 7000 = 46.0 KB` for Rust, `(534 584 − 187 704) / 7000 =
+49.6 KB` for ArkTS.
+
+**ArkTS costs about 8% more — roughly 3.6 KB per widget.** That is the JS
+wrapper object, its finalizer and the cross-language reference tracking. Real,
+and much smaller than the 2.6–3.2× it costs in *time*. The wrapper is cheap in
+bytes and expensive in cycles.
+
+### The number that actually matters
+
+**A single `Text` widget costs ~46 KB resident**, and that is the native ArkUI
+node — both paths pay it. It dwarfs everything else here.
+
+```
+    2 000 widgets  ≈   92 MB
+    8 000 widgets  ≈  350 MB
+   30 000 widgets  ≈  1.1 GB
+```
+
+At 30 000 the app died. Not from OOM, as it happens — `THREAD_BLOCK_6S`,
+because allocating that much in one callback also blocks the UI thread — but
+1.1 GB for a widget tree is not a thing you get to do on a phone regardless.
+
+This reframes the timing result more than it supports it. Building 2000 widgets
+costs ~40 ms in Rust and ~105 ms in ArkTS: a 65 ms difference, once. Both cost
+92 MB, permanently. **A large widget tree is memory-bound long before
+construction time is what stops you.** If the reason to pick the NDK path was
+"we can afford more widgets", memory says no in both languages.
+
+### Reclaim
+
+| | on release | after 4 s idle |
+|---|---|---|
+| **Rust** | 42% returned immediately | flat |
+| **ArkTS** | **nothing** — RSS rose 21 MB | flat |
+
+Rust `drop`s; ArkTS drops a reference and hopes. Within the measurement window
+ArkTS returned none of its ~350 MB, and RSS went *up* slightly on release.
+
+One honest complication: Rust's remaining 58% did come back — but only later,
+when the ArkTS phase started allocating. It sat flat at 350 MB for four idle
+seconds and then fell to ~163 MB the moment there was demand. So the allocator
+holds pages until something wants them, which means **"memory came back" is hard
+to prove and "memory did not come back" is easy** — an asymmetry worth
+remembering before reading either column as a leak. ArkTS was not given the same
+later opportunity, because nothing allocated after it.
+
+### What this does not measure
+
+Whether a forced GC would have reclaimed the ArkTS side (`ArkTools.forceFullGC`
+is not available in a release build), what happens over hours rather than
+seconds, and mounted widgets — every node here is detached, so none of the
+layout, text-shaping or render-node memory a visible tree would add is counted.
+The real per-widget figure on screen is higher than 46 KB, on both paths.
+
 ## Caveats
 
 - **Measurement C (the napi round trip) does not run** in the current build.
@@ -95,6 +164,8 @@ claim than this repo started with, and it is the one the evidence supports.
   walker, but only six were inspected on device.
 - **Nothing was measured under load**, which is where the contention argument
   would actually be settled. An idle-thread microbenchmark says nothing about it.
+- **Only detached widgets were measured for memory.** Nothing was mounted, so
+  layout and render-node memory is not in the 46 KB figure.
 - Everything about ArkTS's *declarative* path is out of scope. `typeNode` is its
   imperative escape hatch, chosen precisely because it is the apples-to-apples
   control.
