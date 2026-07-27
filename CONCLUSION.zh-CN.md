@@ -147,7 +147,9 @@ render node 那些内存，一点都没算进去。屏幕上真实的单控件�
 - **Rust → ArkUI NDK** —— [`crates/splash-oh/src/wechat/`](crates/splash-oh/src/wechat/)
 - **ArkTS → typeNode** —— [`WeChatArkTs.ets`](deveco/entry/src/main/ets/pages/WeChatArkTs.ets)
 
-两个都是真的能用，不是测试用的假页面：同样的十二个会话、原项目里的人名和日文
+两个都是真的能用，不是测试用的假页面：用的是原项目**自己的图片资源** ——
+六张用户头像、WeChat Team 图标、所有菜单图标和四个 tab 的 SVG，都打包在
+`rawfile/wechat/` 里 —— 加上同样的十二个会话、原项目里的人名和日文
 消息内容、同样的四个 tab、同样的 `StackNavigation` 行为（点会话进消息页、点
 Moments 或 My Profile 进对应页、返回退栈）。点一行是真的会跳转。数据只有一份，
 在 Rust 这边，通过 napi 传给 ArkTS，所以两边不可能渲染出不同的内容。
@@ -171,10 +173,20 @@ Moments 或 My Profile 进对应页、返回退栈）。点一行是真的会跳
 | Me | 6.5 → 15.7 ms，2.43× | 4.4 → 12.9 ms，2.91× |
 | Chat（32 条消息） | 13.4 → 23.8 ms，1.78× | 8.2 → 20.6 ms，2.53× |
 | Moments | 5.8 → 12.8 ms，2.19× | 4.7 → 11.4 ms，2.42× |
-| **整轮** | **45.4 → 108.5 ms，2.39×** | **38.2 → 97.9 ms，2.56×** |
+| **整轮** | **54.1 → 123.4 ms，2.28×** | **44.2 → 125.2 ms，2.83×** |
 
-**真实 app 上约 2.4–2.6 倍**，跟合成 benchmark 的 2.6–3.2 倍对得上。由
+**真实 app 上约 2.3–2.8 倍**，跟合成 benchmark 的 2.6–3.2 倍对得上。由
 `Row`/`Column`/`Text`/`Image` 混合而成的真实树，表现和 microbenchmark 预测的一致。
+
+### 一个值得记下的资源坑
+
+原项目那四个 tab 的 SVG，`viewBox` 写的是 `"0 0 24 24"`，但路径数据一直画到
+约 485。makepad 不管 viewBox，直接按路径算边界，所以在它那儿显示正常。ArkUI
+是认 viewBox 的，于是就裁成了左上角一小块空白，整个 tab 栏是空的。修正过的
+viewBox 在 `rawfile/wechat/` 里；PNG 不用动。
+
+要移植 makepad 应用的话这点值得知道：那些"本来就能用"的资源，可能只是在依赖
+makepad 比较宽容。
 
 ### 负载并没有把差距拉大，而我原本以为会
 

@@ -231,18 +231,64 @@ pub fn wechat_time(tab: u32, route: String, chat_id: u32) -> Vec<f64> {
 pub fn wechat_chats() -> Vec<String> {
     wechat::db::CHATS
         .iter()
-        .map(|c| format!("{}|{}|{}", c.username, c.preview.text(), c.timestamp))
+        .map(|c| format!("{}|{}|{}|{}", c.username, c.preview.text(), c.timestamp, c.avatar))
         .collect()
 }
 
-/// Messages for a chat, as "direction|text".
+/// Asset lists the ArkTS implementation needs, so both render the same icons.
+/// Each entry is "label|file".
+#[napi(js_name = "wechatAssets")]
+pub fn wechat_assets(which: String) -> Vec<String> {
+    let pairs: &[(&str, &str)] = match which.as_str() {
+        "tabs" => wechat::db::TAB_ICONS,
+        "discover" => wechat::db::DISCOVER,
+        "profile" => wechat::db::PROFILE,
+        "contacts" => wechat::db::CONTACT_ACTIONS,
+        _ => &[],
+    };
+    pairs.iter().map(|(a, b)| format!("{a}|{b}")).collect()
+}
+
+/// Contact names paired with the avatar each should use.
+#[napi(js_name = "wechatContacts")]
+pub fn wechat_contacts() -> Vec<String> {
+    const POOL: &[&str] = &[
+        "user1.png", "user2.png", "user3.png", "user4.png", "user5.png", "user6.png",
+    ];
+    let mut out = Vec::new();
+    let mut k = 0usize;
+    for (initial, names) in wechat::db::CONTACT_GROUPS {
+        out.push(format!("#|{initial}"));
+        for n in *names {
+            out.push(format!("{n}|{}", POOL[k % POOL.len()]));
+            k += 1;
+        }
+    }
+    out
+}
+
+/// Moments feed as "author|body|avatar|photo".
+#[napi(js_name = "wechatMoments")]
+pub fn wechat_moments() -> Vec<String> {
+    wechat::db::MOMENTS
+        .iter()
+        .map(|(a, b, av, p)| format!("{a}|{b}|{av}|{p}"))
+        .collect()
+}
+
+/// Messages for a chat, as "direction|text|avatar".
 #[napi(js_name = "wechatMessages")]
 pub fn wechat_messages(chat_id: u32) -> Vec<String> {
     (0..wechat::db::MESSAGES_PER_CHAT)
         .map(|i| {
             let m = wechat::db::message(chat_id as u64, i);
             let d = if matches!(m.direction, wechat::db::Direction::Outgoing) { "o" } else { "i" };
-            format!("{d}|{}", m.text)
+            let av = if matches!(m.direction, wechat::db::Direction::Outgoing) {
+                wechat::db::MY_AVATAR
+            } else {
+                wechat::db::peer_avatar(chat_id as u64)
+            };
+            format!("{d}|{}|{av}", m.text)
         })
         .collect()
 }

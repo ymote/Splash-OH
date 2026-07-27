@@ -31,6 +31,8 @@ pub struct Chat {
     pub username: &'static str,
     pub preview: Preview,
     pub timestamp: &'static str,
+    /// Avatar file in `rawfile/wechat/`, from the reference app's own set.
+    pub avatar: &'static str,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -47,18 +49,18 @@ pub struct Message {
 
 /// The twelve chats, in the reference app's order.
 pub const CHATS: &[Chat] = &[
-    Chat { id: 1,  username: "Olive Yew",        preview: Preview::Text("Hey, how are you?"),        timestamp: "10:45" },
-    Chat { id: 2,  username: "John Doe",         preview: Preview::Audio,                            timestamp: "09:12" },
-    Chat { id: 3,  username: "Peg Legge",        preview: Preview::Text("See you tomorrow!"),        timestamp: "Yesterday" },
-    Chat { id: 4,  username: "Barb Akew",        preview: Preview::Image,                            timestamp: "Yesterday" },
-    Chat { id: 5,  username: "Chris P. Bacon",   preview: Preview::Text("Sounds good to me"),        timestamp: "Yesterday" },
-    Chat { id: 6,  username: "WeChat Team",      preview: Preview::Text("Welcome to WeChat"),        timestamp: "Monday" },
-    Chat { id: 7,  username: "Andrew Lin",       preview: Preview::Video,                            timestamp: "Monday" },
-    Chat { id: 8,  username: "Christian Huxley", preview: Preview::Text("Did you see the build?"),   timestamp: "Sunday" },
-    Chat { id: 9,  username: "Ana Leddie",       preview: Preview::Text("Thanks!"),                  timestamp: "Sunday" },
-    Chat { id: 10, username: "Adam Adler",       preview: Preview::Text("Let's meet at 3pm"),        timestamp: "12/04" },
-    Chat { id: 11, username: "Gabriel Hayes",    preview: Preview::Audio,                            timestamp: "12/03" },
-    Chat { id: 12, username: "Eric Ford",        preview: Preview::Text("I'm using WeChat"),         timestamp: "12/01" },
+    Chat { id: 1, username: "Olive Yew", preview: Preview::Text("Hey, how are you?"), timestamp: "10:45", avatar: "user1.png" },
+    Chat { id: 2, username: "John Doe", preview: Preview::Audio, timestamp: "09:12", avatar: "user2.png" },
+    Chat { id: 3, username: "Peg Legge", preview: Preview::Text("See you tomorrow!"), timestamp: "Yesterday", avatar: "user3.png" },
+    Chat { id: 4, username: "Barb Akew", preview: Preview::Image, timestamp: "Yesterday", avatar: "user4.png" },
+    Chat { id: 5, username: "Chris P. Bacon", preview: Preview::Text("Sounds good to me"), timestamp: "Yesterday", avatar: "user5.png" },
+    Chat { id: 6, username: "WeChat Team", preview: Preview::Text("Welcome to WeChat"), timestamp: "Monday", avatar: "wechat_avatar.png" },
+    Chat { id: 7, username: "Andrew Lin", preview: Preview::Video, timestamp: "Monday", avatar: "user6.png" },
+    Chat { id: 8, username: "Christian Huxley", preview: Preview::Text("Did you see the build?"), timestamp: "Sunday", avatar: "user1.png" },
+    Chat { id: 9, username: "Ana Leddie", preview: Preview::Text("Thanks!"), timestamp: "Sunday", avatar: "user2.png" },
+    Chat { id: 10, username: "Adam Adler", preview: Preview::Text("Let's meet at 3pm"), timestamp: "12/04", avatar: "user3.png" },
+    Chat { id: 11, username: "Gabriel Hayes", preview: Preview::Audio, timestamp: "12/03", avatar: "user4.png" },
+    Chat { id: 12, username: "Eric Ford", preview: Preview::Text("I'm using WeChat"), timestamp: "12/01", avatar: "user5.png" },
 ];
 
 /// The message bodies, verbatim from the reference app.
@@ -76,6 +78,22 @@ const BODIES: &[(Direction, &str)] = &[
 /// How many messages a chat has. The reference app builds 200 × 8 entries and
 /// filters by `chat_id`, which works out to roughly this many per chat.
 pub const MESSAGES_PER_CHAT: usize = 32;
+
+/// Avatar for an incoming message in `chat_id` — the other party's.
+pub fn peer_avatar(chat_id: u64) -> &'static str {
+    chat(chat_id).map(|c| c.avatar).unwrap_or("default_avatar.png")
+}
+
+/// The user's own avatar, on outgoing messages.
+pub const MY_AVATAR: &str = "default_avatar.png";
+
+/// Tab bar icons, from the reference app's `resources/icons`.
+pub const TAB_ICONS: &[(&str, &str)] = &[
+    ("Chats", "chat.svg"),
+    ("Contacts", "contacts.svg"),
+    ("Discover", "discover.svg"),
+    ("Me", "me.svg"),
+];
 
 /// Message `i` of `chat_id`.
 pub fn message(chat_id: u64, i: usize) -> Message {
@@ -105,39 +123,41 @@ pub const CONTACT_GROUPS: &[(&str, &[&str])] = &[
     ("W", &["Warren Peace", "Wilma Mine"]),
 ];
 
-/// The fixed entries above the contacts list.
-pub const CONTACT_ACTIONS: &[&str] = &[
-    "New Friends",
-    "Group Chats",
-    "Tags",
-    "Official Accounts",
-    "WeCom Contacts",
+/// The fixed entries above the contacts list, with the reference app's icons.
+pub const CONTACT_ACTIONS: &[(&str, &str)] = &[
+    ("New Friends", "new_friends.png"),
+    ("Group Chats", "group_chats.png"),
+    ("Tags", "tags.png"),
+    ("Official Accounts", "official_accounts.png"),
+    ("WeCom Contacts", "wecom_contacts.png"),
 ];
 
-/// Discover screen entries, in the reference app's grouping.
-pub const DISCOVER_GROUPS: &[&[&str]] = &[
-    &["Moments"],
-    &["Channels", "Live"],
-    &["Scan", "Shake"],
-    &["Top Stories", "Search"],
-    &["Mini Programs"],
+/// Discover screen, exactly the reference app's six entries and icons.
+pub const DISCOVER: &[(&str, &str)] = &[
+    ("Moments", "moments.png"),
+    ("Scan", "scan.png"),
+    ("Shake", "shake.png"),
+    ("Search", "search.png"),
+    ("People Nearby", "people_nearby.png"),
+    ("Mini Programs", "mini_programs.png"),
 ];
 
-/// Profile screen entries.
-pub const PROFILE_GROUPS: &[&[&str]] = &[
-    &["Services"],
-    &["Favorites", "Moments", "Cards & Offers", "Sticker Gallery"],
-    &["Settings"],
+/// Profile screen entries and icons, as the reference app assigns them.
+pub const PROFILE: &[(&str, &str)] = &[
+    ("Favorites", "favorites.png"),
+    ("My Posts", "my-posts.png"),
+    ("Stickers", "sticker-gallery.png"),
+    ("Settings", "settings.png"),
 ];
 
-/// Moments feed: (author, body, whether it carries a photo).
-pub const MOMENTS: &[(&str, &str, bool)] = &[
-    ("Olive Yew", "体議速人幅触無持編聞組込", true),
-    ("John Doe", "減活乗治外進", false),
-    ("Peg Legge", "福読併棋一御質慰", true),
-    ("Barb Akew", "嶋可済政実玉全強無示餌", false),
-    ("Chris P. Bacon", "消再野誰強心無嶋可済実玉全示餌", true),
-    ("WeChat Team", "Welcome to WeChat Moments", false),
-    ("Andrew Lin", "体議速人幅触無持編聞組込", true),
-    ("Ana Leddie", "減活乗治外進", false),
+/// Moments feed: (author, body, avatar, photo or "").
+pub const MOMENTS: &[(&str, &str, &str, &str)] = &[
+    ("Olive Yew", "体議速人幅触無持編聞組込", "user1.png", "post1.jpg"),
+    ("John Doe", "減活乗治外進", "user2.png", ""),
+    ("Peg Legge", "福読併棋一御質慰", "user3.png", "post2.jpg"),
+    ("Barb Akew", "嶋可済政実玉全強無示餌", "user4.png", ""),
+    ("Chris P. Bacon", "消再野誰強心無嶋可済実玉全示餌", "user5.png", "post1.jpg"),
+    ("WeChat Team", "Welcome to WeChat Moments", "wechat_avatar.png", ""),
+    ("Andrew Lin", "体議速人幅触無持編聞組込", "user6.png", "post2.jpg"),
+    ("Ana Leddie", "減活乗治外進", "user2.png", ""),
 ];

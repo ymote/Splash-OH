@@ -162,8 +162,10 @@ was rebuilt as a **working app, twice**:
 - **Rust → ArkUI NDK** — [`crates/splash-oh/src/wechat/`](crates/splash-oh/src/wechat/)
 - **ArkTS → typeNode** — [`WeChatArkTs.ets`](deveco/entry/src/main/ets/pages/WeChatArkTs.ets)
 
-Both are the real thing, not fixtures: the same twelve chats with the reference
-app's names and CJK message bodies, the same four tabs, the same
+Both are the real thing, not fixtures: the reference app's **own image assets**
+— the six user avatars, the WeChat Team logo, all the menu icons and the four
+tab SVGs, shipped in `rawfile/wechat/` — plus the same twelve chats with its
+names and CJK message bodies, the same four tabs, the same
 `StackNavigation` behaviour (tap a chat to push its message view, tap Moments or
 My Profile to push those, back to pop). Tapping a row navigates. The data comes
 from one place — Rust — and crosses to ArkTS over napi, so neither can render
@@ -190,11 +192,22 @@ warm-up tours.
 | Me | 6.5 → 15.7 ms — 2.43× | 4.4 → 12.9 ms — 2.91× |
 | Chat (32 messages) | 13.4 → 23.8 ms — 1.78× | 8.2 → 20.6 ms — 2.53× |
 | Moments | 5.8 → 12.8 ms — 2.19× | 4.7 → 11.4 ms — 2.42× |
-| **whole tour** | **45.4 → 108.5 ms — 2.39×** | **38.2 → 97.9 ms — 2.56×** |
+| **whole tour** | **54.1 → 123.4 ms — 2.28×** | **44.2 → 125.2 ms — 2.83×** |
 
-**~2.4–2.6× on a real app**, which lines up with the 2.6–3.2× from the
+**~2.3–2.8× on a real app**, which lines up with the 2.6–3.2× from the
 synthetic benchmark. A real tree of mixed `Row`/`Column`/`Text`/`Image` nodes
 behaves the way the microbenchmark said it would.
+
+### An asset bug worth knowing about
+
+The reference app's four tab SVGs declare `viewBox="0 0 24 24"` but their path
+data runs out to ~485 units. makepad ignores the viewBox and derives bounds from
+the paths, so they render correctly there. ArkUI honours the viewBox, so it
+clips to a blank top-left corner and the tab bar came out empty. Corrected
+viewBoxes are in `rawfile/wechat/`; the PNGs needed no changes.
+
+Worth knowing if you port any makepad app: assets that "work" may be relying on
+makepad being lenient.
 
 ### Load did not widen the gap, and I expected it to
 

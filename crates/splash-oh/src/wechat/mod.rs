@@ -41,6 +41,11 @@ const GREEN: u32 = 0xFF07C160;
 const BUBBLE_OUT: u32 = 0xFF95EC69;
 const AVATAR_BG: u32 = 0xFFC8C8C8;
 
+/// The reference app's six user avatars, cycled through the contact list.
+const AVATAR_POOL: &[&str] = &[
+    "user1.png", "user2.png", "user3.png", "user4.png", "user5.png", "user6.png",
+];
+
 const W: f32 = 402.0;
 const PAGE_H: f32 = 780.0;
 
@@ -177,16 +182,38 @@ fn tap_row(w: f32, h: f32, bg: u32, tap: i32) -> Option<Node> {
     Some(row(w, h, bg)?.on_event(event::click(), tap))
 }
 
-/// Avatar: an Image node with a solid fill, since the reference app's PNGs are
-/// not shipped here. Same node type and cost on both implementations.
-fn avatar(size: f32) -> Option<Node> {
+/// An image from the reference app's own asset set, shipped in
+/// `rawfile/wechat/`. The placeholder fill stays behind it so a missing or
+/// still-decoding file shows as the same grey box rather than nothing.
+fn image(file: &str, w: f32, h: f32, radius: f32) -> Option<Node> {
+    bump();
+    Some(
+        Node::new(ty::image())?
+            .width(w)
+            .height(h)
+            .bg(AVATAR_BG)
+            .radius(radius)
+            .string_attr(attr::image_src(), &format!("resource://RAWFILE/wechat/{file}"))
+            // ARKUI_OBJECT_FIT_COVER
+            .i32_attr(attr::image_fit(), 1),
+    )
+}
+
+fn avatar(file: &str, size: f32) -> Option<Node> {
+    image(file, size, size, size * 0.12)
+}
+
+/// A menu icon. No placeholder fill: a grey square behind a monochrome glyph
+/// hides the glyph, and hides a failure to load along with it.
+fn icon(file: &str, size: f32) -> Option<Node> {
     bump();
     Some(
         Node::new(ty::image())?
             .width(size)
             .height(size)
-            .bg(AVATAR_BG)
-            .radius(size * 0.12),
+            .string_attr(attr::image_src(), &format!("resource://RAWFILE/wechat/{file}"))
+            // ARKUI_OBJECT_FIT_CONTAIN — glyphs must not be cropped.
+            .i32_attr(attr::image_fit(), 0),
     )
 }
 
@@ -217,13 +244,16 @@ fn header(title: &str, with_back: bool) -> Option<Node> {
     Some(h)
 }
 
-/// The four-tab bar. Two nodes per tab plus the container, so 9.
+/// The four-tab bar, with the reference app's own SVG icons.
 fn tab_bar(active: usize) -> Option<Node> {
     let mut bar = row(W, 56.0, NAV_BG)?;
-    for (i, label) in ["Chats", "Contacts", "Discover", "Me"].iter().enumerate() {
+    for (i, (label, file)) in TAB_ICONS.iter().enumerate() {
         let c = if i == active { GREEN } else { SUBTLE };
         let mut t = tap_row(W / 4.0, 56.0, NAV_BG, TAB_BASE + i as i32)?;
-        t = t.child(text(label, 11.0, c, W / 4.0 - 4.0, 16.0)?);
+        let mut inner = col(W / 4.0 - 4.0, 50.0, NAV_BG)?;
+        inner = inner.child(icon(file, 24.0)?);
+        inner = inner.child(text(label, 11.0, c, W / 4.0 - 6.0, 16.0)?);
+        t = t.child(inner);
         bar = bar.child(t);
     }
     Some(bar)
@@ -245,7 +275,7 @@ fn search_bar() -> Option<Node> {
 /// timestamp — and tapping it opens that chat.
 fn chat_row(c: &Chat) -> Option<Node> {
     let mut r = tap_row(W, 66.0, SURFACE, CHAT_BASE + c.id as i32)?;
-    r = r.child(avatar(44.0)?);
+    r = r.child(avatar(c.avatar, 44.0)?);
     let mut mid = col(W - 150.0, 60.0, SURFACE)?;
     mid = mid.child(text(c.username, 16.0, TEXT, W - 160.0, 22.0)?);
     mid = mid.child(text(c.preview.text(), 13.0, SUBTLE, W - 160.0, 20.0)?);
@@ -262,29 +292,29 @@ fn message_row(m: &Message) -> Option<Node> {
     if outgoing {
         r = r.child(col(W - 250.0, 50.0, BG)?);
     } else {
-        r = r.child(avatar(38.0)?);
+        r = r.child(avatar(peer_avatar(m.chat_id), 38.0)?);
     }
     let mut bubble = col(200.0, 44.0, if outgoing { BUBBLE_OUT } else { SURFACE })?.radius(6.0);
     bubble = bubble.child(text(m.text, 15.0, TEXT, 188.0, 24.0)?);
     r = r.child(bubble);
     if outgoing {
-        r = r.child(avatar(38.0)?);
+        r = r.child(avatar(MY_AVATAR, 38.0)?);
     }
     Some(r)
 }
 
 /// A plain list row: icon, label, chevron.
-fn menu_row(label: &str, tap: i32) -> Option<Node> {
+fn menu_row(label: &str, file: &str, tap: i32) -> Option<Node> {
     let mut r = tap_row(W, 52.0, SURFACE, tap)?;
-    r = r.child(avatar(26.0)?);
+    r = r.child(icon(file, 26.0)?);
     r = r.child(text(label, 15.0, TEXT, W - 110.0, 22.0)?);
     r = r.child(text("›", 16.0, SUBTLE, 24.0, 22.0)?);
     Some(r)
 }
 
-fn contact_row(name: &str) -> Option<Node> {
+fn contact_row(name: &str, avatar_file: &str) -> Option<Node> {
     let mut r = tap_row(W, 50.0, SURFACE, 0)?;
-    r = r.child(avatar(34.0)?);
+    r = r.child(avatar(avatar_file, 34.0)?);
     r = r.child(text(name, 15.0, TEXT, W - 90.0, 22.0)?);
     Some(r)
 }
@@ -295,14 +325,15 @@ fn section_label(s: &str) -> Option<Node> {
     Some(r)
 }
 
-fn moment_row(author: &str, body: &str, photo: bool) -> Option<Node> {
-    let mut m = row(W, if photo { 150.0 } else { 82.0 }, SURFACE)?;
-    m = m.child(avatar(40.0)?);
-    let mut c = col(W - 80.0, if photo { 140.0 } else { 72.0 }, SURFACE)?;
+fn moment_row(author: &str, body: &str, av: &str, photo: &str) -> Option<Node> {
+    let has_photo = !photo.is_empty();
+    let mut m = row(W, if has_photo { 170.0 } else { 82.0 }, SURFACE)?;
+    m = m.child(avatar(av, 40.0)?);
+    let mut c = col(W - 80.0, if has_photo { 160.0 } else { 72.0 }, SURFACE)?;
     c = c.child(text(author, 14.0, 0xFF576B95, W - 90.0, 20.0)?);
     c = c.child(text(body, 14.0, TEXT, W - 90.0, 22.0)?);
-    if photo {
-        c = c.child(avatar(80.0)?);
+    if has_photo {
+        c = c.child(image(photo, 110.0, 100.0, 4.0)?);
     }
     m = m.child(c);
     Some(m)
@@ -325,13 +356,16 @@ fn screen_chats(body: Node) -> Option<Node> {
 fn screen_contacts(body: Node) -> Option<Node> {
     let mut b = body;
     b = b.child(search_bar()?);
-    for a in CONTACT_ACTIONS {
-        b = b.child(menu_row(a, LINK_ADD_CONTACT)?);
+    for (label, file) in CONTACT_ACTIONS {
+        b = b.child(menu_row(label, file, LINK_ADD_CONTACT)?);
     }
+    let mut k = 0usize;
     for (initial, names) in CONTACT_GROUPS {
         b = b.child(section_label(initial)?);
         for n in *names {
-            b = b.child(contact_row(n)?);
+            // Cycle the reference app's six user avatars, as it does.
+            b = b.child(contact_row(n, AVATAR_POOL[k % AVATAR_POOL.len()])?);
+            k += 1;
         }
     }
     Some(b)
@@ -339,12 +373,14 @@ fn screen_contacts(body: Node) -> Option<Node> {
 
 fn screen_discover(body: Node) -> Option<Node> {
     let mut b = body;
-    for group in DISCOVER_GROUPS {
-        for entry in *group {
-            let tap = if *entry == "Moments" { LINK_MOMENTS } else { 0 };
-            b = b.child(menu_row(entry, tap)?);
+    // The reference app groups these: Moments alone, then Scan/Shake,
+    // then Search/People Nearby, then Mini Programs.
+    for (i, (label, file)) in DISCOVER.iter().enumerate() {
+        let tap = if *label == "Moments" { LINK_MOMENTS } else { 0 };
+        b = b.child(menu_row(label, file, tap)?);
+        if matches!(i, 0 | 2 | 4) {
+            b = b.child(col(W, 10.0, BG)?);
         }
-        b = b.child(col(W, 10.0, BG)?);
     }
     Some(b)
 }
@@ -353,21 +389,22 @@ fn screen_me(body: Node) -> Option<Node> {
     let mut b = body;
     // Profile header, tappable into My Profile.
     let mut head = tap_row(W, 116.0, SURFACE, LINK_MY_PROFILE)?;
-    head = head.child(avatar(64.0)?);
+    head = head.child(avatar("default_avatar.png", 64.0)?);
     let mut hc = col(W - 160.0, 80.0, SURFACE)?;
     hc = hc.child(text("Rik Arends", 20.0, TEXT, W - 170.0, 28.0)?);
     hc = hc.child(text("WeChat ID: rikarends", 12.0, SUBTLE, W - 170.0, 20.0)?);
     hc = hc.child(text("＋ Status", 12.0, SUBTLE, W - 170.0, 20.0)?);
     head = head.child(hc);
+    head = head.child(icon("qr_icon.png", 20.0)?);
     head = head.child(text("›", 16.0, SUBTLE, 24.0, 22.0)?);
     b = b.child(head);
     b = b.child(col(W, 10.0, BG)?);
-    for group in PROFILE_GROUPS {
-        for entry in *group {
-            let tap = if *entry == "Moments" { LINK_MOMENTS } else { 0 };
-            b = b.child(menu_row(entry, tap)?);
+    for (i, (label, file)) in PROFILE.iter().enumerate() {
+        let tap = if *label == "My Posts" { LINK_MOMENTS } else { 0 };
+        b = b.child(menu_row(label, file, tap)?);
+        if i == 2 {
+            b = b.child(col(W, 10.0, BG)?);
         }
-        b = b.child(col(W, 10.0, BG)?);
     }
     Some(b)
 }
@@ -379,7 +416,7 @@ fn screen_chat(body: Node, chat_id: u64) -> Option<Node> {
     }
     // Composer, as in the reference app.
     let mut c = row(W, 52.0, NAV_BG)?;
-    c = c.child(avatar(28.0)?);
+    c = c.child(icon("smiley_face_bw.png", 28.0)?);
     c = c.child(col(W - 130.0, 34.0, SURFACE)?.radius(5.0));
     c = c.child(text("😊", 18.0, TEXT, 30.0, 26.0)?);
     c = c.child(text("＋", 18.0, TEXT, 30.0, 26.0)?);
@@ -389,9 +426,9 @@ fn screen_chat(body: Node, chat_id: u64) -> Option<Node> {
 
 fn screen_moments(body: Node) -> Option<Node> {
     let mut b = body;
-    b = b.child(avatar(120.0)?); // hero banner
-    for (author, text_, photo) in MOMENTS {
-        b = b.child(moment_row(author, text_, *photo)?);
+    b = b.child(image("hero.jpg", W, 150.0, 0.0)?); // the reference app's hero
+    for (author, body, av, photo) in MOMENTS {
+        b = b.child(moment_row(author, body, av, photo)?);
         b = b.child(divider()?);
     }
     Some(b)
@@ -401,16 +438,27 @@ fn screen_add_contact(body: Node) -> Option<Node> {
     let mut b = body;
     b = b.child(search_bar()?);
     b = b.child(section_label("My WeChat ID: rikarends")?);
-    for entry in ["Scan", "Mobile Contacts", "Official Accounts", "WeCom Contacts"] {
-        b = b.child(menu_row(entry, 0)?);
+    for (label, file) in [
+        ("Scan", "scan_qr.png"),
+        ("Mobile Contacts", "mobile_contacts.png"),
+        ("Official Accounts", "official_accounts.png"),
+        ("WeCom Contacts", "wecom_contacts.png"),
+    ] {
+        b = b.child(menu_row(label, file, 0)?);
     }
     Some(b)
 }
 
 fn screen_my_profile(body: Node) -> Option<Node> {
     let mut b = body;
-    for entry in ["Profile Photo", "Name", "WeChat ID", "My QR Code", "More"] {
-        b = b.child(menu_row(entry, 0)?);
+    for (label, file) in [
+        ("Profile Photo", "default_avatar.png"),
+        ("Name", "tags.png"),
+        ("WeChat ID", "qr_icon.png"),
+        ("My QR Code", "qr_green.png"),
+        ("More", "settings.png"),
+    ] {
+        b = b.child(menu_row(label, file, 0)?);
     }
     Some(b)
 }
