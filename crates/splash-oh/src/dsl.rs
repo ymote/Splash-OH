@@ -39,13 +39,31 @@ use makepad_script::*;
 pub fn build_screen(screen: &str, bench: Option<&str>) -> Option<Node> {
     const CATALOG: &str = include_str!("../assets/catalog.splash");
     let esc = |s: &str| s.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n");
+    // `text_lines` in the DSL estimates wrapped height from `s.len()`, which
+    // cannot see embedded newlines — the benchmark report has plenty, and it
+    // overflowed its card. Rust can just count them properly and pass the
+    // answer down.
+    let report = bench.unwrap_or("");
     let src = format!(
-        "let screen = \"{}\"\nlet bench = \"{}\"\n{}",
+        "let screen = \"{}\"\nlet bench = \"{}\"\nlet bench_lines = {}\n{}",
         esc(screen),
-        esc(bench.unwrap_or("")),
+        esc(report),
+        display_lines(report, BENCH_CHARS_PER_LINE),
         CATALOG
     );
     build(&src)
+}
+
+/// Roughly how many characters fit on one line of the report, at the size and
+/// width `catalog.splash` renders it. Matches the DSL's own 2.2 chars/vp rule.
+const BENCH_CHARS_PER_LINE: usize = 63;
+
+/// Wrapped line count, counting hard newlines as well as wrapping.
+fn display_lines(s: &str, per_line: usize) -> usize {
+    s.lines()
+        .map(|l| if l.is_empty() { 1 } else { l.len().div_ceil(per_line) })
+        .sum::<usize>()
+        .max(1)
 }
 
 /// Evaluate Splash source and build the native tree it describes.

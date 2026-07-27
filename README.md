@@ -15,24 +15,15 @@ configured and mounted by Rust.
 ## Why
 
 `octos-one`'s OpenHarmony port drives native widgets by calling ArkTS methods
-over napi. Measured on a SUP-AL90, one round trip costs:
+over napi, and a round trip there measured ~1.05 ms — 70% of it spent waiting
+for the JS event loop to pick the work up. One webview rectangle per frame can
+survive that. A *widget tree* cannot, if every `View`, `Label` and `Button` pays
+it.
 
-| phase | avg |
-|---|---|
-| `uv_queue_work` enqueue | 101 µs |
-| **waiting for the JS event loop to pick it up** | **730 µs (70%)** |
-| napi marshalling + ArkTS body | 220 µs |
-| **total** | **~1.05 ms** |
-
-The same operation on Android, via JNI + `runOnUiThread`, costs **46 µs** — 22×
-cheaper, because Android posts and returns instead of blocking on a
-single-threaded event loop.
-
-One webview rectangle per frame can survive 1 ms. A *widget tree* cannot: every
-`View`, `Label` and `Button` would pay it. So this repo asks whether the JS
-thread can be removed from the path entirely.
-
-It can.
+So this repo asks whether the JS thread can be removed from the path entirely.
+It can — and then it asks what that is actually worth, which turns out to be a
+more interesting question than the premise. See
+[the measurements](#widget-construction-rust-vs-arkts-measured).
 
 ## The one piece of ArkTS
 
@@ -161,24 +152,92 @@ And one known-hard mismatch: makepad's `Walk`/`Layout` (`Fill`/`Fit`, `flow:
 Down/Right/Overlay`) is close to flexbox but not identical, so cards authored
 against makepad's exact behaviour will need review, not just a backend swap.
 
-## Widget construction: Rust vs ArkTS
+## Widget construction: Rust vs ArkTS, measured
 
-Measured on the SUP-AL90 — open **Performance** in the app and tap *Run
-benchmark*, or read it from the log (it also runs once at startup). Three runs:
+> **Correction.** An earlier version of this file claimed Rust was ~45× faster.
+> That number compared a *measured* Rust cost against a *projected* ArkTS cost,
+> and the projection was wrong. Measured properly, on device, it is **~2.5×**.
+> The old figure and the reasoning that produced it are dissected below, because
+> the way it failed is the most useful thing here.
 
-| path | per widget | 2000 widgets |
+Open **Performance** in the app and tap *Run benchmark*, or read `hilog`. All
+numbers below are from a SUP-AL90 (HarmonyOS 6.1), release build.
+
+### The comparison
+
+Both paths create the **same** thing — not an equivalent, the same. ArkTS's
+`typeNode.createNode(ctx, 'Text')` and the NDK's `createNode(ARKUI_NODE_TEXT)`
+both land on the same C++ `TextPattern` inside libace. Four attributes are set
+on each (font size, font colour, width, height). 2000 nodes, warm-up, five
+trials, median reported.
+
+That equivalence is what makes the comparison fair: measure, layout, paint and
+rasterise are identical native code afterwards and cancel out. Construction is
+the only stage where the two differ, so construction is what is isolated.
+Timing a whole frame instead would mostly be timing layout, which both pay.
+
+Four separate runs (median of five trials each, plus the spread within a run):
+
+| | µs per node | across runs | within a run |
+|---|---|---|---|
+| **A — Rust → ArkUI NDK** | **~24** | 23.4 – 24.4 | 22.8 – 25.7 |
+| **B — ArkTS → typeNode** | **~60** | 54.5 – 62.1 | 45.4 – 78.3 |
+
+**Rust is 2.2–2.6× faster at construction.** That is the defensible number.
+ArkTS is doing the same native work plus an interpreter, a per-call attribute
+object, and GC pressure from 2000 live handles — a constant factor, not an order
+of magnitude. Note also that B is much noisier than A, which is itself the
+signal: A has no garbage collector in it.
+
+### The bridge, measured separately
+
+A different question: if the logic is in Rust and the widgets are in ArkTS, what
+does crossing cost? Measured as a **true round trip** — a worker thread posts to
+the JS thread and blocks until JS has run and called back. Not fire-and-forget,
+and not pipelined; each crossing is awaited.
+
+| | µs | across runs |
 |---|---|---|
-| **Rust → ArkUI NDK** | **21–25 µs** | **42–50 ms** |
-| ArkTS driven over napi | 1051 µs | 2102 ms |
+| **empty crossing** (control — no work, JS just acknowledges) | **~31** | 28.6 – 36.9 |
+| 1 widget per crossing | ~100 | 99 – 147 |
+| 200 widgets in one crossing | ~117 per widget | 110 – 122 |
 
-**42–50× faster.** The Rust figure is measured directly, building 2000 real
-`ARKUI_NODE_TEXT` nodes with four attributes each. The ArkTS figure is one napi
-round trip per widget at the rate measured above — the honest way to state it,
-since napi may only be entered from the JS thread, so there is no cheaper way to
-create an ArkTS widget from native code.
+The control is what makes this readable. `100 − 31 ≈ 70 µs` of JS-side widget
+work, which lands inside B's per-trial range. The parts add up, which is the
+main reason to trust the decomposition.
 
-The gap is not marshalling. It is the 730 µs of queue latency waiting for a
-single-threaded event loop that is already busy doing layout.
+And **batching does not help** — 200 widgets in one crossing is not cheaper per
+widget than 200 separate crossings; the two overlap inside their noise. That is
+the opposite of the prediction this benchmark was written to confirm. The bridge
+is only ~31 µs, so it was never the dominant term; per-widget cost is JS-side
+work either way.
+
+### So what happened to 1.05 ms?
+
+The old claim projected ArkTS at 1051 µs per widget, from a round trip measured
+in the octos-one port. Here the same crossing is **~31 µs**. Both measurements
+are real. The difference is the JS thread: in octos-one it was busy, so 730 µs
+of that 1051 was the post sitting in a queue. Here it is idle.
+
+That reframes the argument, and it is the actual finding:
+
+**napi is not slow. Waiting behind a busy JS thread is slow.** Bridge latency
+is not a constant, it is a function of load — and building a widget tree *is*
+load. So the case for the NDK path is not that it wins a microbenchmark by 45×.
+It is that it wins by ~2.5× on construction and, more importantly, that its cost
+does not degrade as the UI thread fills up, because it never queues behind it.
+
+That is a weaker claim than the one this README started with, and it is the one
+the evidence supports.
+
+### What is not measured
+
+Layout, measure and paint — identical native code in both paths, deliberately
+excluded. Real app behaviour under load, which is where the contention argument
+would actually be settled and where a synthetic idle-thread benchmark says
+nothing. Memory. Startup. Everything about ArkTS's declarative path, since
+`typeNode` is its imperative escape hatch, chosen precisely because it is the
+apples-to-apples control.
 
 ## Status
 

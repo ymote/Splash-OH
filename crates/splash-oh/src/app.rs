@@ -56,8 +56,6 @@ struct App {
     root: Option<Node>,
     /// "" is the index screen.
     screen: String,
-    /// Last benchmark result, rendered on the Performance screen.
-    bench: Option<String>,
 }
 
 thread_local! {
@@ -71,18 +69,13 @@ pub fn init(slot: NodeContentHandle) {
             slot,
             root: None,
             screen: String::new(),
-            bench: None,
         })
     });
     unsafe { splash_set_event_handler(on_event) };
-    // Run once at startup so the numbers are in the log even if nobody
-    // navigates to the Performance screen.
-    let report = crate::bench::run();
-    APP.with(|a| {
-        if let Some(app) = a.borrow_mut().as_mut() {
-            app.bench = Some(report);
-        }
-    });
+    // Measurement A runs at startup so it is in the log even if nobody opens
+    // the Performance screen. B and C are kicked off from ArkTS and land
+    // later, each triggering their own rebuild.
+    crate::bench::run_rust();
     rebuild();
 }
 
@@ -91,12 +84,7 @@ extern "C" fn on_event(target_id: i32, _event_type: i32) {
     match target_id {
         NAV_BACK => set_screen(String::new()),
         BENCH_RUN => {
-            let report = crate::bench::run();
-            APP.with(|a| {
-                if let Some(app) = a.borrow_mut().as_mut() {
-                    app.bench = Some(report);
-                }
-            });
+            crate::bench::run_rust();
             rebuild();
         }
         id if id >= NAV_BASE => {
@@ -122,13 +110,14 @@ fn set_screen(s: String) {
 
 /// Re-evaluate the DSL for the current screen and swap the tree in.
 pub fn rebuild() {
-    let (slot, screen, bench) = APP.with(|a| {
+    let (slot, screen) = APP.with(|a| {
         let b = a.borrow();
         let app = b.as_ref().unwrap();
-        (app.slot, app.screen.clone(), app.bench.clone())
+        (app.slot, app.screen.clone())
     });
+    let bench = crate::bench::report();
 
-    let Some(new_root) = crate::dsl::build_screen(&screen, bench.as_deref()) else {
+    let Some(new_root) = crate::dsl::build_screen(&screen, Some(&bench)) else {
         crate::log("app: DSL build failed");
         return;
     };

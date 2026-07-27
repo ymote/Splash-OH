@@ -4,9 +4,11 @@
 //! ArkTS's entire role is to hand over one `NodeContent` slot at startup. After
 //! `mount()` returns, every widget in the app was created, configured, laid out
 //! and event-wired by this library. There are no per-widget and no per-frame
-//! ArkTS calls, which is the point: on the octos-one OHOS port a round trip
-//! through ArkTS measured ~1.0 ms (70% of it just waiting for the JS event loop
-//! to become free), and that cost scales with widget count.
+//! ArkTS calls.
+//!
+//! For what that is actually worth, measured on device, see `bench.rs` — the
+//! answer is smaller than this repo originally claimed (~2.5× on construction,
+//! not ~45×) and the real argument is about contention rather than raw speed.
 
 pub mod app;
 pub mod arkui;
@@ -16,7 +18,11 @@ pub mod dsl;
 
 use arkui::NodeContentHandle;
 use napi_derive_ohos::napi;
-use napi_ohos::{Env, JsObject, NapiRaw};
+use napi_ohos::threadsafe_function::{
+    ErrorStrategy, ThreadsafeFunction, ThreadsafeFunctionCallMode,
+};
+use napi_ohos::{Env, JsFunction, JsObject, NapiRaw};
+use std::sync::{Condvar, Mutex, OnceLock};
 
 extern "C" {
     /// napi_value (an ArkTS `NodeContent`) -> native slot handle.
@@ -76,4 +82,139 @@ pub(crate) fn log(msg: &str) {
             );
         }
     }
+}
+
+
+// ---------------------------------------------------------------------------
+// Benchmark plumbing.
+//
+// Measurement B is timed in ArkTS and reported down here. Measurement C times
+// the napi boundary in the expensive direction (native -> JS) by posting to
+// the JS thread and blocking until JS has run and called back.
+// ---------------------------------------------------------------------------
+
+/// A JS function the bridge benchmark calls. It builds `n` widgets in ArkTS
+/// and then calls `bridgeDone`.
+static BRIDGE: OnceLock<ThreadsafeFunction<u32, ErrorStrategy::Fatal>> = OnceLock::new();
+
+/// Completion signal for one bridge crossing. A plain counter plus a condvar:
+/// the worker records the count it wants and sleeps until JS gets there.
+struct Signal {
+    count: Mutex<u64>,
+    cv: Condvar,
+}
+static SIGNAL: OnceLock<Signal> = OnceLock::new();
+fn signal() -> &'static Signal {
+    SIGNAL.get_or_init(|| Signal {
+        count: Mutex::new(0),
+        cv: Condvar::new(),
+    })
+}
+
+/// Measurement B: ArkTS timed itself building `n` nodes, `trials_ms` per trial.
+#[napi(js_name = "reportArkts")]
+pub fn report_arkts(n: u32, trials_ms: Vec<f64>) {
+    bench::record_arkts(n, trials_ms);
+    app::rebuild();
+}
+
+/// Hand Rust a JS function so it can measure the native -> JS direction.
+#[napi(js_name = "setBridge")]
+pub fn set_bridge(cb: JsFunction) -> napi_ohos::Result<()> {
+    let tsfn: ThreadsafeFunction<u32, ErrorStrategy::Fatal> =
+        cb.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
+    let _ = BRIDGE.set(tsfn);
+    Ok(())
+}
+
+/// Called from JS when one bridge crossing has finished its work.
+#[napi(js_name = "bridgeDone")]
+pub fn bridge_done() {
+    let s = signal();
+    let mut g = s.count.lock().unwrap();
+    *g += 1;
+    s.cv.notify_all();
+}
+
+/// Redraw after the worker thread has filled in measurement C. Must be called
+/// from JS, because only the JS thread may touch the ArkUI tree.
+#[napi(js_name = "benchRefresh")]
+pub fn bench_refresh() {
+    app::rebuild();
+}
+
+/// Measurement C. Runs on a worker thread — it blocks waiting for the JS
+/// thread, so running it on the JS thread would deadlock instantly.
+#[napi(js_name = "runBridgeBench")]
+pub fn run_bridge_bench() {
+    std::thread::spawn(|| {
+        let Some(tsfn) = BRIDGE.get() else {
+            return;
+        };
+        let s = signal();
+
+        // Block until JS has completed `target` crossings in total.
+        let wait_until = |target: u64| {
+            let mut g = s.count.lock().unwrap();
+            while *g < target {
+                g = s.cv.wait(g).unwrap();
+            }
+        };
+
+        // Same widget count both ways, so the two numbers are directly
+        // comparable: M crossings of one widget, versus one crossing of M.
+        const M: u32 = 200;
+        const REPS: usize = 5;
+        /// Sentinel: acknowledge without doing any work (the control).
+        const EMPTY: u32 = 0xFFFF_FFFE;
+        /// Sentinel: hop onto the JS thread purely to redraw.
+        const REFRESH: u32 = 0xFFFF_FFFF;
+
+        // One awaited crossing carrying `n` widgets. Awaiting each one is the
+        // point: firing them all and waiting once at the end measures pipelined
+        // throughput, which is a different and much flatterier number than the
+        // round-trip latency an interactive caller actually experiences.
+        let crossing = |n: u32| {
+            let base = *s.count.lock().unwrap();
+            let t0 = std::time::Instant::now();
+            tsfn.call(n, ThreadsafeFunctionCallMode::Blocking);
+            wait_until(base + 1);
+            t0.elapsed().as_nanos() as f64 / 1000.0
+        };
+
+        let median = |mut v: Vec<f64>| -> f64 {
+            v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            v[v.len() / 2]
+        };
+
+        for _ in 0..8 {
+            crossing(1); // warm up
+        }
+
+        // Control: a crossing that carries no work at all, so JS acknowledges
+        // it immediately. This is the pure round-trip latency of the boundary,
+        // and subtracting it from the others separates "what the bridge costs"
+        // from "what the widget costs".
+        let empty = median((0..M as usize).map(|_| crossing(EMPTY)).collect::<Vec<_>>());
+        crate::log(&format!("bench C control: empty crossing {empty:.1} µs"));
+
+        // Unbatched: one awaited crossing per widget.
+        let unbatched = median(
+            (0..M as usize)
+                .map(|_| crossing(1))
+                .collect::<Vec<_>>(),
+        );
+
+        // Batched: one awaited crossing carrying all M widgets.
+        let batched = median(
+            (0..REPS)
+                .map(|_| crossing(M) / M as f64)
+                .collect::<Vec<_>>(),
+        );
+
+        bench::record_bridge(empty, unbatched, batched);
+
+        // Hop back to the JS thread to redraw — only it may touch the tree.
+        tsfn.call(REFRESH, ThreadsafeFunctionCallMode::Blocking);
+    });
 }

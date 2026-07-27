@@ -63,6 +63,13 @@ fn text_w(s, size, weight, color, w) {
             w: w, h: text_lines(s, size, w) * size * 1.45 + 10}
 }
 
+// For text whose line count the host already knows exactly — `text_lines`
+// estimates from s.len() and cannot see embedded newlines.
+fn text_n(s, size, weight, color, w, n) {
+    return {t: "text", text: s, size: size, weight: weight, color: color,
+            w: w, h: n * size * 1.45 + 12}
+}
+
 fn text(s, size, weight, color) { return text_w(s, size, weight, color, CARDW) }
 fn body(s)    { return text(s, 14, 4, on_surface_v) }
 fn caption(s) { return text(s, 11, 4, outline) }
@@ -411,7 +418,7 @@ fn s_bench() {
     ]
     if bench.len() > 0 {
         out.push(section("RESULT"))
-        out.push(card([text_w(bench, 12, 4, on_surface, CARDW)]))
+        out.push(card([text_n(bench, 12, 4, on_surface, CARDW, bench_lines)]))
     } else {
         out.push(card([caption("Tap Run benchmark to measure on this device.")]))
     }
