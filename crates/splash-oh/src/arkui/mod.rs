@@ -195,7 +195,10 @@ impl Node {
     /// Set a float attribute on a raw handle, bypassing the builder. Only for
     /// the benchmark, which needs to time `setAttribute` on its own without a
     /// `Node` move in the loop.
-    pub fn set_f32_attr_raw(raw: NodeHandle, a: i32, v: f32) {
+    ///
+    /// # Safety
+    /// `raw` must be a live node handle owned by the caller.
+    pub unsafe fn set_f32_attr_raw(raw: NodeHandle, a: i32, v: f32) {
         unsafe { splash_set_f32(raw, a, v) };
     }
 
@@ -255,7 +258,10 @@ impl Node {
 
     /// Mount and hand the node back, so the caller can detach it later on a
     /// rebuild. `mount` forgets the tree; this keeps ownership.
-    pub fn mount_keep(self, content: NodeContentHandle) -> Result<Node, &'static str> {
+    ///
+    /// # Safety
+    /// `content` must be the live `NodeContent` handle ArkTS passed to `mount`.
+    pub unsafe fn mount_keep(self, content: NodeContentHandle) -> Result<Node, &'static str> {
         let r = unsafe { splash_content_add(content, self.raw) };
         if r == 0 {
             Ok(self)
@@ -266,7 +272,10 @@ impl Node {
 
     /// Mount as the root of an ArkTS-provided slot. Consumes self and leaks it
     /// deliberately: the tree must outlive this call for the page's lifetime.
-    pub fn mount(self, content: NodeContentHandle) -> Result<(), &'static str> {
+    ///
+    /// # Safety
+    /// `content` must be the live `NodeContent` handle ArkTS passed to `mount`.
+    pub unsafe fn mount(self, content: NodeContentHandle) -> Result<(), &'static str> {
         let r = unsafe { splash_content_add(content, self.raw) };
         std::mem::forget(self);
         if r == 0 {

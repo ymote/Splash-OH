@@ -49,18 +49,90 @@ pub struct Message {
 
 /// The twelve chats, in the reference app's order.
 pub const CHATS: &[Chat] = &[
-    Chat { id: 1, username: "Olive Yew", preview: Preview::Text("Hey, how are you?"), timestamp: "10:45", avatar: "user1.png" },
-    Chat { id: 2, username: "John Doe", preview: Preview::Audio, timestamp: "09:12", avatar: "user2.png" },
-    Chat { id: 3, username: "Peg Legge", preview: Preview::Text("See you tomorrow!"), timestamp: "Yesterday", avatar: "user3.png" },
-    Chat { id: 4, username: "Barb Akew", preview: Preview::Image, timestamp: "Yesterday", avatar: "user4.png" },
-    Chat { id: 5, username: "Chris P. Bacon", preview: Preview::Text("Sounds good to me"), timestamp: "Yesterday", avatar: "user5.png" },
-    Chat { id: 6, username: "WeChat Team", preview: Preview::Text("Welcome to WeChat"), timestamp: "Monday", avatar: "wechat_avatar.png" },
-    Chat { id: 7, username: "Andrew Lin", preview: Preview::Video, timestamp: "Monday", avatar: "user6.png" },
-    Chat { id: 8, username: "Christian Huxley", preview: Preview::Text("Did you see the build?"), timestamp: "Sunday", avatar: "user1.png" },
-    Chat { id: 9, username: "Ana Leddie", preview: Preview::Text("Thanks!"), timestamp: "Sunday", avatar: "user2.png" },
-    Chat { id: 10, username: "Adam Adler", preview: Preview::Text("Let's meet at 3pm"), timestamp: "12/04", avatar: "user3.png" },
-    Chat { id: 11, username: "Gabriel Hayes", preview: Preview::Audio, timestamp: "12/03", avatar: "user4.png" },
-    Chat { id: 12, username: "Eric Ford", preview: Preview::Text("I'm using WeChat"), timestamp: "12/01", avatar: "user5.png" },
+    Chat {
+        id: 1,
+        username: "Olive Yew",
+        preview: Preview::Text("Hey, how are you?"),
+        timestamp: "10:45",
+        avatar: "user1.png",
+    },
+    Chat {
+        id: 2,
+        username: "John Doe",
+        preview: Preview::Audio,
+        timestamp: "09:12",
+        avatar: "user2.png",
+    },
+    Chat {
+        id: 3,
+        username: "Peg Legge",
+        preview: Preview::Text("See you tomorrow!"),
+        timestamp: "Yesterday",
+        avatar: "user3.png",
+    },
+    Chat {
+        id: 4,
+        username: "Barb Akew",
+        preview: Preview::Image,
+        timestamp: "Yesterday",
+        avatar: "user4.png",
+    },
+    Chat {
+        id: 5,
+        username: "Chris P. Bacon",
+        preview: Preview::Text("Sounds good to me"),
+        timestamp: "Yesterday",
+        avatar: "user5.png",
+    },
+    Chat {
+        id: 6,
+        username: "WeChat Team",
+        preview: Preview::Text("Welcome to WeChat"),
+        timestamp: "Monday",
+        avatar: "wechat_avatar.png",
+    },
+    Chat {
+        id: 7,
+        username: "Andrew Lin",
+        preview: Preview::Video,
+        timestamp: "Monday",
+        avatar: "user6.png",
+    },
+    Chat {
+        id: 8,
+        username: "Christian Huxley",
+        preview: Preview::Text("Did you see the build?"),
+        timestamp: "Sunday",
+        avatar: "user1.png",
+    },
+    Chat {
+        id: 9,
+        username: "Ana Leddie",
+        preview: Preview::Text("Thanks!"),
+        timestamp: "Sunday",
+        avatar: "user2.png",
+    },
+    Chat {
+        id: 10,
+        username: "Adam Adler",
+        preview: Preview::Text("Let's meet at 3pm"),
+        timestamp: "12/04",
+        avatar: "user3.png",
+    },
+    Chat {
+        id: 11,
+        username: "Gabriel Hayes",
+        preview: Preview::Audio,
+        timestamp: "12/03",
+        avatar: "user4.png",
+    },
+    Chat {
+        id: 12,
+        username: "Eric Ford",
+        preview: Preview::Text("I'm using WeChat"),
+        timestamp: "12/01",
+        avatar: "user5.png",
+    },
 ];
 
 /// The message bodies, verbatim from the reference app.
@@ -81,7 +153,9 @@ pub const MESSAGES_PER_CHAT: usize = 32;
 
 /// Avatar for an incoming message in `chat_id` — the other party's.
 pub fn peer_avatar(chat_id: u64) -> &'static str {
-    chat(chat_id).map(|c| c.avatar).unwrap_or("default_avatar.png")
+    chat(chat_id)
+        .map(|c| c.avatar)
+        .unwrap_or("default_avatar.png")
 }
 
 /// The user's own avatar, on outgoing messages.
@@ -111,12 +185,18 @@ pub fn chat(id: u64) -> Option<&'static Chat> {
 
 /// Contacts, grouped by initial, as the reference app's contacts list is.
 pub const CONTACT_GROUPS: &[(&str, &[&str])] = &[
-    ("A", &["Adam Adler", "Ana Leddie", "Andrew Lin", "Aaron Pike"]),
+    (
+        "A",
+        &["Adam Adler", "Ana Leddie", "Andrew Lin", "Aaron Pike"],
+    ),
     ("B", &["Barb Akew", "Ben Dover", "Bill Ding"]),
     ("C", &["Chris P. Bacon", "Christian Huxley", "Carrie Oki"]),
     ("E", &["Eric Ford", "Ella Vator", "Earl E. Bird"]),
     ("G", &["Gabriel Hayes", "Gail Forcewind"]),
-    ("J", &["John Doe", "Jorge Bejar", "Julian Montes de Oca", "Jo King"]),
+    (
+        "J",
+        &["John Doe", "Jorge Bejar", "Julian Montes de Oca", "Jo King"],
+    ),
     ("O", &["Olive Yew", "Olive Branch"]),
     ("P", &["Peg Legge", "Paige Turner", "Polly Ester"]),
     ("R", &["Rik Arends", "Rita Book", "Robin Banks"]),
@@ -152,12 +232,32 @@ pub const PROFILE: &[(&str, &str)] = &[
 
 /// Moments feed: (author, body, avatar, photo or "").
 pub const MOMENTS: &[(&str, &str, &str, &str)] = &[
-    ("Olive Yew", "体議速人幅触無持編聞組込", "user1.png", "post1.jpg"),
+    (
+        "Olive Yew",
+        "体議速人幅触無持編聞組込",
+        "user1.png",
+        "post1.jpg",
+    ),
     ("John Doe", "減活乗治外進", "user2.png", ""),
     ("Peg Legge", "福読併棋一御質慰", "user3.png", "post2.jpg"),
     ("Barb Akew", "嶋可済政実玉全強無示餌", "user4.png", ""),
-    ("Chris P. Bacon", "消再野誰強心無嶋可済実玉全示餌", "user5.png", "post1.jpg"),
-    ("WeChat Team", "Welcome to WeChat Moments", "wechat_avatar.png", ""),
-    ("Andrew Lin", "体議速人幅触無持編聞組込", "user6.png", "post2.jpg"),
+    (
+        "Chris P. Bacon",
+        "消再野誰強心無嶋可済実玉全示餌",
+        "user5.png",
+        "post1.jpg",
+    ),
+    (
+        "WeChat Team",
+        "Welcome to WeChat Moments",
+        "wechat_avatar.png",
+        "",
+    ),
+    (
+        "Andrew Lin",
+        "体議速人幅触無持編聞組込",
+        "user6.png",
+        "post2.jpg",
+    ),
     ("Ana Leddie", "減活乗治外進", "user2.png", ""),
 ];

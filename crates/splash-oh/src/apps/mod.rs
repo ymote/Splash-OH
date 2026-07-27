@@ -68,9 +68,18 @@ impl App {
     /// Tabs and pushed routes each app is toured over, as "tab|route".
     pub fn tour(&self) -> &'static [&'static str] {
         match self {
-            App::WeChat => &["0|root", "1|root", "2|root", "3|root", "0|chat", "0|moments"],
+            App::WeChat => &[
+                "0|root",
+                "1|root",
+                "2|root",
+                "3|root",
+                "0|chat",
+                "0|moments",
+            ],
             App::Taobao => &["0|root", "1|root", "2|root", "3|root", "4|root", "0|detail"],
-            App::TikTok => &["1|reel0", "1|reel1", "1|reel2", "0|root", "1|sheet", "1|feed"],
+            App::TikTok => &[
+                "1|reel0", "1|reel1", "1|reel2", "0|root", "1|sheet", "1|feed",
+            ],
             App::Wonderous => &["0|root", "1|root", "2|root", "3|root", "0|w1", "1|w2"],
             App::Browser => &["0|root", "1|root", "2|root", "3|root", "0|root", "1|root"],
             App::WeatherWeb => &["0|root", "1|root", "2|root", "3|root", "0|root", "1|root"],
@@ -173,7 +182,12 @@ pub fn handle(target: i32) -> bool {
                 _ => false,
             },
             App::Browser => match target {
-                t if (browser::TAB_BASE..browser::TAB_BASE + 4).contains(&t) => {
+                // Derived from TABS rather than hardcoded: a fifth tab was
+                // added and this range was not, so the new tab drew but did
+                // not respond to a tap.
+                t if (browser::TAB_BASE..browser::TAB_BASE + browser::TABS.len() as i32)
+                    .contains(&t) =>
+                {
                     nav.tab = (t - browser::TAB_BASE) as usize;
                     true
                 }
@@ -246,12 +260,18 @@ pub fn build_route(app: App, tab: usize, route: &str) -> (usize, f64) {
             "sheet" => tiktok::build(tab, 0, true),
             "feed" => tiktok::build_feed(),
             r => {
-                let idx = r.strip_prefix("reel").and_then(|s| s.parse().ok()).unwrap_or(0);
+                let idx = r
+                    .strip_prefix("reel")
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(0);
                 tiktok::build(tab, idx, false)
             }
         },
         App::Wonderous => {
-            let w = route.strip_prefix('w').and_then(|s| s.parse().ok()).unwrap_or(0usize);
+            let w = route
+                .strip_prefix('w')
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0usize);
             wonderous::build(tab, w % wonderous::WONDERS.len())
         }
         App::Browser => browser::build(tab),

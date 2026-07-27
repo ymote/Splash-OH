@@ -87,14 +87,18 @@ static DIRTY: Mutex<bool> = Mutex::new(false);
 
 /// True once, if a forecast arrived since the last call.
 pub fn take_dirty() -> bool {
-    DIRTY.lock().map(|mut d| std::mem::replace(&mut *d, false)).unwrap_or(false)
+    DIRTY
+        .lock()
+        .map(|mut d| std::mem::replace(&mut *d, false))
+        .unwrap_or(false)
 }
 
 fn cached(city: usize) -> Option<Forecast> {
-    CACHE
-        .lock()
-        .ok()
-        .and_then(|c| c.as_ref().filter(|(i, _)| *i == city).map(|(_, f)| f.clone()))
+    CACHE.lock().ok().and_then(|c| {
+        c.as_ref()
+            .filter(|(i, _)| *i == city)
+            .map(|(_, f)| f.clone())
+    })
 }
 
 /// Fetch `city` on a worker thread and cache it. Cheap to call repeatedly.
@@ -124,7 +128,9 @@ fn pending() -> Forecast {
         lo: "--".into(),
         humidity: "--".into(),
         wind: "--".into(),
-        days: (0..6).map(|_| ("—".to_string(), "--".into(), "--".into(), -1)).collect(),
+        days: (0..6)
+            .map(|_| ("—".to_string(), "--".into(), "--".into(), -1))
+            .collect(),
         ok: true,
     }
 }

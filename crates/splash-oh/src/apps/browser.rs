@@ -27,8 +27,16 @@ pub const RELOAD: i32 = 510;
 pub const TABS: &[(&str, &str)] = &[
     ("Wikipedia", "https://en.m.wikipedia.org/wiki/OpenHarmony"),
     ("Hacker News", "https://news.ycombinator.com/"),
-    ("YouTube", "https://www.youtube.com/embed/jNQXAC9IVRw?autoplay=1&mute=1&playsinline=1"),
+    (
+        "YouTube",
+        "https://www.youtube.com/embed/jNQXAC9IVRw?autoplay=1&mute=1&playsinline=1",
+    ),
     ("Example", "https://example.com/"),
+    // A page served from the HAP, loaded into a URL-kind slot so the gate
+    // treats it as untrusted. It reports whether an untrusted surface can
+    // reach splash_native -- turning "verified by construction" into
+    // "verified on device".
+    ("Gate probe", "resource://rawfile/probe/bridge-probe.html"),
 ];
 
 /// Chrome height above the web surface: status strip + address bar + tabs.

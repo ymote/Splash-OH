@@ -114,7 +114,11 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args: String) {
         crate::log(&format!(
             "bridge: refused {tool} from untrusted slot {slot}"
         ));
-        reply(slot, call_id, err("this surface is not permitted to call native tools"));
+        reply(
+            slot,
+            call_id,
+            err("this surface is not permitted to call native tools"),
+        );
         return;
     }
 
@@ -238,9 +242,9 @@ fn check_https_public(url: &str) -> Result<String, String> {
     if blocked {
         return Err(format!("host not permitted: {host}"));
     }
-    let allowed = HTTP_GET_ALLOWED_HOSTS.iter().any(|a| {
-        host == *a || host.ends_with(&format!(".{a}"))
-    });
+    let allowed = HTTP_GET_ALLOWED_HOSTS
+        .iter()
+        .any(|a| host == *a || host.ends_with(&format!(".{a}")));
     if !allowed {
         return Err(format!("host not on the allowlist: {host}"));
     }

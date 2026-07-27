@@ -34,9 +34,17 @@ pub const BACK: i32 = 410;
 
 /// The wonders the reference app ships flattened images for.
 pub const WONDERS: &[(&str, &str, &str)] = &[
-    ("Great Wall of China", "great-wall-flattened.jpg", "China · 700 BCE"),
+    (
+        "Great Wall of China",
+        "great-wall-flattened.jpg",
+        "China · 700 BCE",
+    ),
     ("Taj Mahal", "taj-mahal-flattened.jpg", "India · 1632 CE"),
-    ("Machu Picchu", "machu-picchu-flattened.jpg", "Peru · 1450 CE"),
+    (
+        "Machu Picchu",
+        "machu-picchu-flattened.jpg",
+        "Peru · 1450 CE",
+    ),
     ("Petra", "petra-flattened.jpg", "Jordan · 312 BCE"),
 ];
 

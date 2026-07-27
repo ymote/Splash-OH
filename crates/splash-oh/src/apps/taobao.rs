@@ -42,9 +42,19 @@ pub const TABS: &[(&str, &str)] = &[
 pub const PRODUCTS: &[(&str, &str, &str, &str)] = &[
     ("男士人字拖 2023", "500+人付费", "58", "flip_flops.png"),
     ("巧克力大地色调", "10000+人付费", "8.9", "cosmetics.png"),
-    ("冰丝防沙发垫夏季垫t", "50+人付费", "20.9", "living_furniture.png"),
+    (
+        "冰丝防沙发垫夏季垫t",
+        "50+人付费",
+        "20.9",
+        "living_furniture.png",
+    ),
     ("胡萝卜奶锅婴儿不粘锅", "100+人付费", "89", "meal.png"),
-    ("夏季新款连衣裙", "2000+人付费", "129", "seul_collection.png"),
+    (
+        "夏季新款连衣裙",
+        "2000+人付费",
+        "129",
+        "seul_collection.png",
+    ),
     ("无线蓝牙耳机", "8000+人付费", "199", "router.png"),
     ("户外折叠椅便携", "300+人付费", "75", "protein.png"),
     ("儿童益智积木", "1500+人付费", "45", "ring.png"),
@@ -110,7 +120,14 @@ fn product(i: usize) -> Option<Node> {
     let mut info = col(cw - 12.0, 92.0, SURFACE)?;
     info = info.child(text_w(title, 13.0, TEXT, cw - 16.0, 36.0, 5)?);
     info = info.child(text(subtitle, 10.0, SUBTLE, cw - 16.0, 16.0)?);
-    info = info.child(text_w(&format!("¥{price}"), 16.0, ORANGE, cw - 16.0, 24.0, 7)?);
+    info = info.child(text_w(
+        &format!("¥{price}"),
+        16.0,
+        ORANGE,
+        cw - 16.0,
+        24.0,
+        7,
+    )?);
     cell = cell.child(info);
     Some(cell)
 }
@@ -137,7 +154,14 @@ fn detail(body: Node, idx: usize) -> Option<Node> {
     let mut b = body;
     b = b.child(photo(APP, img, W, 300.0, 0.0)?);
     let mut info = col(W, 120.0, SURFACE)?;
-    info = info.child(text_w(&format!("¥{price}"), 24.0, ORANGE, W - 20.0, 34.0, 7)?);
+    info = info.child(text_w(
+        &format!("¥{price}"),
+        24.0,
+        ORANGE,
+        W - 20.0,
+        34.0,
+        7,
+    )?);
     info = info.child(text_w(title, 15.0, TEXT, W - 20.0, 44.0, 5)?);
     info = info.child(text(subtitle, 11.0, SUBTLE, W - 20.0, 18.0)?);
     b = b.child(info);
@@ -174,8 +198,21 @@ fn simple_list(body: Node, rows: usize, label: &str) -> Option<Node> {
         let mut r = row(W, 62.0, SURFACE)?;
         r = r.child(photo(APP, "default_avatar.png", 42.0, 42.0, 21.0)?);
         let mut c = col(W - 90.0, 50.0, SURFACE)?;
-        c = c.child(text_w(&format!("{label} {}", i + 1), 14.0, TEXT, W - 100.0, 20.0, 5)?);
-        c = c.child(text(PRODUCTS[i % PRODUCTS.len()].1, 11.0, SUBTLE, W - 100.0, 18.0)?);
+        c = c.child(text_w(
+            &format!("{label} {}", i + 1),
+            14.0,
+            TEXT,
+            W - 100.0,
+            20.0,
+            5,
+        )?);
+        c = c.child(text(
+            PRODUCTS[i % PRODUCTS.len()].1,
+            11.0,
+            SUBTLE,
+            W - 100.0,
+            18.0,
+        )?);
         r = r.child(c);
         b = b.child(r);
         b = b.child(divider(W, 0xFFEEEEEE)?);

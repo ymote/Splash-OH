@@ -27,7 +27,9 @@ fn thread_bit() -> u64 {
     // Collisions only cost a false positive on a thread that should not be
     // fetching anyway, which is the safe direction to be wrong in.
     let id = format!("{:?}", std::thread::current().id());
-    let h = id.bytes().fold(0u64, |a, b| a.wrapping_mul(31).wrapping_add(b as u64));
+    let h = id
+        .bytes()
+        .fold(0u64, |a, b| a.wrapping_mul(31).wrapping_add(b as u64));
     1u64 << (h % 64)
 }
 
@@ -45,7 +47,8 @@ extern "C" {
     /// Blocking GET. Returns the HTTP status code (negative on transport error).
     /// When `out_buf` is non-null the body is malloc'd into `*out_buf`/`*out_len`
     /// and must be released with `splash_free`.
-    fn splash_http_get(url: *const c_char, out_buf: *mut *mut c_char, out_len: *mut c_int) -> c_int;
+    fn splash_http_get(url: *const c_char, out_buf: *mut *mut c_char, out_len: *mut c_int)
+        -> c_int;
     fn splash_free(p: *mut c_char);
 }
 

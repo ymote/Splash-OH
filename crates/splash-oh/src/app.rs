@@ -4,7 +4,7 @@
 //! thread with just a target id; we map that to a screen, re-evaluate the DSL
 //! with the new screen bound, and swap the tree in the NodeContent slot.
 
-use crate::arkui::{NodeContentHandle, Node};
+use crate::arkui::{Node, NodeContentHandle};
 use std::cell::RefCell;
 use std::os::raw::c_int;
 
@@ -151,7 +151,7 @@ pub fn set_root(new_root: Option<Node>) {
             unsafe { splash_content_remove(slot, old.raw()) };
             drop(old);
         }
-        match new_root.mount_keep(slot) {
+        match unsafe { new_root.mount_keep(slot) } {
             Ok(node) => app.root = Some(node),
             Err(e) => crate::log(&format!("app: mount failed: {e}")),
         }
@@ -199,7 +199,7 @@ pub fn rebuild() {
             unsafe { splash_content_remove(slot, old.raw()) };
             drop(old);
         }
-        match new_root.mount_keep(slot) {
+        match unsafe { new_root.mount_keep(slot) } {
             Ok(node) => app.root = Some(node),
             Err(e) => crate::log(&format!("app: mount failed: {e}")),
         }

@@ -47,4 +47,3 @@ fn main() {
     // OpenHarmony's native HTTP stack — lets the Splash VM fetch live data.
     println!("cargo:rustc-link-lib=dylib=net_http");
 }
-
