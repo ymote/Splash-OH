@@ -768,15 +768,20 @@ struct Index {
         })
           .javaScriptAccess(true)
           .domStorageAccess(true)
-          // The JS -> Rust bridge. A page calls splash.invoke(tool, args); the
-          // shim forwards it here, Rust answers, and pumpBridge evaluates the
-          // result back into the page.
-          .javaScriptProxy({
+          // The JS -> Rust/Splash bridge, attached ONLY to slots showing markup
+          // this app generated ('html'). A slot showing a remote page ('url')
+          // never sees splash_native at all -- apps/browser.rs loads Wikipedia
+          // and Hacker News into slots, and they have no business holding
+          // splash.eval or http.get.
+          //
+          // Rust re-checks on every call regardless. This check sits next to
+          // the untrusted content, which makes it the wrong place to depend on.
+          .javaScriptProxy(slot.split('|')[1] === 'html' ? {
             object: this.bridgeFor(slot.split('|')[0]),
             name: 'splash_native',
             methodList: ['invoke'],
             controller: this.controllerFor(slot.split('|')[0]),
-          })
+          } : undefined)
           // Stops ArkWeb demanding a tap before it will play media.
           .mediaPlayGestureAccess(false)
           .position({ x: Number(slot.split('|')[2]), y: Number(slot.split('|')[3]) })

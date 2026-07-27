@@ -104,6 +104,20 @@ pub fn json_str(s: &str) -> String {
 /// Anything that can block runs on a worker. The caller here is ArkTS's JS
 /// thread, and blocking it is what `net::mark_ui_thread` exists to catch.
 pub fn invoke(slot: u32, call_id: String, tool: String, args: String) {
+    // The capability gate, enforced here rather than in ArkTS.
+    //
+    // ArkTS already declines to attach the proxy to an untrusted slot, but that
+    // check lives next to the untrusted content and is therefore the wrong
+    // place to rely on. octos-one puts it the same way: a JS-side check is
+    // bypassable, so the trusted Rust side is what enforces it.
+    if !crate::webslot::is_trusted(slot) {
+        crate::log(&format!(
+            "bridge: refused {tool} from untrusted slot {slot}"
+        ));
+        reply(slot, call_id, err("this surface is not permitted to call native tools"));
+        return;
+    }
+
     match tool.as_str() {
         // Round-trip check, so a page can prove the bridge is live.
         "echo" => reply(slot, call_id, ok(json_str(&args))),
@@ -124,12 +138,12 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args: String) {
         // its own connection. One network path, one place to see failures.
         "http.get" => {
             std::thread::spawn(move || {
-                let url = args.trim_matches('"');
-                if !url.starts_with("https://") {
-                    reply(slot, call_id, err("only https urls are allowed"));
+                let url = args.trim_matches('"').to_string();
+                if let Err(e) = check_https_public(&url) {
+                    reply(slot, call_id, err(&e));
                     return;
                 }
-                let (code, body) = net::http_get_string(url);
+                let (code, body) = net::http_get_string(&url);
                 if code >= 200 && code < 300 {
                     reply(slot, call_id, ok(json_str(&body.unwrap_or_default())));
                 } else {
@@ -170,6 +184,67 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args: String) {
 
         other => reply(slot, call_id, err(&format!("unknown tool: {other}"))),
     }
+}
+
+/// Hosts a page may reach through `http.get`.
+///
+/// Curated rather than open: the tool runs with the app's network identity, so
+/// an open one turns every card into a proxy for reaching anything the phone
+/// can reach. Suffix-matched on a label boundary, so `open-meteo.com` covers
+/// `api.` and `geocoding-api.` but not `evil-open-meteo.com`.
+const HTTP_GET_ALLOWED_HOSTS: &[&str] = &[
+    "open-meteo.com",
+    "api.open-meteo.com",
+    "air-quality-api.open-meteo.com",
+];
+
+/// https-only, public hosts only. Blocks the SSRF shapes -- loopback, private
+/// ranges, link-local, and `.internal` -- that would otherwise let a page use
+/// this app to reach things on the device or the local network.
+fn check_https_public(url: &str) -> Result<String, String> {
+    let rest = url
+        .strip_prefix("https://")
+        .ok_or_else(|| "only https:// URLs are allowed".to_string())?;
+    let host = rest
+        .split(|c| c == '/' || c == '?' || c == '#')
+        .next()
+        .unwrap_or("")
+        .split('@')
+        .next_back()
+        .unwrap_or("")
+        .split(':')
+        .next()
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if host.is_empty() {
+        return Err("no host in URL".into());
+    }
+    let blocked = host == "localhost"
+        || host.ends_with(".localhost")
+        || host.ends_with(".internal")
+        || host.ends_with(".local")
+        || host.starts_with("127.")
+        || host.starts_with("10.")
+        || host.starts_with("192.168.")
+        || host.starts_with("169.254.")
+        || host == "0.0.0.0"
+        || host.starts_with("[")
+        || (host.starts_with("172.")
+            && host
+                .split('.')
+                .nth(1)
+                .and_then(|o| o.parse::<u32>().ok())
+                .is_some_and(|o| (16..=31).contains(&o)));
+    if blocked {
+        return Err(format!("host not permitted: {host}"));
+    }
+    let allowed = HTTP_GET_ALLOWED_HOSTS.iter().any(|a| {
+        host == *a || host.ends_with(&format!(".{a}"))
+    });
+    if !allowed {
+        return Err(format!("host not on the allowlist: {host}"));
+    }
+    Ok(host)
 }
 
 /// Evaluate a page-supplied script under limits and encode the result.

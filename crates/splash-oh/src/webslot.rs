@@ -93,6 +93,30 @@ fn declare_source(source: Source, x: f32, y: f32, w: f32, h: f32) -> u32 {
     id
 }
 
+/// Whether a slot's content is trusted with the native bridge.
+///
+/// Markup this app generated is trusted; a remote page is not. The rule is the
+/// source, not a flag someone can set: `apps/browser.rs` loads Wikipedia and
+/// Hacker News into slots, and without this every one of those pages would get
+/// the same `splash_native` object the weather card has, with `splash.eval` and
+/// `http.get` on it.
+impl Source {
+    pub fn trusted(&self) -> bool {
+        matches!(self, Source::Html(_))
+    }
+}
+
+/// Is `id` a slot this app generated? Unknown ids are untrusted.
+pub fn is_trusted(id: u32) -> bool {
+    SLOTS.with(|s| {
+        s.borrow()
+            .iter()
+            .find(|x| x.id == id)
+            .map(|x| x.source.trusted())
+            .unwrap_or(false)
+    })
+}
+
 pub fn slots() -> Vec<WebSlot> {
     SLOTS.with(|s| s.borrow().clone())
 }
@@ -143,6 +167,8 @@ pub fn encoded() -> Vec<String> {
                 Source::Url(_) => "url",
                 Source::Html(_) => "html",
             };
+            // `kind` doubles as the trust marker: ArkTS attaches the bridge
+            // only to `html` slots. Rust re-checks anyway -- see bridge::invoke.
             format!("{}|{}|{}|{}|{}|{}|{}", s.id, kind, s.x, s.y, s.w, s.h, src)
         })
         .collect()
