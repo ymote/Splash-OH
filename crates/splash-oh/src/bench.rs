@@ -185,7 +185,7 @@ fn trial_attr_only(n: usize) -> f64 {
     let raw = node.raw();
     let t0 = Instant::now();
     for _ in 0..n {
-        Node::set_f32_attr_raw(raw, crate::arkui::attr::font_size(), 14.0);
+        unsafe { Node::set_f32_attr_raw(raw, crate::arkui::attr::font_size(), 14.0) };
     }
     t0.elapsed().as_nanos() as f64 / 1000.0 / n as f64
 }
@@ -230,7 +230,10 @@ pub fn record_all(
     let order = |label: &str, v: &[f64]| {
         crate::log(&format!(
             "bench {label} trials in order: {}",
-            v.iter().map(|x| format!("{x:.1}")).collect::<Vec<_>>().join(" ")
+            v.iter()
+                .map(|x| format!("{x:.1}"))
+                .collect::<Vec<_>>()
+                .join(" ")
         ))
     };
     order("A rust", &rust_full);
@@ -268,7 +271,13 @@ pub fn record_all(
     crate::log(&format!(
         "bench A rust/ndk: median {:.2} µs/node ({:.2}-{:.2}) | \
          B arkts/typeNode: median {:.2} µs/node ({:.2}-{:.2}) | ratio {:.2}x",
-        a.0, a.1, a.2, b.0, b.1, b.2, b.0 / a.0.max(0.0001)
+        a.0,
+        a.1,
+        a.2,
+        b.0,
+        b.1,
+        b.2,
+        b.0 / a.0.max(0.0001)
     ));
     crate::log(&format!(
         "bench D parts: createNode rust {rc:.2} arkts {ac:.2} ({:.1}x) | \

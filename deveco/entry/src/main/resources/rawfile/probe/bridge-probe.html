@@ -1,0 +1,151 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=402, initial-scale=1">
+<title>bridge probe</title>
+<!--
+  Loaded into a URL-kind web slot, which the capability gate treats as
+  untrusted regardless of where the URL points. It reports what a page in such
+  a slot can actually reach.
+
+  Served from the HAP rather than a remote host on purpose: the thing under test
+  is the gate, and a network round trip would only add a way for the test to
+  fail for reasons that are not the gate. Note this makes the test conservative
+  rather than lenient -- this page is app-controlled content being treated as
+  untrusted, which is the direction the rule should err in.
+
+  There are two gates and this page is written to tell them apart:
+
+    ArkTS  -- declines to attach javaScriptProxy, so `splash_native` is absent.
+    Rust   -- bridge::invoke refuses any call from a slot it did not generate.
+
+  The Rust one is the load-bearing one; the ArkTS one sits next to the untrusted
+  content and so is the wrong place to depend on. When both hold, only the ArkTS
+  gate is observable from here -- the Rust gate never gets a call to refuse. To
+  see the Rust gate work it has to be the only one left, which is what the
+  fault-injection run does: attach the proxy unconditionally, and check that
+  every call still comes back refused.
+
+  So a leak here is specifically a call that RESOLVES, not a proxy that exists.
+-->
+<style>
+  body { margin:0; padding:16px; background:#12121c; color:#eee;
+         font:14px/1.5 -apple-system,'HarmonyOS Sans',sans-serif; }
+  h1 { font-size:15px; margin:0 0 12px; color:#9a9ab0; letter-spacing:.4px;
+       text-transform:uppercase; }
+  .row { display:flex; justify-content:space-between; gap:12px;
+         padding:9px 0; border-bottom:1px solid #26263a; }
+  .k { color:#c8c8d8; }
+  .ok { color:#5ad469; font-weight:600; }
+  .warn { color:#e8c25a; font-weight:600; }
+  .leak { color:#ff5a5a; font-weight:700; }
+  #verdict { margin-top:14px; padding:10px 12px; border-radius:10px;
+             font-weight:600; text-align:center; }
+</style>
+</head>
+<body>
+<h1>Untrusted slot &mdash; what can it reach?</h1>
+<div id="rows"></div>
+<div id="verdict">running&hellip;</div>
+<script>
+(function () {
+  var rows = document.getElementById('rows');
+  var verdict = document.getElementById('verdict');
+  var leaks = 0;
+
+  function report(label, cls, detail) {
+    if (cls === 'leak') { leaks++; }
+    var d = document.createElement('div');
+    d.className = 'row';
+    d.innerHTML = '<span class=k>' + label + '</span>'
+      + '<span class="' + cls + '">' + detail + '</span>';
+    rows.appendChild(d);
+  }
+
+  function finish(note) {
+    verdict.textContent = leaks ? (leaks + ' LEAK(S)') : note;
+    verdict.style.background = leaks ? '#4a1414' : '#14351a';
+    verdict.style.color = leaks ? '#ff8a8a' : '#7ee88f';
+  }
+
+  // 1. The raw proxy ArkWeb would inject. With the ArkTS gate in place this is
+  //    absent; under fault injection it is present, and then the Rust gate is
+  //    what has to hold.
+  var hasNative = !!(window.splash_native && window.splash_native.invoke);
+  report('window.splash_native (ArkTS gate)', hasNative ? 'warn' : 'ok',
+         hasNative ? 'PRESENT' : 'absent');
+
+  // 2. The promise shim. Only injected into generated pages, so a URL slot
+  //    should never have it -- and a page that wanted one would just write it,
+  //    which is what this file does below.
+  var hasShim = !!(window.splash && window.splash.invoke);
+  report('window.splash shim', hasShim ? 'warn' : 'ok',
+         hasShim ? 'PRESENT' : 'absent');
+
+  if (!hasNative && !hasShim) {
+    finish('no native capability reachable');
+    return;
+  }
+
+  // 3. Capability exists, so use it. Calls go through splash_native directly,
+  //    bypassing the shim's bookkeeping entirely -- exactly what a hostile page
+  //    would do, and the reason the enforcing check lives in Rust.
+  //
+  //    ArkTS answers a call by evaluating `window.splash._resolve(id, payload)`
+  //    into the page. An untrusted slot has no shim to receive that, so the
+  //    page supplies its own. Nothing stops it: the reply channel is not a
+  //    capability, it is just a function name.
+  var TOOLS = ['device.info', 'log', 'echo', 'splash.eval', 'http.get'];
+  var pending = {}, settled = 0;
+
+  var prior = window.splash;
+  window.splash = {
+    _resolve: function (id, payload) {
+      var t = pending[String(id)];
+      if (!t) { return; }
+      delete pending[String(id)];
+      settled++;
+      if (payload && payload.ok) {
+        report(t, 'leak', 'RESOLVED');
+      } else {
+        report(t, 'ok', 'refused');
+      }
+      if (settled === TOOLS.length) {
+        finish('native object present, every call refused');
+      }
+    },
+    invoke: prior && prior.invoke
+  };
+
+  var native = window.splash_native || (prior && prior._native);
+  for (var i = 0; i < TOOLS.length; i++) {
+    var id = 'probe-' + i;
+    pending[id] = TOOLS[i];
+    try {
+      native.invoke(id, TOOLS[i], '"https://api.open-meteo.com/v1/forecast?latitude=0&longitude=0"');
+    } catch (e) {
+      delete pending[id];
+      settled++;
+      report(TOOLS[i], 'ok', 'threw');
+    }
+  }
+
+  // A call that never comes back is not a leak, but it is not a pass either --
+  // say so rather than leaving the page reading "running..." forever.
+  setTimeout(function () {
+    for (var k in pending) {
+      if (pending.hasOwnProperty(k)) { report(pending[k], 'warn', 'no reply'); }
+    }
+    if (leaks === 0) {
+      finish(settled === TOOLS.length
+        ? 'native object present, every call refused'
+        : 'native object present, no call succeeded');
+    } else {
+      finish('');
+    }
+  }, 4000);
+})();
+</script>
+</body>
+</html>
