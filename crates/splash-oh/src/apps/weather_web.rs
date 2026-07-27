@@ -272,6 +272,10 @@ body{{width:{w:.0}px;height:{h:.0}px;overflow:hidden;
  <div class=k>JS &#8594; Rust bridge</div>
  <div class=v id=bridge style="font-size:14px">checking&#8230;</div>
 </div>
+<div class=tile style="margin-top:10px">
+ <div class=k>JS &#8594; Splash VM</div>
+ <div class=v id=vm style="font-size:14px">checking&#8230;</div>
+</div>
 <script>
 // Not decoration: this is the page proving on-device that it can call into
 // Rust and get an answer back. If the bridge regresses, the card says so.
@@ -281,6 +285,28 @@ body{{width:{w:.0}px;height:{h:.0}px;overflow:hidden;
   splash.invoke('device.info').then(function (i) {{
     el.textContent = i.platform + ' \u00b7 slot ' + i.slot;
   }}).catch(function (e) {{ el.textContent = 'failed: ' + e.message; }});
+
+  // The page runs Splash. `input` is JSON this page supplied; the script
+  // computes over it and the result comes back as JSON. Same language that
+  // describes the native widgets around this webview.
+  var vmEl = document.getElementById('vm');
+  splash.invoke('splash.eval', {{
+    // Canonical Splash wants one statement per line -- the one-liner form
+    // of this was rejected at line 2 col 43, which is exactly the located
+    // error splash-core gives that the bare VM did not.
+    source: [
+      'let hi = 0',
+      'for t in input.temps {{',
+      '  if t > hi {{',
+      '    hi = t',
+      '  }}',
+      '}}',
+      'hi'
+    ].join('\n'),
+    input: {{ temps: [22, 23, 24, 26, 27, 29] }}
+  }}).then(function (r) {{
+    vmEl.textContent = 'peak ' + r + '\u00b0 (computed in Splash)';
+  }}).catch(function (e) {{ vmEl.textContent = 'failed: ' + e.message; }});
 }})();
 </script>
 </div></body></html>"#,
