@@ -57,13 +57,13 @@ const SKIP_BENCH: boolean = false;
  *  refilling pages the first freed but the allocator retained, which made it
  *  look nearly free and in one case negative. A fresh process each is the only
  *  way to get a number that means anything. */
-const MEM_MODE: boolean = false;
+const MEM_MODE: boolean = true;
 /** Which implementation this build measures. Flip and rebuild for the other. */
-const MEM_RUST: boolean = true;
+const MEM_RUST: boolean = false;
 /** Copies of the whole app held at once, for the marginal figure. */
 const MEM_COPIES: number = 12;
 /** Which app the memory arm measures. Index into APPS. */
-const MEM_APP: number = 0;
+const MEM_APP: number = 3;
 
 @Entry
 @Component

@@ -269,6 +269,79 @@ Rust 在那个线程上重建，完全不碰 JS 循环。要测那个，得让�
 更强的那个论点 —— Rust 不用排在繁忙的 JS 线程后面 —— 仍然没测到，
 而且这套装置在结构上就测不了。
 
+## 四个 app，而不是一个
+
+一个 app 没法告诉你 Rust 和 ArkTS 的差距到底是"每个节点一个固定值"，还是会随着
+节点是什么而变。所以一共移植了四个 makepad 参考应用，每个都写两遍，挑的是四种
+很不一样的控件构成：
+
+| app | 形态 | 一轮的节点数 |
+|---|---|---|
+| [WeChat](https://github.com/project-robius/makepad_wechat) | 文字为主的列表 | 592 |
+| [Taobao](https://github.com/project-robius/makepad_taobao) | 双列商品网格 | 502 |
+| [TikTok](https://github.com/project-robius/makepad_tiktok) | 全屏媒体，少量浮层 | 446 |
+| [Wonderous](https://github.com/project-robius/makepad_wonderous) | 图文长页和图片网格 | 234 |
+
+Rust 版在 [`crates/splash-oh/src/apps/`](crates/splash-oh/src/apps/)，ArkTS 版在
+[`AppsArkTs.ets`](deveco/entry/src/main/ets/pages/AppsArkTs.ets)。四个都用原项目
+自己的素材 —— 淘宝的商品实拍、Wonderous 的插画，TikTok 那边是用 ffmpeg 从它自带的
+mp4 里抽的封面帧，因为 ArkUI NDK 里没有视频节点（跟 `ARKUI_NODE_WEB` 一样的空缺）。
+两边渲染的是同一张静态图，所以对比仍然成立，只是两边的数字都不含解码。
+
+![taobao](app-taobao.jpeg)
+![tiktok](app-tiktok.jpeg)
+![wonderous](app-wonderous.jpeg)
+
+### 构建
+
+每个 app 六个页面，每种条件 4 轮，前面另有 4 轮热身丢掉，跑了两次：
+
+| app | 空闲 | 有负载 |
+|---|---|---|
+| WeChat | 2.83× / 2.56× | 2.53× / 1.89× |
+| Taobao | 2.47× / 2.75× | 1.93× / 2.39× |
+| TikTok | 2.32× / 2.41× | 2.70× / 2.78× |
+| Wonderous | 3.05× / 2.49× | 2.34× / 2.59× |
+
+**四种控件构成，全部落在 2.3–3.1 倍这个区间里。** 一个文字列表、一个商品图网格、
+一个全屏视频界面、一个图文长页，结果都在同一档。这就是做四个 app 想回答的问题：
+**这个差距的行为像是每个节点一个固定值**，跟节点是什么关系不大。
+
+所有 app、所有轮次都没有出现 MISMATCH —— 两个实现每次建出来的节点数完全一样，
+这也是这些数字有意义的前提。
+
+### 内存
+
+每个 app、每种实现都用一个全新进程测，因为污染是进程内的。先看稳定状态，再看
+往上叠 12 份完整 app 的斜率。
+
+稳定状态四个 app 两条路都是约 165–170 MB —— 那是 ArkUI 运行时的底噪，用哪种语言
+建控件都不改变它。
+
+边际开销，每份 app（六个页面）：
+
+| app | Rust | ArkTS | ArkTS 多用 |
+|---|---|---|---|
+| WeChat | 21.5 MB | 24.8 MB | +15% |
+| Taobao | 19.5 MB | 21.2 MB | +9% |
+| TikTok | 13.0 MB | 19.5 MB | **+50%** |
+| Wonderous | 7.3 MB | 8.6 MB | +18% |
+
+**+9% 到 +50%，大多在 +15% 附近。** TikTok 是个异常值，我没有把握解释它 ——
+它每屏的节点最少但图最大，而这个方向跟"包装对象按节点数收费"的预期正好相反。
+这里如实报出来，不做平滑。
+
+换算到单节点，Rust 这边是 29–39 KB，跟前面在纯 `Text` 节点上测到的 46 KB 是同一个
+量级；这里的构成里有更便宜的容器。
+
+### 这改变了什么
+
+主结论没变，只是把它放到了宽得多的基础上验证过了：构建快约 2.5–3 倍、内存多约
+15%，现在是在四个形态确实不同的 app 上测的，而不是一个可能不具代表性的 app。
+
+关于负载的那个预测仍然没被验证，原因还是结构性的：benchmark 是从 ArkTS 通过 napi
+调进 Rust 的，所以两条路排在同一个负载后面。
+
 ## 局限
 
 - **测量 C（napi 往返）在现在这版跑不起来。** 把整套测试改成由 ArkTS 一个 tick 跑

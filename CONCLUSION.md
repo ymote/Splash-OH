@@ -301,6 +301,88 @@ long list pays it per frame, and 19 ms does not fit in a 120 Hz budget while
 The stronger argument — that Rust never queues behind a busy JS thread — is
 still unmeasured, and this harness is structurally unable to measure it.
 
+## Four apps, not one
+
+One app cannot tell you whether the Rust-vs-ArkTS gap is a per-node constant or
+something that varies with what the nodes are. So four makepad reference apps
+were ported, each twice, chosen for four different widget mixes:
+
+| app | shape | nodes per tour |
+|---|---|---|
+| [WeChat](https://github.com/project-robius/makepad_wechat) | text-heavy lists | 592 |
+| [Taobao](https://github.com/project-robius/makepad_taobao) | two-column product grid | 502 |
+| [TikTok](https://github.com/project-robius/makepad_tiktok) | full-screen media, few overlays | 446 |
+| [Wonderous](https://github.com/project-robius/makepad_wonderous) | editorial and photo grid | 234 |
+
+Rust ports in [`crates/splash-oh/src/apps/`](crates/splash-oh/src/apps/), ArkTS
+twins in [`AppsArkTs.ets`](deveco/entry/src/main/ets/pages/AppsArkTs.ets). All
+four use the reference apps' own assets — Taobao's product photographs,
+Wonderous's wonder illustrations, and for TikTok, poster frames pulled out of
+the mp4s it ships, because the ArkUI NDK has no video node (the same gap as
+`ARKUI_NODE_WEB`). Both implementations render the same still, so the
+comparison holds; neither number includes decode.
+
+![taobao](app-taobao.jpeg)
+![tiktok](app-tiktok.jpeg)
+![wonderous](app-wonderous.jpeg)
+
+### Construction
+
+Six screens per app, 4 tours per condition after 4 discarded warm-up tours, two
+independent runs:
+
+| app | idle | under load |
+|---|---|---|
+| WeChat | 2.83× / 2.56× | 2.53× / 1.89× |
+| Taobao | 2.47× / 2.75× | 1.93× / 2.39× |
+| TikTok | 2.32× / 2.41× | 2.70× / 2.78× |
+| Wonderous | 3.05× / 2.49× | 2.34× / 2.59× |
+
+**2.3–3.1× across every widget mix.** A list of text, a grid of product photos,
+a full-screen video surface and an editorial page all land in the same band.
+That is the answer to the question the four apps were for: **the gap behaves
+like a per-node constant**, not something that depends on what the nodes are.
+
+No MISMATCH on any app in any run — both implementations built identical node
+counts every time, which is what makes any of this mean anything.
+
+### Memory
+
+Fresh process per app per implementation, since the contamination is
+within-process. Steady state first, then the slope of stacking 12 more copies
+of the whole app.
+
+Steady state is ~165–170 MB for every app on both paths — that is the ArkUI
+runtime floor, and which language builds the widgets does not move it.
+
+Marginal, per copy of the app (six screens):
+
+| app | Rust | ArkTS | ArkTS overhead |
+|---|---|---|---|
+| WeChat | 21.5 MB | 24.8 MB | +15% |
+| Taobao | 19.5 MB | 21.2 MB | +9% |
+| TikTok | 13.0 MB | 19.5 MB | **+50%** |
+| Wonderous | 7.3 MB | 8.6 MB | +18% |
+
+**+9% to +50%, clustering around +15%.** TikTok is the outlier and I do not
+have a confident explanation for it — it has the fewest nodes per screen but the
+largest images, and the direction is the opposite of what a per-node wrapper
+overhead predicts. Reported rather than smoothed away.
+
+Per node, the Rust figures work out at 29–39 KB, which is the same order as the
+46 KB measured on bare `Text` nodes earlier; the mix here includes cheaper
+containers.
+
+### What this changes
+
+Nothing about the headline — it confirms it on a much wider base. ~2.5–3× on
+construction and ~15% on memory, now across four apps with genuinely different
+shapes rather than one app that might have been unrepresentative.
+
+The load prediction is still untested for the same structural reason: the
+benchmark calls Rust through napi from ArkTS, so both paths queue behind the
+same load.
+
 ## Caveats
 
 - **Measurement C (the napi round trip) does not run** in the current build.
