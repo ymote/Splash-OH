@@ -36,6 +36,16 @@ use crate::net;
 use std::collections::VecDeque;
 use std::sync::Mutex;
 
+/// Caps for anything a page hands to the VM.
+///
+/// A page is the least trusted thing in the process. `splash-core` is built to
+/// be embedded under limits rather than trusted, so use them: a script that
+/// loops forever, allocates without bound, or returns a megabyte of JSON is
+/// stopped by the runtime instead of taking the thread with it.
+const EVAL_MAX_SOURCE: usize = 64 * 1024;
+const JSON_MAX_BYTES: usize = 256 * 1024;
+const JSON_MAX_DEPTH: usize = 32;
+
 /// A finished call, waiting to be evaluated back into its page.
 pub struct Reply {
     pub slot: u32,
@@ -128,7 +138,72 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args: String) {
             });
         }
 
+        // The Splash half of the bridge: a page evaluates DSL and gets JSON
+        // back. This is what makes it a JS <-> Rust/Splash bridge rather than
+        // a JS -> Rust one -- the same language that describes the native tree
+        // is reachable from the web surface, so a card can share logic with the
+        // widgets around it instead of reimplementing it in JavaScript.
+        //
+        // Args: {"source": "<splash>", "input": <any json>}
+        // `input` is injected as a global the script can read.
+        "splash.eval" => {
+            std::thread::spawn(move || {
+                let parsed: serde_json::Value = match serde_json::from_str(&args) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        reply(slot, call_id, err(&format!("bad args: {e}")));
+                        return;
+                    }
+                };
+                let source = parsed.get("source").and_then(|v| v.as_str()).unwrap_or("");
+                if source.is_empty() {
+                    reply(slot, call_id, err("missing \"source\""));
+                    return;
+                }
+                if source.len() > EVAL_MAX_SOURCE {
+                    reply(slot, call_id, err("source too large"));
+                    return;
+                }
+                reply(slot, call_id, eval_splash(source, parsed.get("input")));
+            });
+        }
+
         other => reply(slot, call_id, err(&format!("unknown tool: {other}"))),
+    }
+}
+
+/// Evaluate a page-supplied script under limits and encode the result.
+///
+/// Deliberately a fresh `Runtime` per call. Sharing one across pages would let
+/// a card leave state behind for the next caller, and the VM is cheap enough
+/// that isolation is the better default.
+fn eval_splash(source: &str, input: Option<&serde_json::Value>) -> String {
+    let mut rt = match splash_core::Runtime::<(), ()>::new((), ()) {
+        Ok(r) => r,
+        Err(e) => return err(&format!("runtime: {e:?}")),
+    };
+
+    if let Some(v) = input {
+        if let Err(e) = rt.set_json_global("input", v, JSON_MAX_BYTES, JSON_MAX_DEPTH) {
+            return err(&format!("input rejected: {e:?}"));
+        }
+    }
+
+    let evaluation = match rt.eval(source) {
+        Ok(e) => e,
+        // A syntax rejection carries line/column, which is the whole reason to
+        // go through splash-core rather than the bare VM. Pass it on.
+        Err(e) => return err(&format!("{e:?}")),
+    };
+
+    if evaluation.suspended {
+        return err("script suspended (it awaited a capability this host does not grant)");
+    }
+
+    match rt.script_value_as_json(evaluation.value, JSON_MAX_BYTES, JSON_MAX_DEPTH) {
+        Ok(j) => ok(j.to_string()),
+        // Functions, handles, cycles and non-finite numbers are not encodable.
+        Err(e) => err(&format!("result not representable as JSON: {e:?}")),
     }
 }
 
