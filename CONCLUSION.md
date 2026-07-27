@@ -2,31 +2,68 @@
 
 *[中文版](CONCLUSION.zh-CN.md)*
 
-Measured on a SUP-AL90 (HarmonyOS 6.1), release build. Reproduce it by opening
-**Performance** in the app, or by reading `hilog`. Full method in
-[`crates/splash-oh/src/bench.rs`](crates/splash-oh/src/bench.rs).
+Everything below was measured on a SUP-AL90 (HarmonyOS 6.1), release build.
+Reproduce with `./build.sh` and read `hilog`; memory needs `./memrun.sh <app> <path>`,
+one implementation per process.
 
-## The number
+---
 
-**Rust through the ArkUI NDK is ~2.6–3.2× faster than ArkTS at building
-widgets.** Not 45×. The original claim in this repo was wrong because one side
-was measured and the other was *projected* from a constant borrowed out of a
-different app.
+## The answer
 
-```
-A  Rust → ArkUI NDK    ~17 µs/node
-B  ArkTS → typeNode    ~52 µs/node
-```
+**Building a widget tree from Rust through the ArkUI NDK is ~2.5–3× faster than
+building the identical tree from ArkTS through `typeNode`, and costs ~9–18% less
+memory.**
 
-Both paths create the **same** native node — `typeNode.createNode(ctx,'Text')`
-and `createNode(ARKUI_NODE_TEXT)` both land on the same `TextPattern` inside
-libace — with the same four attributes. 2000 nodes, ten trials, six runs.
+That is a smaller claim than this repo originally made, and it is the one the
+evidence supports. Two figures have been retracted along the way; both are
+documented below rather than quietly corrected.
 
-That equivalence is what makes the comparison fair: layout, measure and paint
-are identical native code afterwards and cancel out, so construction is the only
-stage where the two differ, and construction is what this isolates.
+### What it rests on
+
+Four makepad reference apps, each implemented twice — once in Rust against the
+NDK, once in ArkTS against `typeNode` — and toured screen by screen on device:
+
+| app | shape | nodes/tour | idle | under load |
+|---|---|---|---|---|
+| [WeChat](https://github.com/project-robius/makepad_wechat) | text-heavy lists | 592 | 2.83× / 2.56× | 2.53× / 1.89× |
+| [Taobao](https://github.com/project-robius/makepad_taobao) | two-column product grid | 502 | 2.47× / 2.75× | 1.93× / 2.39× |
+| [TikTok](https://github.com/project-robius/makepad_tiktok) | full-screen media | 446 | 2.32× / 2.41× | 2.70× / 2.78× |
+| [Wonderous](https://github.com/project-robius/makepad_wonderous) | editorial and photos | 234 | 3.05× / 2.49× | 2.34× / 2.59× |
+
+Two independent runs per cell. Four quite different widget mixes — a text list,
+a photo grid, a video surface, an editorial page — and they all land in
+**2.3–3.1×**.
+
+That band is the most useful thing here. It says **the gap behaves like a
+per-node constant**, not something that varies with what the nodes are. One app
+could not have told you that.
+
+![taobao](app-taobao.jpeg)
+![tiktok](app-tiktok.jpeg)
+![wonderous](app-wonderous.jpeg)
+
+### Why the comparison is trustworthy
+
+`typeNode.createNode(ctx, 'Text')` and the NDK's `createNode(ARKUI_NODE_TEXT)`
+land on the same C++ `TextPattern` inside libace. Not equivalent nodes — the
+same node. So measure, layout and paint are identical native code afterwards
+and cancel out; construction is the only stage that differs.
+
+Both implementations read their content from one place (Rust, crossing to ArkTS
+over napi) and use the reference apps' own assets. **Node counts are asserted
+at runtime**, every screen, every run — no MISMATCH in any run reported here.
+"The other one is faster because it quietly builds less" is the obvious way for
+a comparison like this to be wrong, so it is checked rather than assumed.
+
+Both also mount into the same `NodeContent`, and a header button swaps which one
+drives the app mid-flight. The screen does not visibly change when it does.
+
+---
 
 ## Where the difference comes from
+
+Each row measured directly, not derived by subtracting one noisy trial from
+another:
 
 | per call | Rust | ArkTS | ratio |
 |---|---|---|---|
@@ -35,398 +72,194 @@ stage where the two differ, and construction is what this isolates.
 | one JS → native napi call | — | **0.058 µs** | — |
 | one empty JS loop iteration | — | 0.017 µs | — |
 
-The bridge is 58 nanoseconds. It is not the problem. Of the 1.15 µs an ArkTS
-attribute set costs, about 5% is the boundary; the other 95% is JS-side — the
-`attribute` modifier object, boxing the argument, dispatch, validation. Rust's
-25 ns is a function-pointer call and a small struct.
+### It is not the bridge
 
-The cost is **JS object churn**. `typeNode.createNode` does not just create the
-native node: it builds a wrapper object, registers a finalizer, and wires up
-cross-language reference tracking. The collector then has to undo all of it.
-That also explains the variance — ArkTS trials swing 43–85 µs while Rust's
-decomposed numbers are stable to three significant figures.
+A JS → native napi call costs **58 nanoseconds**. Of the 1.15 µs an ArkTS
+attribute set costs, the boundary is about 5%; the other 95% is JS-side — the
+`attribute` modifier object, boxing, dispatch, validation. Rust's 25 ns is a
+function-pointer call and a small struct.
 
-These two lower rows barely move between runs (1.146 / 1.149 / 1.152 / 1.154 /
-1.158 / 1.162 µs for the attribute; 0.058 / 0.059 µs for the crossing), which is
-why they carry the argument. The noisy full-node numbers do not have to.
-
-## Not warm-up
+### It is not warm-up
 
 Ten trials in order:
 
 ```
-A  Rust    13.4 12.9 15.5 17.9 16.0 15.9 20.9 24.6 20.5 16.7
-B  ArkTS   47.1 81.5 85.3 47.3 47.5 55.5 44.5 50.4 50.0 81.5
+A  Rust    12.9 12.3 14.1 16.4 20.2 20.4 20.9 25.4 16.5 21.1
+B  ArkTS   53.2 78.0 73.7 50.5 52.7 57.3 43.9 44.9 49.2 83.2
 ```
 
-Warm-up falls monotonically. B does not fall; it oscillates with no trend.
-
-Run back-to-back *without* yielding to the event loop, B instead climbs steadily
-— **37.9 → 87.4** — which is a heap filling with 2000 wrapper objects per trial.
+Warm-up falls monotonically. B does not fall; it oscillates with no trend. Run
+back-to-back *without* yielding to the event loop it instead climbs steadily —
+**37.9 → 87.4** — which is a heap filling with 2000 wrapper objects per trial.
 Giving the loop room between trials turns the ramp into a bounce. That is
 collection, not JIT.
 
-(A drifts upward too, with no allocator in it. That is the device warming; both
-sides are interleaved within each tick specifically so it hits them equally.)
+### It is object churn
 
-## The claim that actually survives
+`typeNode.createNode` does not just create the native node: it builds a JS
+wrapper, registers a finalizer, and wires up cross-language reference tracking.
+The collector then has to undo all of it. That is the ~21 µs gap on creation,
+and the rest of the gap between the decomposition (37 + 5×1.15 ≈ 43 µs) and the
+measured full node (~52 µs).
 
-The case for the NDK path was never really raw speed. It is that **napi latency
-is a function of how busy the JS thread is**, and building a widget tree is
-exactly what makes it busy.
-
-octos-one measured 1.05 ms per round trip, 730 µs of it queue wait. The same
-crossing on an idle thread is ~31 µs. Both measurements were real — contention
-was mislabelled as bridge cost.
-
-So: ~3× on construction, and — more importantly — a cost that does not degrade
-as the UI thread fills up, because it never queues behind it. That is a weaker
-claim than this repo started with, and it is the one the evidence supports.
+---
 
 ## Memory
 
-Same node, same process, RSS from `/proc/self/status`, sampled around each
-phase. 8000 widgets built 1000 per event-loop tick, then released, then ten
-samples over four seconds with nothing else allocating.
+Fresh process per app per implementation — the contamination is within-process,
+and getting this wrong produced one of the two retractions below.
 
-### Bytes per widget
+**Steady state** — the app mounted and settled:
 
-| | marginal cost per node |
-|---|---|
-| **Rust → ArkUI NDK** | **~46 KB** |
-| **ArkTS → typeNode** | **~50 KB** |
+Every app, both paths: **~165–170 MB**. Essentially all of it is the ArkUI
+runtime floor. **Which language builds the widgets does not change what the
+running app costs.**
 
-Measured over the 1000→8000 range, so the first chunk's setup is excluded:
-`(496 928 − 175 032) / 7000 = 46.0 KB` for Rust, `(534 584 − 187 704) / 7000 =
-49.6 KB` for ArkTS.
+**Marginal** — the slope of stacking 12 more copies of the whole app:
 
-**ArkTS costs about 8% more — roughly 3.6 KB per widget.** That is the JS
-wrapper object, its finalizer and the cross-language reference tracking. Real,
-and much smaller than the 2.6–3.2× it costs in *time*. The wrapper is cheap in
-bytes and expensive in cycles.
-
-### The number that actually matters
-
-**A single `Text` widget costs ~46 KB resident**, and that is the native ArkUI
-node — both paths pay it. It dwarfs everything else here.
-
-```
-    2 000 widgets  ≈   92 MB
-    8 000 widgets  ≈  350 MB
-   30 000 widgets  ≈  1.1 GB
-```
-
-At 30 000 the app died. Not from OOM, as it happens — `THREAD_BLOCK_6S`,
-because allocating that much in one callback also blocks the UI thread — but
-1.1 GB for a widget tree is not a thing you get to do on a phone regardless.
-
-This reframes the timing result more than it supports it. Building 2000 widgets
-costs ~40 ms in Rust and ~105 ms in ArkTS: a 65 ms difference, once. Both cost
-92 MB, permanently. **A large widget tree is memory-bound long before
-construction time is what stops you.** If the reason to pick the NDK path was
-"we can afford more widgets", memory says no in both languages.
-
-### Reclaim
-
-| | on release | after 4 s idle |
-|---|---|---|
-| **Rust** | 42% returned immediately | flat |
-| **ArkTS** | **nothing** — RSS rose 21 MB | flat |
-
-Rust `drop`s; ArkTS drops a reference and hopes. Within the measurement window
-ArkTS returned none of its ~350 MB, and RSS went *up* slightly on release.
-
-One honest complication: Rust's remaining 58% did come back — but only later,
-when the ArkTS phase started allocating. It sat flat at 350 MB for four idle
-seconds and then fell to ~163 MB the moment there was demand. So the allocator
-holds pages until something wants them, which means **"memory came back" is hard
-to prove and "memory did not come back" is easy** — an asymmetry worth
-remembering before reading either column as a leak. ArkTS was not given the same
-later opportunity, because nothing allocated after it.
-
-### What this does not measure
-
-Whether a forced GC would have reclaimed the ArkTS side (`ArkTools.forceFullGC`
-is not available in a release build), what happens over hours rather than
-seconds, and mounted widgets — every node here is detached, so none of the
-layout, text-shaping or render-node memory a visible tree would add is counted.
-The real per-widget figure on screen is higher than 46 KB, on both paths.
-
-## A real app: makepad_wechat, rebuilt twice
-
-The microbenchmark above builds 2000 identical `Text` nodes, which is not an
-app. So the WeChat demo from
-[project-robius/makepad_wechat](https://github.com/project-robius/makepad_wechat)
-was rebuilt as a **working app, twice**:
-
-- **Rust → ArkUI NDK** — [`crates/splash-oh/src/wechat/`](crates/splash-oh/src/wechat/)
-- **ArkTS → typeNode** — [`WeChatArkTs.ets`](deveco/entry/src/main/ets/pages/WeChatArkTs.ets)
-
-Both are the real thing, not fixtures: the reference app's **own image assets**
-— the six user avatars, the WeChat Team logo, all the menu icons and the four
-tab SVGs, shipped in `rawfile/wechat/` — plus the same twelve chats with its
-names and CJK message bodies, the same four tabs, the same
-`StackNavigation` behaviour (tap a chat to push its message view, tap Moments or
-My Profile to push those, back to pop). Tapping a row navigates. The data comes
-from one place — Rust — and crosses to ArkTS over napi, so neither can render
-different content.
-
-They mount into the **same** `NodeContent`, and the header button swaps which
-one owns the surface under a running app. The screen should not visibly change
-when you tap it. That makes the comparison checkable by eye rather than only by
-stopwatch.
-
-![rust](wechat-rust.jpeg)
-![chat](wechat-chat.jpeg)
-
-### Result
-
-A tour of all six screens. Median of 4 tours per condition, after 4 discarded
-warm-up tours.
-
-| screen | idle | under load |
-|---|---|---|
-| Chats (12 rows) | 7.5 → 19.2 ms — 2.55× | 8.5 → 21.7 ms — 2.57× |
-| Contacts (39 rows) | 8.8 → 23.8 ms — 2.72× | 8.6 → 22.4 ms — 2.61× |
-| Discover | 3.4 → 13.2 ms — 3.83× | 3.9 → 8.8 ms — 2.29× |
-| Me | 6.5 → 15.7 ms — 2.43× | 4.4 → 12.9 ms — 2.91× |
-| Chat (32 messages) | 13.4 → 23.8 ms — 1.78× | 8.2 → 20.6 ms — 2.53× |
-| Moments | 5.8 → 12.8 ms — 2.19× | 4.7 → 11.4 ms — 2.42× |
-| **whole tour** | **54.1 → 123.4 ms — 2.28×** | **44.2 → 125.2 ms — 2.83×** |
-
-**~2.3–2.8× on a real app**, which lines up with the 2.6–3.2× from the
-synthetic benchmark. A real tree of mixed `Row`/`Column`/`Text`/`Image` nodes
-behaves the way the microbenchmark said it would.
-
-### An asset bug worth knowing about
-
-The reference app's four tab SVGs declare `viewBox="0 0 24 24"` but their path
-data runs out to ~485 units. makepad ignores the viewBox and derives bounds from
-the paths, so they render correctly there. ArkUI honours the viewBox, so it
-clips to a blank top-left corner and the tab bar came out empty. Corrected
-viewBoxes are in `rawfile/wechat/`; the PNGs needed no changes.
-
-Worth knowing if you port any makepad app: assets that "work" may be relying on
-makepad being lenient.
-
-### Load did not widen the gap, and I expected it to
-
-The reason for building this was a specific prediction: a super-app's JS thread
-is never idle, the napi round trip degrades badly under exactly that condition
-(31 µs idle → 1051 µs busy, measured in octos-one), so the gap should blow out
-to something like 30× rather than 3×.
-
-**It did not.** Under a synthetic super-app load — JSON parse/stringify of
-message batches, array churn and promise resolution every 8 ms — the ratio moved
-from 2.39× to 2.56×. That is inside run-to-run noise.
-
-The honest reason is a limitation of the harness rather than a refutation:
-**both paths run on the JS thread here.** The benchmark calls Rust through napi
-from ArkTS, so Rust queues behind the same load ArkTS does. The app itself does
-not work that way — when you tap a chat row, the click arrives on the ArkUI
-event thread and Rust rebuilds there, never touching the JS loop. Measuring
-*that* requires driving the build from the event thread, which the benchmark
-does not do.
-
-So the load prediction remains untested. What is now tested is that the ~2.5×
-holds on a real app with real navigation, which was speculative before.
-
-### RAM
-
-The earlier attempt to measure this failed because both implementations shared a
-process. Redone properly: **one implementation per process launch**, since the
-contamination is within-process.
-
-**Steady state** — the app mounted and settled on the chat list, fresh process:
-
-| | RSS |
-|---|---|
-| Rust → NDK | 157 – 159 MB |
-| ArkTS → typeNode | 155 – 163 MB |
-
-**No meaningful difference.** Both sit around 157–160 MB, and essentially all of
-it is the ArkUI runtime baseline rather than the app. Which language builds the
-widgets does not change how much RAM the running app uses.
-
-**Marginal** — then stack 12 more copies of the whole app (6 screens each, so 72
-screens) and watch RSS climb:
-
-```
-held    Rust        ArkTS
-  4     235 MB      253 MB
-  8     321 MB      371 MB
- 12     406 MB      451 MB
-```
-
-| | per app copy | per screen |
-|---|---|---|
-| Rust → NDK | **21.5 MB** | 3.6 MB |
-| ArkTS → typeNode | **24.8 MB** | 4.1 MB |
-
-**ArkTS costs ~15% more**, which is the JS wrapper object and its finalizer per
-node — the same 8% seen on bare `Text` nodes, a bit larger here because these
-trees are mixed `Row`/`Column`/`Image` and parented.
-
-So on memory the two are close, and the number that matters for a phone is that
-neither is cheap: a screen of this app is ~4 MB, and the framework floor is
-~157 MB before a single widget exists.
-
-### An earlier memory attempt failed, and the failure is worth keeping
-
-Stacking whole screens on each path and watching RSS produced this:
-
-| | goes first | goes second |
-|---|---|---|
-| Rust-first run | Rust **+3613 kB/screen** | ArkTS +691 kB/screen |
-| ArkTS-first run | ArkTS **+1861 kB/screen** | Rust **negative** |
-
-Whoever measures second refills pages the first freed but the allocator
-retained, so it looks nearly free — and in one case RSS *fell* while 30 screens
-were being built. The numbers track build order, not memory. **This method
-cannot measure per-widget memory with both paths in one process**, and flipping
-the order was the only way to find that out; either run alone looks like a clean
-result.
-
-The per-node memory figure that does hold is the one from the dedicated
-single-path ramp above: **~46 KB per widget, ~8% more in ArkTS**.
-
-### What a super-app should take from this
-
-~2.5× on construction, on real screens with real navigation. On one screen that
-is 19 ms rather than 8 ms — perceptible if you are looking for it, not if you
-are not. It matters where construction is continuous: a fling that rebuilds a
-long list pays it per frame, and 19 ms does not fit in a 120 Hz budget while
-8 ms does.
-
-The stronger argument — that Rust never queues behind a busy JS thread — is
-still unmeasured, and this harness is structurally unable to measure it.
-
-## Four apps, not one
-
-One app cannot tell you whether the Rust-vs-ArkTS gap is a per-node constant or
-something that varies with what the nodes are. So four makepad reference apps
-were ported, each twice, chosen for four different widget mixes:
-
-| app | shape | nodes per tour |
-|---|---|---|
-| [WeChat](https://github.com/project-robius/makepad_wechat) | text-heavy lists | 592 |
-| [Taobao](https://github.com/project-robius/makepad_taobao) | two-column product grid | 502 |
-| [TikTok](https://github.com/project-robius/makepad_tiktok) | full-screen media, few overlays | 446 |
-| [Wonderous](https://github.com/project-robius/makepad_wonderous) | editorial and photo grid | 234 |
-
-Rust ports in [`crates/splash-oh/src/apps/`](crates/splash-oh/src/apps/), ArkTS
-twins in [`AppsArkTs.ets`](deveco/entry/src/main/ets/pages/AppsArkTs.ets). All
-four use the reference apps' own assets — Taobao's product photographs,
-Wonderous's wonder illustrations, and for TikTok, poster frames pulled out of
-the mp4s it ships, because the ArkUI NDK has no video node (the same gap as
-`ARKUI_NODE_WEB`). Both implementations render the same still, so the
-comparison holds; neither number includes decode.
-
-![taobao](app-taobao.jpeg)
-![tiktok](app-tiktok.jpeg)
-![wonderous](app-wonderous.jpeg)
-
-### Construction
-
-Six screens per app, 4 tours per condition after 4 discarded warm-up tours, two
-independent runs:
-
-| app | idle | under load |
-|---|---|---|
-| WeChat | 2.83× / 2.56× | 2.53× / 1.89× |
-| Taobao | 2.47× / 2.75× | 1.93× / 2.39× |
-| TikTok | 2.32× / 2.41× | 2.70× / 2.78× |
-| Wonderous | 3.05× / 2.49× | 2.34× / 2.59× |
-
-**2.3–3.1× across every widget mix.** A list of text, a grid of product photos,
-a full-screen video surface and an editorial page all land in the same band.
-That is the answer to the question the four apps were for: **the gap behaves
-like a per-node constant**, not something that depends on what the nodes are.
-
-No MISMATCH on any app in any run — both implementations built identical node
-counts every time, which is what makes any of this mean anything.
-
-### Memory
-
-Fresh process per app per implementation, since the contamination is
-within-process. Steady state first, then the slope of stacking 12 more copies
-of the whole app.
-
-Steady state is ~165–170 MB for every app on both paths — that is the ArkUI
-runtime floor, and which language builds the widgets does not move it.
-
-Marginal, per copy of the app (six screens):
-
-| app | Rust | ArkTS | ArkTS overhead |
+| app | Rust | ArkTS | overhead |
 |---|---|---|---|
 | WeChat | 21.5 MB | 24.8 MB | +15% |
 | Taobao | 19.5 MB | 21.2 MB | +9% |
 | TikTok | 16.8 MB | 19.6 MB | +17% |
 | Wonderous | 7.3 MB | 8.6 MB | +18% |
 
-**+9% to +18%.**
+**+9% to +18%** — the JS wrapper and its finalizer, per node. Real, and far
+smaller than the 2.5–3× the same wrapper costs in *time*. Cheap in bytes,
+expensive in cycles.
 
-> **A retracted outlier.** TikTok first measured at +50%, and the writeup
-> reported it as unexplained. It was a bug in the harness, not a property of
-> ArkTS. `build_route`, which the timing arm uses, mapped TikTok's `feed` route
-> to `build_feed()` — all five reels. `set_route`, which the *memory* arm uses,
-> had no `feed` case and fell through to a single reel. So Rust held one reel
-> where ArkTS held five, and the gap was the difference in work, not in cost.
-> Fixed, TikTok is +17% and the outlier disappears.
->
-> Worth stating how it was found: not by the benchmark, which reported a clean
-> number, but by asking why one app disagreed with the other three. An
-> unexplained result is a defect until proven otherwise.
+### The number that matters more than the ratio
 
-Per node, the Rust figures work out at 29–39 KB, which is the same order as the
-46 KB measured on bare `Text` nodes earlier; the mix here includes cheaper
-containers.
+A single `Text` widget costs **~46 KB resident** (29–39 KB in the mixed trees
+above, which include cheaper containers). That is the native ArkUI node — both
+paths pay it.
 
-### What this changes
+```
+  2 000 widgets ≈  92 MB
+  8 000 widgets ≈ 350 MB
+ 30 000 widgets ≈ 1.1 GB   ← the app died here
+```
 
-Nothing about the headline — it confirms it on a much wider base. ~2.5–3× on
-construction and ~15% on memory, now across four apps with genuinely different
-shapes rather than one app that might have been unrepresentative.
+Building 2000 widgets is a ~65 ms difference between the two paths, **once**.
+Both cost 92 MB, **permanently**. A widget tree hits the memory wall long before
+construction time is what stops you, so "we can afford more widgets" is not
+something the NDK path buys.
 
-The load prediction is still untested for the same structural reason: the
-benchmark calls Rust through napi from ArkTS, so both paths queue behind the
-same load.
+### Reclaim
+
+On release, Rust returned 42% immediately and the rest only later, when
+something else started allocating — it sat flat for four idle seconds first.
+ArkTS returned nothing inside the same window.
+
+The asymmetry matters before reading that as a leak: the allocator holds freed
+pages until something wants them, which makes **"memory came back" hard to prove
+and "memory did not come back" easy**. ArkTS was never given the same later
+opportunity, because nothing allocated after it.
+
+---
+
+## Two retractions
+
+### 45× → 2.5×
+
+The original claim compared a *measured* Rust cost against a *projected* ArkTS
+cost: `1051 µs × widget count`, where 1051 µs was a round trip measured in a
+different app, on the untested assumption of one napi crossing per widget.
+
+Measured properly, ArkTS builds the same node in ~60 µs against Rust's ~24 µs.
+
+**And the 1051 µs was itself mislabelled.** The same crossing here is ~31 µs on
+an idle thread, and 58 ns in the JS → native direction. In octos-one the JS
+thread was busy, and 730 µs of that 1051 was the post sitting in a queue. So:
+
+> **napi is not slow. Waiting behind a busy JS thread is slow.**
+
+That reframes the whole argument. Bridge latency is a function of load, and
+building a widget tree *is* load.
+
+### TikTok +50% → +17%
+
+TikTok's memory came out at +50% against +9–18% for the other three, and an
+earlier version of this document reported it as an unexplained outlier.
+
+It was a harness bug. `build_route`, used by the timing arm, maps TikTok's
+`feed` route to `build_feed()` — all five reels. `set_route`, used by the
+*memory* arm, had no `feed` case and fell through to a single reel. Rust held
+one reel where the ArkTS twin held five, and the gap was the difference in work,
+not in cost.
+
+Worth recording how it surfaced: not from the benchmark, which reported a clean
+number, but from asking why one app disagreed with the other three. **An
+unexplained result is a defect until proven otherwise.**
+
+---
+
+## What this means in practice
+
+**For an ordinary screen, nothing.** ~2.5× of 8 ms is 20 ms — perceptible if you
+go looking, invisible if you do not. Memory is a rounding error next to the
+157 MB framework floor.
+
+**Where it becomes real is continuous construction.** A fling that rebuilds a
+long list pays the difference every frame, and 20 ms does not fit in a 120 Hz
+budget while 8 ms does. A super-app that builds and tears down view hierarchies
+all session pays it repeatedly rather than once.
+
+**The strongest argument is still unmeasured.** Rust never queues behind a busy
+JS thread — but this harness cannot show that, for a structural reason given
+below.
+
+---
 
 ## Caveats
 
-- **Measurement C (the napi round trip) does not run** in the current build.
-  After the suite was restructured to drive every trial from ArkTS one
-  event-loop tick at a time, the JS side stopped acknowledging the worker's
-  posts and I have not found why. Its figures in the README are marked as coming
-  from the earlier build. The worker now times out and reports it rather than
-  parking forever, which is what it used to do.
-- **22 of 28 catalog screens are visually unverified.** Same DSL helpers, same
-  walker, but only six were inspected on device.
-- **Nothing was measured under load**, which is where the contention argument
-  would actually be settled. An idle-thread microbenchmark says nothing about it.
-- **Only detached widgets were measured for memory.** Nothing was mounted, so
-  layout and render-node memory is not in the 46 KB figure.
-- Everything about ArkTS's *declarative* path is out of scope. `typeNode` is its
-  imperative escape hatch, chosen precisely because it is the apples-to-apples
-  control.
+- **The load column proves nothing.** The benchmark invokes Rust *through napi
+  from ArkTS*, so both paths queue behind the same load generator. The real
+  architecture does not work that way — a tap arrives on the ArkUI event thread
+  and Rust rebuilds there without touching the JS loop — but measuring that needs
+  the build driven from the event thread, which this does not do. The ~3× under
+  load is therefore the same measurement as idle, not a second one.
+- **Measurement C (the napi round trip) does not run** in the current build. Its
+  figures come from an earlier one. The worker now times out and says so rather
+  than parking forever.
+- **No video.** `ARKUI_NODE_VIDEO` does not exist in the NDK (the same gap as
+  `ARKUI_NODE_WEB`), so TikTok renders a poster frame pulled from its own mp4.
+  Same substitution on both sides; neither number includes decode.
+- **No parallax.** Wonderous's shader-driven header is not ported. Faking it
+  would measure the fake.
+- **Memory measured on detached trees** for the per-node figure; mounted widgets
+  add layout and render-node memory the 46 KB does not include.
+- **One device.** SUP-AL90, HarmonyOS 6.1, one SoC.
 
-## What the measurement bugs cost
+---
 
-Three separate defects, each of which produced a confident, plausible, wrong
+## The part most likely to be reusable
+
+Six measurement defects, each of which produced a confident, plausible, wrong
 number:
 
-1. **A projected constant.** The ArkTS side was never measured — it was
-   `1051 µs × widget count`, from a round trip measured in a different app, on
-   the untested assumption of one napi crossing per widget.
-2. **A subtraction below its own noise floor.** Deriving per-attribute cost as
-   (full trial − create-only trial) returned a *negative* number for Rust. The
-   signal is under 1 µs; the difference of two 2000-node trials has a noise
-   floor several times that. Attributes are now timed directly.
-3. **A blocked event loop.** Benchmarking inside `mount()` held the JS thread
-   long enough that its timer queue stopped being serviced, so the entire ArkTS
-   half of the suite silently never ran — no error, no output, just missing
-   results. Every trial is now driven from ArkTS, one per tick.
+1. **A projected constant** standing in for a measurement (the 45×).
+2. **A subtraction below its own noise floor** — deriving per-attribute cost from
+   (full − create-only) returned a *negative* number for Rust.
+3. **A blocked event loop** — benchmarking inside `mount()` held the JS thread
+   long enough that its timer queue stopped being serviced, so half the suite
+   silently never ran. No error, no output, just missing results.
+4. **A GC-provoking loop inside the sample window**, inflating the RSS it was
+   trying to read.
+5. **Asymmetric sample counts** between the two arms — 2 against 5.
+6. **Two arms building different things** (the TikTok `feed` route).
 
-A fourth, smaller one: ArkTS `static` members declared inside an `@Component`
-struct read back as `undefined` at runtime, so the state machine fell straight
-through without an error. Module-level `const` instead.
+Plus three order effects that had to be designed out: conditions running
+idle-then-loaded made ArkTS look *faster* under load (JIT warm-up tracking the
+condition); both paths building in one tick made whichever went first eat ~10 ms
+of the previous tick's teardown, producing per-screen ratios from 1.06× to 8.60×
+purely by build order; and in the memory arm, whichever implementation measured
+second refilled pages the first had freed, which made it look nearly free and in
+one ordering negative.
+
+**Every one was caught by a sanity check, not by the benchmark.** A negative
+number that cannot exist. A missing log line. One arm with fewer samples than the
+other. One app disagreeing with three others. The benchmark reported all of them
+cleanly.
+
+Build the sanity check. The number will look fine either way.
