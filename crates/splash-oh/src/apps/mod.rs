@@ -70,11 +70,16 @@ pub struct Nav {
     pub sub: usize,
     /// A pushed detail/sheet is open.
     pub pushed: bool,
+    /// TikTok's whole-feed route, which is not a tab or a pushed view and so
+    /// needs its own flag. Without it `set_route` silently fell through to a
+    /// single reel while the ArkTS twin built all five — which showed up as a
+    /// bogus +50% memory result for TikTok and nothing else.
+    pub feed: bool,
 }
 
 thread_local! {
     static NAV: RefCell<Nav> = const {
-        RefCell::new(Nav { app: App::WeChat, tab: 0, sub: 0, pushed: false })
+        RefCell::new(Nav { app: App::WeChat, tab: 0, sub: 0, pushed: false, feed: false })
     };
 }
 
@@ -85,6 +90,7 @@ pub fn set_app(app: App) {
         n.tab = 0;
         n.sub = 0;
         n.pushed = false;
+        n.feed = false;
     });
 }
 
@@ -157,9 +163,9 @@ pub fn handle(target: i32) -> bool {
 
 /// Build the current app's current screen. Returns (root, nodes, µs).
 pub fn build() -> (Option<Node>, usize, f64) {
-    let (app, tab, sub, pushed) = NAV.with(|n| {
+    let (app, tab, sub, pushed, feed) = NAV.with(|n| {
         let n = n.borrow();
-        (n.app, n.tab, n.sub, n.pushed)
+        (n.app, n.tab, n.sub, n.pushed, n.feed)
     });
     if app == App::WeChat {
         // WeChat predates this module and keeps its own builder and counter.
@@ -169,7 +175,13 @@ pub fn build() -> (Option<Node>, usize, f64) {
     let t0 = Instant::now();
     let node = match app {
         App::Taobao => taobao::build(tab, if pushed { Some(sub) } else { None }),
-        App::TikTok => tiktok::build(tab, sub, pushed),
+        App::TikTok => {
+            if feed {
+                tiktok::build_feed()
+            } else {
+                tiktok::build(tab, sub, pushed)
+            }
+        }
         App::Wonderous => wonderous::build(tab, sub % wonderous::WONDERS.len()),
         App::WeChat => unreachable!(),
     };
@@ -221,7 +233,7 @@ thread_local! {
 pub fn keep_all(app: App) -> usize {
     let saved = NAV.with(|n| {
         let b = n.borrow();
-        (b.app, b.tab, b.sub, b.pushed)
+        (b.app, b.tab, b.sub, b.pushed, b.feed)
     });
     for entry in app.tour() {
         let (tab, route) = split(entry);
@@ -237,6 +249,7 @@ pub fn keep_all(app: App) -> usize {
         b.tab = saved.1;
         b.sub = saved.2;
         b.pushed = saved.3;
+        b.feed = saved.4;
     });
     KEPT.with(|k| k.borrow().len())
 }
@@ -262,6 +275,7 @@ fn set_route(app: App, tab: usize, route: &str) {
         b.app = app;
         b.tab = tab;
         b.pushed = matches!(route, "detail" | "sheet");
+        b.feed = route == "feed";
         b.sub = match route {
             r if r.starts_with("reel") => r[4..].parse().unwrap_or(0),
             r if r.starts_with('w') && r.len() > 1 => r[1..].parse().unwrap_or(0),

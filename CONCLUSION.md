@@ -361,13 +361,22 @@ Marginal, per copy of the app (six screens):
 |---|---|---|---|
 | WeChat | 21.5 MB | 24.8 MB | +15% |
 | Taobao | 19.5 MB | 21.2 MB | +9% |
-| TikTok | 13.0 MB | 19.5 MB | **+50%** |
+| TikTok | 16.8 MB | 19.6 MB | +17% |
 | Wonderous | 7.3 MB | 8.6 MB | +18% |
 
-**+9% to +50%, clustering around +15%.** TikTok is the outlier and I do not
-have a confident explanation for it — it has the fewest nodes per screen but the
-largest images, and the direction is the opposite of what a per-node wrapper
-overhead predicts. Reported rather than smoothed away.
+**+9% to +18%.**
+
+> **A retracted outlier.** TikTok first measured at +50%, and the writeup
+> reported it as unexplained. It was a bug in the harness, not a property of
+> ArkTS. `build_route`, which the timing arm uses, mapped TikTok's `feed` route
+> to `build_feed()` — all five reels. `set_route`, which the *memory* arm uses,
+> had no `feed` case and fell through to a single reel. So Rust held one reel
+> where ArkTS held five, and the gap was the difference in work, not in cost.
+> Fixed, TikTok is +17% and the outlier disappears.
+>
+> Worth stating how it was found: not by the benchmark, which reported a clean
+> number, but by asking why one app disagreed with the other three. An
+> unexplained result is a defect until proven otherwise.
 
 Per node, the Rust figures work out at 29–39 KB, which is the same order as the
 46 KB measured on bare `Text` nodes earlier; the mix here includes cheaper

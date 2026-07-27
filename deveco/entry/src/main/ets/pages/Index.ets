@@ -63,7 +63,7 @@ const MEM_RUST: boolean = false;
 /** Copies of the whole app held at once, for the marginal figure. */
 const MEM_COPIES: number = 12;
 /** Which app the memory arm measures. Index into APPS. */
-const MEM_APP: number = 3;
+const MEM_APP: number = 2;
 
 @Entry
 @Component
