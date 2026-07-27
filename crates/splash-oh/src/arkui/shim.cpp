@@ -1,0 +1,189 @@
+// Thin C shim over the ArkUI NDK.
+//
+// Why a shim rather than binding ArkUI_NativeNodeAPI_1 directly from Rust: that
+// struct is a long list of function pointers whose order IS the ABI. Declaring
+// it by hand in Rust means silently calling the wrong slot if the order ever
+// shifts. Here the real header does the checking, and Rust only ever sees a
+// handful of stable, flat `extern "C"` calls.
+//
+// Nothing in this file touches ArkTS. Every widget is created, configured and
+// mounted from native code.
+
+// Built as C++ on purpose. The SDK's ArkUI headers assume a C++ translation
+// unit: native_type.h uses bare `bool`, and native_node.h refers to
+// `OH_PixelmapNative` without a `struct` tag. Both are hard errors in C.
+// Everything exported below is `extern "C"`, so Rust still sees a flat C ABI.
+#include <cstdint>
+#include <cstring>
+
+#include <arkui/native_node.h>
+#include <arkui/native_interface.h>
+#include <arkui/native_type.h>
+
+static ArkUI_NativeNodeAPI_1 *g_api = nullptr;
+
+extern "C" {
+
+int splash_arkui_init(void) {
+    if (g_api) {
+        return 0;
+    }
+    OH_ArkUI_GetModuleInterface(ARKUI_NATIVE_NODE, ArkUI_NativeNodeAPI_1, g_api);
+    return g_api ? 0 : -1;
+}
+
+ArkUI_NodeHandle splash_create_node(int type) {
+    if (!g_api) return nullptr;
+    return g_api->createNode((ArkUI_NodeType)type);
+}
+
+void splash_dispose_node(ArkUI_NodeHandle n) {
+    if (g_api && n) g_api->disposeNode(n);
+}
+
+int splash_add_child(ArkUI_NodeHandle parent, ArkUI_NodeHandle child) {
+    if (!g_api || !parent || !child) return -1;
+    return g_api->addChild(parent, child);
+}
+
+int splash_remove_child(ArkUI_NodeHandle parent, ArkUI_NodeHandle child) {
+    if (!g_api || !parent || !child) return -1;
+    return g_api->removeChild(parent, child);
+}
+
+// ---- attributes -----------------------------------------------------------
+// ArkUI attributes are a tagged union: some take a string, some take an array
+// of ArkUI_NumberValue (f32/i32/u32). These wrappers cover the shapes the
+// Splash backend needs; anything richer can be added as another arm.
+
+int splash_set_string(ArkUI_NodeHandle n, int attr, const char *s) {
+    if (!g_api || !n) return -1;
+    ArkUI_AttributeItem item;
+    std::memset(&item, 0, sizeof(item));
+    item.string = s;
+    return g_api->setAttribute(n, (ArkUI_NodeAttributeType)attr, &item);
+}
+
+int splash_set_f32(ArkUI_NodeHandle n, int attr, float v) {
+    if (!g_api || !n) return -1;
+    ArkUI_NumberValue nv[1];
+    nv[0].f32 = v;
+    ArkUI_AttributeItem item;
+    std::memset(&item, 0, sizeof(item));
+    item.value = nv;
+    item.size = 1;
+    return g_api->setAttribute(n, (ArkUI_NodeAttributeType)attr, &item);
+}
+
+int splash_set_i32(ArkUI_NodeHandle n, int attr, int32_t v) {
+    if (!g_api || !n) return -1;
+    ArkUI_NumberValue nv[1];
+    nv[0].i32 = v;
+    ArkUI_AttributeItem item;
+    std::memset(&item, 0, sizeof(item));
+    item.value = nv;
+    item.size = 1;
+    return g_api->setAttribute(n, (ArkUI_NodeAttributeType)attr, &item);
+}
+
+int splash_set_u32(ArkUI_NodeHandle n, int attr, uint32_t v) {
+    if (!g_api || !n) return -1;
+    ArkUI_NumberValue nv[1];
+    nv[0].u32 = v;
+    ArkUI_AttributeItem item;
+    std::memset(&item, 0, sizeof(item));
+    item.value = nv;
+    item.size = 1;
+    return g_api->setAttribute(n, (ArkUI_NodeAttributeType)attr, &item);
+}
+
+// f32 vector — padding (4), border radius (4), translate (3), etc.
+int splash_set_f32v(ArkUI_NodeHandle n, int attr, const float *v, int count) {
+    if (!g_api || !n || count <= 0 || count > 8) return -1;
+    ArkUI_NumberValue nv[8];
+    for (int i = 0; i < count; i++) nv[i].f32 = v[i];
+    ArkUI_AttributeItem item;
+    std::memset(&item, 0, sizeof(item));
+    item.value = nv;
+    item.size = count;
+    return g_api->setAttribute(n, (ArkUI_NodeAttributeType)attr, &item);
+}
+
+// ---- mounting into the page ----------------------------------------------
+// The ONE place ArkTS is involved: it hands us a NodeContent slot once, at
+// startup. After that the whole tree lives here.
+
+int splash_content_add(ArkUI_NodeContentHandle content, ArkUI_NodeHandle root) {
+    if (!content || !root) return -1;
+    return OH_ArkUI_NodeContent_AddNode(content, root);
+}
+
+// ---- events ---------------------------------------------------------------
+
+int splash_register_event(ArkUI_NodeHandle n, int event_type, int32_t id) {
+    if (!g_api || !n) return -1;
+    return g_api->registerNodeEvent(n, (ArkUI_NodeEventType)event_type, id, NULL);
+}
+
+void splash_register_receiver(void (*recv)(ArkUI_NodeEvent *)) {
+    if (!g_api) return;
+    g_api->registerNodeEventReceiver(recv);
+}
+
+int32_t splash_event_target_id(ArkUI_NodeEvent *e) {
+    return e ? OH_ArkUI_NodeEvent_GetTargetId(e) : -1;
+}
+
+int32_t splash_event_type(ArkUI_NodeEvent *e) {
+    return e ? (int32_t)OH_ArkUI_NodeEvent_GetEventType(e) : -1;
+}
+
+} // extern "C"
+
+// ---- constants, computed by the compiler -----------------------------------
+// ArkUI's enums are mostly implicit (`NODE_HEIGHT,` with no `= N`) and the
+// per-component blocks use `1000 * ARKUI_NODE_X + n`. Transcribing them by hand
+// — or parsing the header — gets values wrong in ways that only show up as a
+// SIGSEGV at runtime. Let the compiler evaluate them and export the results.
+#define SPLASH_CONST(name, expr) extern "C" const int32_t name = (int32_t)(expr);
+
+SPLASH_CONST(splash_a_width,        NODE_WIDTH)
+SPLASH_CONST(splash_a_height,       NODE_HEIGHT)
+SPLASH_CONST(splash_a_bg,           NODE_BACKGROUND_COLOR)
+SPLASH_CONST(splash_a_padding,      NODE_PADDING)
+SPLASH_CONST(splash_a_margin,       NODE_MARGIN)
+SPLASH_CONST(splash_a_border_width, NODE_BORDER_WIDTH)
+SPLASH_CONST(splash_a_border_radius,NODE_BORDER_RADIUS)
+SPLASH_CONST(splash_a_border_color, NODE_BORDER_COLOR)
+SPLASH_CONST(splash_a_alignment,    NODE_ALIGNMENT)
+SPLASH_CONST(splash_a_opacity,      NODE_OPACITY)
+SPLASH_CONST(splash_a_visibility,   NODE_VISIBILITY)
+SPLASH_CONST(splash_a_text_content, NODE_TEXT_CONTENT)
+SPLASH_CONST(splash_a_font_color,   NODE_FONT_COLOR)
+SPLASH_CONST(splash_a_font_size,    NODE_FONT_SIZE)
+SPLASH_CONST(splash_a_font_weight,  NODE_FONT_WEIGHT)
+SPLASH_CONST(splash_a_text_align,   NODE_TEXT_ALIGN)
+SPLASH_CONST(splash_a_button_label, NODE_BUTTON_LABEL)
+SPLASH_CONST(splash_a_progress_value, NODE_PROGRESS_VALUE)
+SPLASH_CONST(splash_a_progress_total, NODE_PROGRESS_TOTAL)
+SPLASH_CONST(splash_a_input_placeholder, NODE_TEXT_INPUT_PLACEHOLDER)
+
+SPLASH_CONST(splash_t_text,     ARKUI_NODE_TEXT)
+SPLASH_CONST(splash_t_image,    ARKUI_NODE_IMAGE)
+SPLASH_CONST(splash_t_toggle,   ARKUI_NODE_TOGGLE)
+SPLASH_CONST(splash_t_loading,  ARKUI_NODE_LOADING_PROGRESS)
+SPLASH_CONST(splash_t_input,    ARKUI_NODE_TEXT_INPUT)
+SPLASH_CONST(splash_t_textarea, ARKUI_NODE_TEXT_AREA)
+SPLASH_CONST(splash_t_button,   ARKUI_NODE_BUTTON)
+SPLASH_CONST(splash_t_progress, ARKUI_NODE_PROGRESS)
+SPLASH_CONST(splash_t_checkbox, ARKUI_NODE_CHECKBOX)
+SPLASH_CONST(splash_t_datepicker, ARKUI_NODE_DATE_PICKER)
+SPLASH_CONST(splash_t_slider,   ARKUI_NODE_SLIDER)
+SPLASH_CONST(splash_t_radio,    ARKUI_NODE_RADIO)
+SPLASH_CONST(splash_t_stack,    ARKUI_NODE_STACK)
+SPLASH_CONST(splash_t_scroll,   ARKUI_NODE_SCROLL)
+SPLASH_CONST(splash_t_list,     ARKUI_NODE_LIST)
+SPLASH_CONST(splash_t_column,   ARKUI_NODE_COLUMN)
+SPLASH_CONST(splash_t_row,      ARKUI_NODE_ROW)
+SPLASH_CONST(splash_t_flex,     ARKUI_NODE_FLEX)
+SPLASH_CONST(splash_e_click,    NODE_ON_CLICK)

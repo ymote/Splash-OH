@@ -1,0 +1,4 @@
+# The `aarch64-unknown-linux-ohos` target ships in nightly only.
+[toolchain]
+channel = "nightly"
+targets = ["aarch64-unknown-linux-ohos"]

@@ -1,0 +1,7 @@
+target/
+deveco/entry/build/
+deveco/entry/libs/
+deveco/build/
+deveco/.hvigor/
+deveco/oh_modules/
+*.hap

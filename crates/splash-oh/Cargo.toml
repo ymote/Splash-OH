@@ -1,0 +1,15 @@
+[package]
+name = "splash-oh"
+version = "0.1.0"
+edition = "2021"
+description = "Splash DSL rendered to OpenHarmony native ArkUI widgets, without ArkTS"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+napi-derive-ohos = "0.0.9"
+napi-ohos = "0.1.3"
+
+[build-dependencies]
+cc = "1.0"

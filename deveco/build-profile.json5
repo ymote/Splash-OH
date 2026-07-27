@@ -1,0 +1,49 @@
+{
+  "app": {
+    "signingConfigs": [
+      {
+        "name": "default",
+        "type": "HarmonyOS",
+        "material": {
+          "certpath": "/Users/yuechen/.ohos/config/default_MyApplication_IyDNmV-wdKmfp3kaG7cXlzSz0gcU1_EEDqo9b2P37I8=.cer",
+          "keyAlias": "debugKey",
+          "keyPassword": "0000001B5897BD245220675C80A8CCD50E0DB04C4A5232D15C5B0C62B0BBBD7287CD1F7B68F48AD997F81D",
+          "profile": "/Users/yuechen/.ohos/config/default_MyApplication_IyDNmV-wdKmfp3kaG7cXlzSz0gcU1_EEDqo9b2P37I8=.p7b",
+          "signAlg": "SHA256withECDSA",
+          "storeFile": "/Users/yuechen/.ohos/config/default_MyApplication_IyDNmV-wdKmfp3kaG7cXlzSz0gcU1_EEDqo9b2P37I8=.p12",
+          "storePassword": "0000001B7C4EC1C27B95726A313C0300EECA12C15DEB83C4A7E84468A5B8A6F0852D5DDB369D88755920C8"
+        }
+      }
+    ],
+    "products": [
+      {
+        "name": "default",
+        "signingConfig": "default",
+        "compatibleSdkVersion": "6.0.1(21)",
+        "runtimeOS": "HarmonyOS",
+      }
+    ],
+    "buildModeSet": [
+      {
+        "name": "debug",
+      },
+      {
+        "name": "release"
+      }
+    ]
+  },
+  "modules": [
+    {
+      "name": "splash_oh",
+      "srcPath": "./entry",
+      "targets": [
+        {
+          "name": "default",
+          "applyToProducts": [
+            "default"
+          ]
+        }
+      ]
+    }
+  ]
+}
