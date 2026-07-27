@@ -29,11 +29,21 @@
 
 use std::cell::RefCell;
 
+/// What a surface should show.
+#[derive(Clone)]
+pub enum Source {
+    /// Navigate to a URL.
+    Url(String),
+    /// Render markup the app generated. Delivered by `loadData` rather than a
+    /// `data:` URL, which has a length limit a real page overruns.
+    Html(String),
+}
+
 /// A web surface the DSL asked for, in vp, relative to the page.
 #[derive(Clone)]
 pub struct WebSlot {
     pub id: u32,
-    pub url: String,
+    pub source: Source,
     pub x: f32,
     pub y: f32,
     pub w: f32,
@@ -55,6 +65,15 @@ pub fn reset() {
 /// Record a web surface. Returns its id, which ArkTS uses to address the
 /// controller for `loadUrl` / `runJavaScript` / back-forward.
 pub fn declare(url: &str, x: f32, y: f32, w: f32, h: f32) -> u32 {
+    declare_source(Source::Url(url.to_string()), x, y, w, h)
+}
+
+/// Declare a surface showing generated markup.
+pub fn declare_html(html: String, x: f32, y: f32, w: f32, h: f32) -> u32 {
+    declare_source(Source::Html(html), x, y, w, h)
+}
+
+fn declare_source(source: Source, x: f32, y: f32, w: f32, h: f32) -> u32 {
     let id = NEXT_ID.with(|n| {
         let mut n = n.borrow_mut();
         let v = *n;
@@ -64,7 +83,7 @@ pub fn declare(url: &str, x: f32, y: f32, w: f32, h: f32) -> u32 {
     SLOTS.with(|s| {
         s.borrow_mut().push(WebSlot {
             id,
-            url: url.to_string(),
+            source,
             x,
             y,
             w,
@@ -78,10 +97,65 @@ pub fn slots() -> Vec<WebSlot> {
     SLOTS.with(|s| s.borrow().clone())
 }
 
-/// Serialised for the napi boundary as `id|url|x|y|w|h`.
+/// Base64. Unused since generated pages stopped travelling as `data:` URLs,
+/// kept because the next thing that needs to inline an asset will want it.
+#[allow(dead_code)]
+fn b64(bytes: &[u8]) -> String {
+    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for c in bytes.chunks(3) {
+        let b = [c[0], *c.get(1).unwrap_or(&0), *c.get(2).unwrap_or(&0)];
+        let n = ((b[0] as u32) << 16) | ((b[1] as u32) << 8) | b[2] as u32;
+        out.push(T[(n >> 18 & 63) as usize] as char);
+        out.push(T[(n >> 12 & 63) as usize] as char);
+        out.push(if c.len() > 1 { T[(n >> 6 & 63) as usize] as char } else { '=' });
+        out.push(if c.len() > 2 { T[(n & 63) as usize] as char } else { '=' });
+    }
+    out
+}
+
+/// Serialised for the napi boundary as `id|kind|x|y|w|h|src`.
+///
+/// Generated markup travels as a base64 `data:` URL in the `src` field rather
+/// than through `loadData`. `loadData` reported success and then rendered
+/// nothing: ArkWeb gives content loaded that way an opaque origin, and without
+/// a `baseUrl` the page never paints — no exception, no console error, just a
+/// white surface. A `data:` URL is also declarative, so the page arrives with
+/// the component instead of needing a second call once the controller is ready,
+/// which removes the readiness dance entirely.
+///
+/// The cost is that the markup rides in a polled list. At ~3 KB a page that is
+/// fine; a page big enough to care about would want `loadData` with a real
+/// baseUrl instead.
 pub fn encoded() -> Vec<String> {
     slots()
         .iter()
-        .map(|s| format!("{}|{}|{}|{}|{}|{}", s.id, s.url, s.x, s.y, s.w, s.h))
+        .map(|s| {
+            let src = match &s.source {
+                Source::Url(u) => u.clone(),
+                // Generated pages do NOT travel as a data: URL. ArkWeb is
+                // Chromium-based and Chromium blocks top-level navigation to
+                // data:, so the surface stayed white with no error. They are
+                // fetched by id and installed with loadData + a baseUrl.
+                Source::Html(_) => String::new(),
+            };
+            let kind = match &s.source {
+                Source::Url(_) => "url",
+                Source::Html(_) => "html",
+            };
+            format!("{}|{}|{}|{}|{}|{}|{}", s.id, kind, s.x, s.y, s.w, s.h, src)
+        })
         .collect()
+}
+
+/// The markup for a slot, or empty if it is a URL slot or no longer exists.
+pub fn html_for(id: u32) -> String {
+    slots()
+        .iter()
+        .find(|s| s.id == id)
+        .and_then(|s| match &s.source {
+            Source::Html(h) => Some(h.clone()),
+            Source::Url(_) => None,
+        })
+        .unwrap_or_default()
 }

@@ -135,6 +135,12 @@ pub fn web(url: &str, x: f32, y: f32, w: f32, h: f32) -> Option<Node> {
     col(w, h, 0x00000000)
 }
 
+/// A web surface showing markup the app generated, rather than a URL.
+pub fn web_html(html: String, x: f32, y: f32, w: f32, h: f32) -> Option<Node> {
+    crate::webslot::declare_html(html, x, y, w, h);
+    col(w, h, 0x00000000)
+}
+
 pub fn spacer(w: f32, h: f32) -> Option<Node> {
     col(w, h, 0)
 }

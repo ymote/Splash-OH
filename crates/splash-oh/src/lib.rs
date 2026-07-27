@@ -193,6 +193,20 @@ pub fn web_slots() -> Vec<String> {
     webslot::encoded()
 }
 
+/// True once, if background data landed and the current app should redraw.
+/// Polled by ArkTS alongside the web-slot list.
+#[napi(js_name = "appTakeDirty")]
+pub fn app_take_dirty() -> u32 {
+    if apps::weather_web::take_dirty() { 1 } else { 0 }
+}
+
+/// The markup for a generated slot. Fetched once by id rather than carried in
+/// the slot list, which ArkTS polls.
+#[napi(js_name = "webSlotHtml")]
+pub fn web_slot_html(id: u32) -> String {
+    webslot::html_for(id)
+}
+
 /// Mount the YouTube app's native chrome bar into the slot. The video content
 /// itself is an ArkTS `Web` component in Index.ets — OpenHarmony's WebView
 /// cannot live in the native ArkUI node tree, so Splash-OH renders the app
