@@ -556,6 +556,11 @@ pub fn keep_all() -> usize {
     KEPT.with(|k| k.borrow().len())
 }
 
+/// Set tab and route directly, for the multi-app driver.
+pub fn set_route(tab: usize, route: Route) {
+    NAV.with(|n| *n.borrow_mut() = Nav { tab, route });
+}
+
 /// Build without keeping the result — for timing only.
 pub fn build_timed(tab: usize, route: Route) -> (usize, f64) {
     let saved = NAV.with(|n| {

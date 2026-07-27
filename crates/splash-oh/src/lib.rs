@@ -16,6 +16,7 @@ pub mod bench;
 pub mod catalog;
 pub mod dsl;
 pub mod mem;
+pub mod apps;
 pub mod wechat;
 
 use arkui::NodeContentHandle;
@@ -182,6 +183,77 @@ pub fn wechat_render() -> Vec<f64> {
 #[napi(js_name = "wechatKeepAll")]
 pub fn wechat_keep_all() -> u32 {
     wechat::keep_all() as u32
+}
+
+/// Data the ArkTS twins render, so both sides draw the same content.
+/// Keyed as "<app>.<what>"; each entry is pipe-separated fields.
+#[napi(js_name = "appData")]
+pub fn app_data(key: String) -> Vec<String> {
+    use apps::{taobao, tiktok, wonderous};
+    match key.as_str() {
+        "taobao.products" => taobao::PRODUCTS
+            .iter()
+            .map(|(a, b, c, d)| format!("{a}|{b}|{c}|{d}"))
+            .collect(),
+        "taobao.tabs" => taobao::TABS.iter().map(|(a, b)| format!("{a}|{b}")).collect(),
+        "tiktok.reels" => tiktok::REELS
+            .iter()
+            .map(|(a, b, c, d, e)| format!("{a}|{b}|{c}|{d}|{e}"))
+            .collect(),
+        "wonderous.wonders" => wonderous::WONDERS
+            .iter()
+            .map(|(a, b, c)| format!("{a}|{b}|{c}"))
+            .collect(),
+        "wonderous.tabs" => wonderous::TABS.iter().map(|(a, b)| format!("{a}|{b}")).collect(),
+        "wonderous.sections" => wonderous::sections()
+            .iter()
+            .map(|(a, b)| format!("{a}|{b}"))
+            .collect(),
+        "wonderous.artifacts" => wonderous::artifacts_list().iter().map(|s| s.to_string()).collect(),
+        "wonderous.timeline" => wonderous::timeline_list()
+            .iter()
+            .map(|(a, b)| format!("{a}|{b}"))
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// Switch which app is on screen and mount it. Returns [nodes, µs].
+#[napi(js_name = "appRender")]
+pub fn app_render(app: String) -> Vec<f64> {
+    apps::set_app(apps::App::from_id(&app));
+    app::set_wechat_active(true);
+    let (node, n, us) = apps::build();
+    app::set_root(node);
+    vec![n as f64, us]
+}
+
+/// Build one route of one app without mounting it. Returns [nodes, µs].
+#[napi(js_name = "appTime")]
+pub fn app_time(app: String, tab: u32, route: String) -> Vec<f64> {
+    let (n, us) = apps::build_route(apps::App::from_id(&app), tab as usize, &route);
+    vec![n as f64, us]
+}
+
+/// The tour for an app, as "tab|route" entries.
+#[napi(js_name = "appTour")]
+pub fn app_tour(app: String) -> Vec<String> {
+    apps::App::from_id(&app)
+        .tour()
+        .iter()
+        .map(|s| s.to_string())
+        .collect()
+}
+
+/// Build every screen of an app and keep them, for the memory arm.
+#[napi(js_name = "appKeepAll")]
+pub fn app_keep_all(app: String) -> u32 {
+    apps::keep_all(apps::App::from_id(&app)) as u32
+}
+
+#[napi(js_name = "appDropKept")]
+pub fn app_drop_kept() -> u32 {
+    apps::drop_kept() as u32
 }
 
 /// Whether the native header toggle was tapped since the last call. Polled by
