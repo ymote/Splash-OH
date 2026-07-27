@@ -8,6 +8,38 @@
 
 use std::ffi::CString;
 use std::os::raw::{c_char, c_int};
+use std::sync::atomic::{AtomicU64, Ordering};
+
+/// The thread that must never block: whichever one renders.
+///
+/// `http_get` is synchronous. Called from a `build()` it stalls the UI, and if
+/// that build is running on the ArkUI event thread it also writes any web slot
+/// it declares into the wrong thread's storage, so the surface is torn down
+/// again. Both failures are silent -- the weather card rendered a white
+/// rectangle for three debugging rounds before the cause was found.
+///
+/// So the render threads register themselves, and a blocking fetch from one is
+/// a panic rather than a mystery.
+static UI_THREADS: AtomicU64 = AtomicU64::new(0);
+
+fn thread_bit() -> u64 {
+    // Cheap per-thread identity: the low bits of the thread id, as a bitmask.
+    // Collisions only cost a false positive on a thread that should not be
+    // fetching anyway, which is the safe direction to be wrong in.
+    let id = format!("{:?}", std::thread::current().id());
+    let h = id.bytes().fold(0u64, |a, b| a.wrapping_mul(31).wrapping_add(b as u64));
+    1u64 << (h % 64)
+}
+
+/// Mark the calling thread as one that renders. Called from every entry point
+/// that can reach `build()`.
+pub fn mark_ui_thread() {
+    UI_THREADS.fetch_or(thread_bit(), Ordering::Relaxed);
+}
+
+fn on_ui_thread() -> bool {
+    UI_THREADS.load(Ordering::Relaxed) & thread_bit() != 0
+}
 
 extern "C" {
     /// Blocking GET. Returns the HTTP status code (negative on transport error).
@@ -20,6 +52,20 @@ extern "C" {
 /// Blocking GET returning `(status, body)`. `status` is the HTTP code, or a
 /// negative sentinel on a transport/timeout error; `body` is the raw response.
 pub fn http_get(url: &str) -> (i32, Option<Vec<u8>>) {
+    if on_ui_thread() {
+        // Loud on purpose. A silent stall here is the single most expensive
+        // failure mode this codebase has produced; better a crash that names
+        // itself than another white rectangle.
+        let msg = format!(
+            "net::http_get called on a render thread ({url}). \
+             Blocking HTTP must not happen inside build(): fetch on a worker \
+             and have build() read a cache -- see apps::weather_web::prefetch."
+        );
+        crate::log(&msg);
+        if cfg!(debug_assertions) {
+            panic!("{msg}");
+        }
+    }
     let Ok(c) = CString::new(url) else {
         return (-1, None);
     };

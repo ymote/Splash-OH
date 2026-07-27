@@ -196,6 +196,8 @@ pub fn handle(target: i32) -> bool {
 
 /// Build the current app's current screen. Returns (root, nodes, µs).
 pub fn build() -> (Option<Node>, usize, f64) {
+    // Whichever thread renders is a thread that must not block on the network.
+    crate::net::mark_ui_thread();
     let (app, tab, sub, pushed, feed) = NAV.with(|n| {
         let n = n.borrow();
         (n.app, n.tab, n.sub, n.pushed, n.feed)
