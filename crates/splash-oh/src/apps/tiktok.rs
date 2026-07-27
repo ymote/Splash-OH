@@ -35,11 +35,41 @@ pub const BACK: i32 = 310;
 
 /// The reference app's five reels: (poster, author, caption, likes, comments).
 pub const REELS: &[(&str, &str, &str, &str, &str)] = &[
-    ("poster1.jpg", "@seagulls", "Seagulls at the pier 🌊 #ocean", "1234", "234"),
-    ("poster2.jpg", "@dancing", "Friday night moves 💃 #dance", "2234", "512"),
-    ("poster3.jpg", "@cat", "He does this every morning 🐱", "3234", "890"),
-    ("poster4.jpg", "@cat2", "Round two #catsoftiktok", "4234", "1203"),
-    ("poster5.jpg", "@seagulls", "Golden hour 🌅 #sunset", "5234", "2201"),
+    (
+        "poster1.jpg",
+        "@seagulls",
+        "Seagulls at the pier 🌊 #ocean",
+        "1234",
+        "234",
+    ),
+    (
+        "poster2.jpg",
+        "@dancing",
+        "Friday night moves 💃 #dance",
+        "2234",
+        "512",
+    ),
+    (
+        "poster3.jpg",
+        "@cat",
+        "He does this every morning 🐱",
+        "3234",
+        "890",
+    ),
+    (
+        "poster4.jpg",
+        "@cat2",
+        "Round two #catsoftiktok",
+        "4234",
+        "1203",
+    ),
+    (
+        "poster5.jpg",
+        "@seagulls",
+        "Golden hour 🌅 #sunset",
+        "5234",
+        "2201",
+    ),
 ];
 
 /// Top bar: Following / For You, plus search.
@@ -49,7 +79,14 @@ fn header(active: usize) -> Option<Node> {
     for (i, label) in ["Following", "For You"].iter().enumerate() {
         let c = if i == active { WHITE } else { DIM };
         let mut t = tap_col(110.0, 46.0, BLACK, TAB_BASE + i as i32)?;
-        t = t.child(text_w(label, 15.0, c, 106.0, 22.0, if i == active { 7 } else { 4 })?);
+        t = t.child(text_w(
+            label,
+            15.0,
+            c,
+            106.0,
+            22.0,
+            if i == active { 7 } else { 4 },
+        )?);
         if i == active {
             t = t.child(col(30.0, 2.0, WHITE)?);
         }
@@ -151,8 +188,21 @@ fn comments(idx: usize) -> Option<Node> {
         let mut r = row(W, 62.0, 0xFF161616)?;
         r = r.child(photo(APP, "default_avatar.png", 36.0, 36.0, 18.0)?);
         let mut c = col(W - 130.0, 52.0, 0)?;
-        c = c.child(text_w(REELS[i % REELS.len()].1, 12.0, DIM, W - 140.0, 18.0, 5)?);
-        c = c.child(text(REELS[i % REELS.len()].2, 13.0, WHITE, W - 140.0, 20.0)?);
+        c = c.child(text_w(
+            REELS[i % REELS.len()].1,
+            12.0,
+            DIM,
+            W - 140.0,
+            18.0,
+            5,
+        )?);
+        c = c.child(text(
+            REELS[i % REELS.len()].2,
+            13.0,
+            WHITE,
+            W - 140.0,
+            20.0,
+        )?);
         r = r.child(c);
         let mut like = col(50.0, 44.0, 0)?;
         like = like.child(icon(APP, "heart.png", 16.0)?);

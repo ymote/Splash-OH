@@ -43,7 +43,11 @@ use makepad_script::*;
 /// the simplest way to pass host state into a script without a scope object.
 pub fn build_screen(screen: &str, bench: Option<&str>) -> Option<Node> {
     const CATALOG: &str = include_str!("../assets/catalog.splash");
-    let esc = |s: &str| s.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n");
+    let esc = |s: &str| {
+        s.replace('\\', "\\\\")
+            .replace('"', "\\\"")
+            .replace('\n', "\\n")
+    };
     // `text_lines` in the DSL estimates wrapped height from `s.len()`, which
     // cannot see embedded newlines — the benchmark report has plenty, and it
     // overflowed its card. Rust can just count them properly and pass the
@@ -66,7 +70,13 @@ const BENCH_CHARS_PER_LINE: usize = 63;
 /// Wrapped line count, counting hard newlines as well as wrapping.
 fn display_lines(s: &str, per_line: usize) -> usize {
     s.lines()
-        .map(|l| if l.is_empty() { 1 } else { l.len().div_ceil(per_line) })
+        .map(|l| {
+            if l.is_empty() {
+                1
+            } else {
+                l.len().div_ceil(per_line)
+            }
+        })
         .sum::<usize>()
         .max(1)
 }
@@ -120,7 +130,9 @@ pub fn build(src: &str) -> Option<Node> {
                     crate::log(&format!("dsl: syntax: {d:?}"));
                 }
             }
-            Ok(_) => crate::log("dsl: script parsed but evaluated to nil (runtime error, or it returned nothing)"),
+            Ok(_) => crate::log(
+                "dsl: script parsed but evaluated to nil (runtime error, or it returned nothing)",
+            ),
             Err(e) => crate::log(&format!("dsl: syntax check failed: {e:?}")),
         }
         return None;
@@ -137,7 +149,11 @@ fn register_net_capabilities(vm: &mut ScriptVm) {
     // one array index, for the per-day forecast). nil when missing.
     let f_num = add_global_fn(
         vm,
-        &[(id!(url), ScriptValue::NIL), (id!(path), ScriptValue::NIL), (id!(i), ScriptValue::NIL)],
+        &[
+            (id!(url), ScriptValue::NIL),
+            (id!(path), ScriptValue::NIL),
+            (id!(i), ScriptValue::NIL),
+        ],
         |vm, a| {
             let url = string_prop(vm, a, id!(url)).unwrap_or_default();
             let path = string_prop(vm, a, id!(path)).unwrap_or_default();
@@ -174,7 +190,11 @@ fn register_net_capabilities(vm: &mut ScriptVm) {
     // `fetch_weekday(url, path, i)` -> "Tue" for the ISO date at that path.
     let f_wd = add_global_fn(
         vm,
-        &[(id!(url), ScriptValue::NIL), (id!(path), ScriptValue::NIL), (id!(i), ScriptValue::NIL)],
+        &[
+            (id!(url), ScriptValue::NIL),
+            (id!(path), ScriptValue::NIL),
+            (id!(i), ScriptValue::NIL),
+        ],
         |vm, a| {
             let url = string_prop(vm, a, id!(url)).unwrap_or_default();
             let path = string_prop(vm, a, id!(path)).unwrap_or_default();

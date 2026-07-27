@@ -11,13 +11,13 @@
 //! not ~45×) and the real argument is about contention rather than raw speed.
 
 pub mod app;
+pub mod apps;
 pub mod arkui;
 pub mod bench;
+pub mod bridge;
 pub mod catalog;
 pub mod dsl;
 pub mod mem;
-pub mod apps;
-pub mod bridge;
 pub mod net;
 pub mod webslot;
 pub mod wechat;
@@ -89,7 +89,6 @@ pub(crate) fn log(msg: &str) {
         }
     }
 }
-
 
 // ---------------------------------------------------------------------------
 // Benchmark plumbing.
@@ -240,7 +239,11 @@ pub fn web_bridge_drain() -> Vec<String> {
 /// Polled by ArkTS alongside the web-slot list.
 #[napi(js_name = "appTakeDirty")]
 pub fn app_take_dirty() -> u32 {
-    if apps::weather_web::take_dirty() { 1 } else { 0 }
+    if apps::weather_web::take_dirty() {
+        1
+    } else {
+        0
+    }
 }
 
 /// The markup for a generated slot. Fetched once by id rather than carried in
@@ -276,7 +279,10 @@ pub fn app_data(key: String) -> Vec<String> {
             .iter()
             .map(|(a, b, c, d)| format!("{a}|{b}|{c}|{d}"))
             .collect(),
-        "taobao.tabs" => taobao::TABS.iter().map(|(a, b)| format!("{a}|{b}")).collect(),
+        "taobao.tabs" => taobao::TABS
+            .iter()
+            .map(|(a, b)| format!("{a}|{b}"))
+            .collect(),
         "tiktok.reels" => tiktok::REELS
             .iter()
             .map(|(a, b, c, d, e)| format!("{a}|{b}|{c}|{d}|{e}"))
@@ -285,12 +291,18 @@ pub fn app_data(key: String) -> Vec<String> {
             .iter()
             .map(|(a, b, c)| format!("{a}|{b}|{c}"))
             .collect(),
-        "wonderous.tabs" => wonderous::TABS.iter().map(|(a, b)| format!("{a}|{b}")).collect(),
+        "wonderous.tabs" => wonderous::TABS
+            .iter()
+            .map(|(a, b)| format!("{a}|{b}"))
+            .collect(),
         "wonderous.sections" => wonderous::sections()
             .iter()
             .map(|(a, b)| format!("{a}|{b}"))
             .collect(),
-        "wonderous.artifacts" => wonderous::artifacts_list().iter().map(|s| s.to_string()).collect(),
+        "wonderous.artifacts" => wonderous::artifacts_list()
+            .iter()
+            .map(|s| s.to_string())
+            .collect(),
         "wonderous.timeline" => wonderous::timeline_list()
             .iter()
             .map(|(a, b)| format!("{a}|{b}"))
@@ -341,7 +353,11 @@ pub fn app_drop_kept() -> u32 {
 /// ArkTS, which then swaps which implementation owns the surface.
 #[napi(js_name = "wechatTakeToggle")]
 pub fn wechat_take_toggle() -> u32 {
-    if wechat::take_toggle() { 1 } else { 0 }
+    if wechat::take_toggle() {
+        1
+    } else {
+        0
+    }
 }
 
 /// Detach the native tree and give up the surface, so the ArkTS
@@ -384,7 +400,15 @@ pub fn wechat_time(tab: u32, route: String, chat_id: u32) -> Vec<f64> {
 pub fn wechat_chats() -> Vec<String> {
     wechat::db::CHATS
         .iter()
-        .map(|c| format!("{}|{}|{}|{}", c.username, c.preview.text(), c.timestamp, c.avatar))
+        .map(|c| {
+            format!(
+                "{}|{}|{}|{}",
+                c.username,
+                c.preview.text(),
+                c.timestamp,
+                c.avatar
+            )
+        })
         .collect()
 }
 
@@ -406,7 +430,12 @@ pub fn wechat_assets(which: String) -> Vec<String> {
 #[napi(js_name = "wechatContacts")]
 pub fn wechat_contacts() -> Vec<String> {
     const POOL: &[&str] = &[
-        "user1.png", "user2.png", "user3.png", "user4.png", "user5.png", "user6.png",
+        "user1.png",
+        "user2.png",
+        "user3.png",
+        "user4.png",
+        "user5.png",
+        "user6.png",
     ];
     let mut out = Vec::new();
     let mut k = 0usize;
@@ -435,7 +464,11 @@ pub fn wechat_messages(chat_id: u32) -> Vec<String> {
     (0..wechat::db::MESSAGES_PER_CHAT)
         .map(|i| {
             let m = wechat::db::message(chat_id as u64, i);
-            let d = if matches!(m.direction, wechat::db::Direction::Outgoing) { "o" } else { "i" };
+            let d = if matches!(m.direction, wechat::db::Direction::Outgoing) {
+                "o"
+            } else {
+                "i"
+            };
             let av = if matches!(m.direction, wechat::db::Direction::Outgoing) {
                 wechat::db::MY_AVATAR
             } else {
@@ -537,10 +570,9 @@ pub fn run_bridge_bench() {
         let wait_until = |target: u64| -> bool {
             let mut g = s.count.lock().unwrap();
             while *g < target {
-                let (ng, t) = s
-                    .cv
-                    .wait_timeout(g, std::time::Duration::from_millis(2000))
-                    .unwrap();
+                let (ng, t) =
+                    s.cv.wait_timeout(g, std::time::Duration::from_millis(2000))
+                        .unwrap();
                 g = ng;
                 if t.timed_out() && *g < target {
                     return false;

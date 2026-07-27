@@ -43,7 +43,12 @@ const AVATAR_BG: u32 = 0xFFC8C8C8;
 
 /// The reference app's six user avatars, cycled through the contact list.
 const AVATAR_POOL: &[&str] = &[
-    "user1.png", "user2.png", "user3.png", "user4.png", "user5.png", "user6.png",
+    "user1.png",
+    "user2.png",
+    "user3.png",
+    "user4.png",
+    "user5.png",
+    "user6.png",
 ];
 
 const W: f32 = 402.0;
@@ -193,7 +198,10 @@ fn image(file: &str, w: f32, h: f32, radius: f32) -> Option<Node> {
             .height(h)
             .bg(AVATAR_BG)
             .radius(radius)
-            .string_attr(attr::image_src(), &format!("resource://RAWFILE/wechat/{file}"))
+            .string_attr(
+                attr::image_src(),
+                &format!("resource://RAWFILE/wechat/{file}"),
+            )
             // ARKUI_OBJECT_FIT_COVER
             .i32_attr(attr::image_fit(), 1),
     )
@@ -211,7 +219,10 @@ fn icon(file: &str, size: f32) -> Option<Node> {
         Node::new(ty::image())?
             .width(size)
             .height(size)
-            .string_attr(attr::image_src(), &format!("resource://RAWFILE/wechat/{file}"))
+            .string_attr(
+                attr::image_src(),
+                &format!("resource://RAWFILE/wechat/{file}"),
+            )
             // ARKUI_OBJECT_FIT_CONTAIN — glyphs must not be cropped.
             .i32_attr(attr::image_fit(), 0),
     )
@@ -230,9 +241,7 @@ fn divider() -> Option<Node> {
 fn header(title: &str, with_back: bool) -> Option<Node> {
     let mut h = row(W, 46.0, NAV_BG)?;
     if with_back {
-        h = h.child(
-            tap_row(56.0, 46.0, NAV_BG, BACK)?.child(text("‹", 24.0, TEXT, 44.0, 30.0)?),
-        );
+        h = h.child(tap_row(56.0, 46.0, NAV_BG, BACK)?.child(text("‹", 24.0, TEXT, 44.0, 30.0)?));
     } else {
         h = h.child(col(56.0, 46.0, NAV_BG)?);
     }
@@ -400,7 +409,11 @@ fn screen_me(body: Node) -> Option<Node> {
     b = b.child(head);
     b = b.child(col(W, 10.0, BG)?);
     for (i, (label, file)) in PROFILE.iter().enumerate() {
-        let tap = if *label == "My Posts" { LINK_MOMENTS } else { 0 };
+        let tap = if *label == "My Posts" {
+            LINK_MOMENTS
+        } else {
+            0
+        };
         b = b.child(menu_row(label, file, tap)?);
         if i == 2 {
             b = b.child(col(W, 10.0, BG)?);
