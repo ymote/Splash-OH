@@ -1,55 +1,96 @@
 import { typeNode, FrameNode, UIContext } from '@kit.ArkUI';
+import splash from 'libsplash_oh.so';
 
 /**
- * The same WeChat-shaped app as `crates/splash-oh/src/wechat.rs`, built in
- * ArkTS through `typeNode`.
+ * The WeChat demo, built in ArkTS through `typeNode`.
+ *
+ * The same app as `crates/splash-oh/src/wechat/mod.rs`: same twelve chats, same
+ * CJK message bodies, same four tabs, same pushed routes. The data comes across
+ * from Rust so neither implementation can render different content, and both
+ * mount into the same `NodeContent`, so they can be swapped at runtime and
+ * compared in one process on one device.
  *
  * `typeNode.createNode` produces the same underlying native node the NDK
- * produces, so this is the apples-to-apples control: identical tree, identical
- * node count, identical attributes. Only the language building it differs.
- *
- * Node counts are asserted against the Rust side at runtime. "The ArkTS version
- * is faster because it quietly builds less" is the obvious way for a comparison
- * like this to be wrong, so it is checked rather than assumed.
- *
- * Row shapes come from project-robius/makepad_wechat:
- *   chat preview 6 nodes, message 4, contact 3, discover 4, moment 5.
+ * produces. That is what makes this a control rather than a different app that
+ * happens to look similar.
  */
 
 const BG: number = 0xFFEDEDED;
 const SURFACE: number = 0xFFFFFFFF;
-const NAV: number = 0xFFF7F7F7;
+const NAV_BG: number = 0xFFF7F7F7;
 const TEXT_C: number = 0xFF191919;
 const SUBTLE: number = 0xFF9A9A9A;
+const DIVIDER: number = 0xFFE5E5E5;
 const GREEN: number = 0xFF07C160;
-const AVATAR: number = 0xFFD8D8D8;
-const W: number = 402;
+const BUBBLE_OUT: number = 0xFF95EC69;
+const AVATAR_BG: number = 0xFFC8C8C8;
+const LINK_BLUE: number = 0xFF576B95;
 
-const NAMES: Array<string> = [
-  'Rik Arends', 'Eddy Bruel', 'Ken Wu', 'Julian Montes de Oca', 'Edward Tan',
-  'Alex Zhang', 'Jorge Bejar', 'Sandra Li', 'Wei Chen', 'Tom Xu'
+const W: number = 402;
+const PAGE_H: number = 780;
+
+// Event ids, mirroring wechat/mod.rs.
+export const TAB_BASE: number = 100;
+export const BACK: number = 110;
+export const LINK_MOMENTS: number = 120;
+export const LINK_MY_PROFILE: number = 121;
+export const LINK_ADD_CONTACT: number = 122;
+export const TOGGLE_IMPL: number = 130;
+export const CHAT_BASE: number = 1000;
+
+const CONTACT_ACTIONS: Array<string> = [
+  'New Friends', 'Group Chats', 'Tags', 'Official Accounts', 'WeCom Contacts'
 ];
-const PREVIEWS: Array<string> = [
-  "Hi there! I'm using WeChat",
-  "Let's meet at 3pm tomorrow",
-  'Sent a sticker',
-  'Did you see the new build?',
-  '[Photo]'
+const CONTACT_GROUPS: Array<string> = [
+  'A', 'Adam Adler', 'Ana Leddie', 'Andrew Lin', 'Aaron Pike',
+  'B', 'Barb Akew', 'Ben Dover', 'Bill Ding',
+  'C', 'Chris P. Bacon', 'Christian Huxley', 'Carrie Oki',
+  'E', 'Eric Ford', 'Ella Vator', 'Earl E. Bird',
+  'G', 'Gabriel Hayes', 'Gail Forcewind',
+  'J', 'John Doe', 'Jorge Bejar', 'Julian Montes de Oca', 'Jo King',
+  'O', 'Olive Yew', 'Olive Branch',
+  'P', 'Peg Legge', 'Paige Turner', 'Polly Ester',
+  'R', 'Rik Arends', 'Rita Book', 'Robin Banks',
+  'W', 'Warren Peace', 'Wilma Mine'
 ];
-const DISCOVER: Array<string> = [
-  'Moments', 'Channels', 'Scan', 'Shake', 'Search', 'Top Stories',
-  'Mini Programs', 'Nearby'
+const DISCOVER_ENTRIES: Array<string> = [
+  'Moments', '', 'Channels', 'Live', '', 'Scan', 'Shake', '',
+  'Top Stories', 'Search', '', 'Mini Programs', ''
 ];
+const PROFILE_ENTRIES: Array<string> = [
+  'Services', '', 'Favorites', 'Moments', 'Cards & Offers', 'Sticker Gallery', '', 'Settings', ''
+];
+const MOMENTS: Array<string> = [
+  'Olive Yew|体議速人幅触無持編聞組込|1',
+  'John Doe|減活乗治外進|0',
+  'Peg Legge|福読併棋一御質慰|1',
+  'Barb Akew|嶋可済政実玉全強無示餌|0',
+  'Chris P. Bacon|消再野誰強心無嶋可済実玉全示餌|1',
+  'WeChat Team|Welcome to WeChat Moments|0',
+  'Andrew Lin|体議速人幅触無持編聞組込|1',
+  'Ana Leddie|減活乗治外進|0'
+];
+
+/** Route on top of the navigation stack, mirroring the Rust enum. */
+export enum RouteKind { Root, Chat, Moments, AddContact, MyProfile }
 
 export class WeChatArkTs {
   private ctx: UIContext;
   private count: number = 0;
-  /** Held so the screen's memory cost shows up in RSS, same as the Rust side. */
   private root: FrameNode | null = null;
+  /** Chats as "namepreviewtimestamp", straight from Rust. */
+  private chats: Array<string> = new Array<string>();
+
+  tab: number = 0;
+  route: RouteKind = RouteKind.Root;
+  chatId: number = 1;
 
   constructor(ctx: UIContext) {
     this.ctx = ctx;
+    this.chats = splash.wechatChats() as Array<string>;
   }
+
+  // --- leaves --------------------------------------------------------------
 
   private text(s: string, size: number, color: number, w: number, h: number): FrameNode {
     this.count++;
@@ -73,212 +114,333 @@ export class WeChatArkTs {
     return n;
   }
 
-  /** Real Image node, no source — same as the Rust side, so no decode cost. */
+  /** A tappable row. ArkTS gets a real closure rather than an integer id. */
+  private tapRow(w: number, h: number, bg: number, tap: number): typeNode.Row {
+    const n = this.row(w, h, bg);
+    n.attribute.onClick(() => { this.onTap(tap); });
+    return n;
+  }
+
   private avatar(size: number): FrameNode {
     this.count++;
     const n: typeNode.Image = typeNode.createNode(this.ctx, 'Image');
-    n.attribute.width(size).height(size).backgroundColor(AVATAR).borderRadius(6);
+    n.attribute.width(size).height(size).backgroundColor(AVATAR_BG).borderRadius(size * 0.12);
     return n;
   }
 
-  /** Nav bar: 3 nodes. */
-  private nav(title: string): FrameNode {
-    const n = this.row(W, 44, NAV);
-    n.appendChild(this.text(title, 17, TEXT_C, 300, 24));
-    n.appendChild(this.text('+', 20, TEXT_C, 40, 24));
-    return n;
+  private divider(): FrameNode {
+    return this.col(W, 1, DIVIDER);
   }
 
-  /** Tab bar: 10 nodes. */
-  private tabs(active: number): FrameNode {
-    const bar = this.row(W, 52, NAV);
+  // --- navigation ----------------------------------------------------------
+
+  /** Called by the switcher in Index.ets when the toggle is hit. */
+  onToggle: (() => void) | null = null;
+
+  private onTap(tap: number): void {
+    if (tap === 0) {
+      return;
+    }
+    if (tap === TOGGLE_IMPL) {
+      if (this.onToggle !== null) {
+        this.onToggle();
+      }
+      return;
+    }
+    if (tap === BACK) {
+      if (this.route === RouteKind.Root) {
+        return;
+      }
+      this.route = RouteKind.Root;
+    } else if (tap === LINK_MOMENTS) {
+      this.route = RouteKind.Moments;
+    } else if (tap === LINK_MY_PROFILE) {
+      this.route = RouteKind.MyProfile;
+    } else if (tap === LINK_ADD_CONTACT) {
+      this.route = RouteKind.AddContact;
+    } else if (tap >= TAB_BASE && tap < TAB_BASE + 4) {
+      this.tab = tap - TAB_BASE;
+      this.route = RouteKind.Root;
+    } else if (tap >= CHAT_BASE) {
+      this.chatId = tap - CHAT_BASE;
+      this.route = RouteKind.Chat;
+    } else {
+      return;
+    }
+    if (this.remount !== null) {
+      this.remount();
+    }
+  }
+
+  /** Set by Index.ets so a tap can re-render and re-mount. */
+  remount: (() => void) | null = null;
+
+  // --- chrome --------------------------------------------------------------
+
+  private header(title: string, withBack: boolean): FrameNode {
+    const h = this.row(W, 46, NAV_BG);
+    if (withBack) {
+      const b = this.tapRow(56, 46, NAV_BG, BACK);
+      b.appendChild(this.text('‹', 24, TEXT_C, 44, 30));
+      h.appendChild(b);
+    } else {
+      h.appendChild(this.col(56, 46, NAV_BG));
+    }
+    h.appendChild(this.text(title, 17, TEXT_C, W - 170, 26));
+    const t = this.tapRow(90, 46, NAV_BG, TOGGLE_IMPL);
+    t.appendChild(this.text('ArkTS ⇄', 12, GREEN, 84, 20));
+    h.appendChild(t);
+    return h;
+  }
+
+  private tabBar(active: number): FrameNode {
+    const bar = this.row(W, 56, NAV_BG);
     const labels: Array<string> = ['Chats', 'Contacts', 'Discover', 'Me'];
     for (let i = 0; i < labels.length; i++) {
       const c: number = i === active ? GREEN : SUBTLE;
-      bar.appendChild(this.col(20, 20, c));
-      bar.appendChild(this.text(labels[i], 10, c, 70, 14));
+      const t = this.tapRow(W / 4, 56, NAV_BG, TAB_BASE + i);
+      t.appendChild(this.text(labels[i], 11, c, W / 4 - 4, 16));
+      bar.appendChild(t);
     }
     return bar;
   }
 
-  /** Search bar: 2 nodes. */
-  private search(): FrameNode {
-    const s = this.row(W - 16, 32, SURFACE);
-    s.appendChild(this.text('Search', 13, SUBTLE, 200, 18));
+  private searchBar(): FrameNode {
+    const s = this.row(W, 44, BG);
+    const inner = this.row(W - 24, 32, SURFACE);
+    inner.attribute.borderRadius(6);
+    inner.appendChild(this.text('🔍  Search', 13, SUBTLE, 200, 20));
+    s.appendChild(inner);
     return s;
   }
 
-  /** ChatPreview: 6 nodes. */
+  // --- rows ----------------------------------------------------------------
+
   private chatRow(i: number): FrameNode {
-    const r = this.row(W, 64, SURFACE);
-    r.appendChild(this.avatar(40));
-    const mid = this.col(W - 130, 56, SURFACE);
-    mid.appendChild(this.text(NAMES[i % NAMES.length], 15, TEXT_C, W - 140, 20));
-    mid.appendChild(this.text(PREVIEWS[i % PREVIEWS.length], 12, SUBTLE, W - 140, 18));
+    const parts: Array<string> = this.chats[i].split('|');
+    const r = this.tapRow(W, 66, SURFACE, CHAT_BASE + i + 1);
+    r.appendChild(this.avatar(44));
+    const mid = this.col(W - 150, 60, SURFACE);
+    mid.appendChild(this.text(parts[0], 16, TEXT_C, W - 160, 22));
+    mid.appendChild(this.text(parts[1], 13, SUBTLE, W - 160, 20));
     r.appendChild(mid);
-    r.appendChild(this.text('yesterday', 10, SUBTLE, 60, 16));
+    r.appendChild(this.text(parts[2], 11, SUBTLE, 70, 18));
     return r;
   }
 
-  /** Chat bubble: 4 nodes. */
-  private messageRow(i: number): FrameNode {
-    const r = this.row(W, 52, BG);
+  private messageRow(spec: string): FrameNode {
+    const parts: Array<string> = spec.split('|');
+    const outgoing: boolean = parts[0] === 'o';
+    const r = this.row(W, 58, BG);
+    if (outgoing) {
+      r.appendChild(this.col(W - 250, 50, BG));
+    } else {
+      r.appendChild(this.avatar(38));
+    }
+    const bubble = this.col(200, 44, outgoing ? BUBBLE_OUT : SURFACE);
+    bubble.attribute.borderRadius(6);
+    bubble.appendChild(this.text(parts[1], 15, TEXT_C, 188, 24));
+    r.appendChild(bubble);
+    if (outgoing) {
+      r.appendChild(this.avatar(38));
+    }
+    return r;
+  }
+
+  private menuRow(label: string, tap: number): FrameNode {
+    const r = this.tapRow(W, 52, SURFACE, tap);
+    r.appendChild(this.avatar(26));
+    r.appendChild(this.text(label, 15, TEXT_C, W - 110, 22));
+    r.appendChild(this.text('›', 16, SUBTLE, 24, 22));
+    return r;
+  }
+
+  private contactRow(name: string): FrameNode {
+    const r = this.tapRow(W, 50, SURFACE, 0);
     r.appendChild(this.avatar(34));
-    const b = this.col(W - 120, 40, i % 2 === 0 ? SURFACE : GREEN);
-    b.appendChild(this.text(PREVIEWS[i % PREVIEWS.length], 14,
-      i % 2 === 0 ? TEXT_C : SURFACE, W - 130, 20));
-    r.appendChild(b);
+    r.appendChild(this.text(name, 15, TEXT_C, W - 90, 22));
     return r;
   }
 
-  /** Contact: 3 nodes. */
-  private contactRow(i: number): FrameNode {
-    const r = this.row(W, 48, SURFACE);
-    r.appendChild(this.avatar(32));
-    r.appendChild(this.text(NAMES[i % NAMES.length], 15, TEXT_C, W - 80, 20));
+  private sectionLabel(s: string): FrameNode {
+    const r = this.row(W, 26, BG);
+    r.appendChild(this.text(s, 12, SUBTLE, W - 20, 18));
     return r;
   }
 
-  /** Discover entry: 4 nodes. */
-  private discoverRow(i: number): FrameNode {
-    const r = this.row(W, 50, SURFACE);
-    r.appendChild(this.avatar(24));
-    r.appendChild(this.text(DISCOVER[i % DISCOVER.length], 15, TEXT_C, W - 100, 20));
-    r.appendChild(this.text('›', 15, SUBTLE, 20, 20));
-    return r;
-  }
-
-  /** Moment: 5 nodes. */
-  private momentRow(i: number): FrameNode {
-    const m = this.col(W, 150, SURFACE);
-    m.appendChild(this.avatar(36));
-    m.appendChild(this.text(NAMES[i % NAMES.length], 14, GREEN, W - 20, 20));
-    m.appendChild(this.text(PREVIEWS[i % PREVIEWS.length], 13, TEXT_C, W - 20, 20));
-    m.appendChild(this.avatar(64));
+  private momentRow(spec: string): FrameNode {
+    const parts: Array<string> = spec.split('|');
+    const photo: boolean = parts[2] === '1';
+    const m = this.row(W, photo ? 150 : 82, SURFACE);
+    m.appendChild(this.avatar(40));
+    const c = this.col(W - 80, photo ? 140 : 72, SURFACE);
+    c.appendChild(this.text(parts[0], 14, LINK_BLUE, W - 90, 20));
+    c.appendChild(this.text(parts[1], 14, TEXT_C, W - 90, 22));
+    if (photo) {
+      c.appendChild(this.avatar(80));
+    }
+    m.appendChild(c);
     return m;
   }
 
-  /** Build one screen. Returns the node count; time is measured by the caller. */
-  build(screen: string, rows: number): number {
+  // --- build ---------------------------------------------------------------
+
+  /** Build the whole app for the current state. Returns the node count. */
+  build(): number {
     this.count = 0;
-    const root = this.col(W, 780, BG);
+    const root = this.col(W, PAGE_H, BG);
 
     let title: string = 'WeChat';
-    if (screen === 'chat') {
-      title = 'Chat';
-    } else if (screen === 'contacts') {
-      title = 'Contacts';
-    } else if (screen === 'discover') {
-      title = 'Discover';
-    } else if (screen === 'moments') {
+    let withBack: boolean = false;
+    if (this.route === RouteKind.Root) {
+      const titles: Array<string> = ['WeChat', 'Contacts', 'Discover', 'Me'];
+      title = titles[this.tab];
+    } else if (this.route === RouteKind.Chat) {
+      title = this.chats[this.chatId - 1].split('|')[0];
+      withBack = true;
+    } else if (this.route === RouteKind.Moments) {
       title = 'Moments';
-    } else if (screen === 'me') {
-      title = 'Me';
+      withBack = true;
+    } else if (this.route === RouteKind.AddContact) {
+      title = 'Add Contact';
+      withBack = true;
+    } else {
+      title = 'My Profile';
+      withBack = true;
     }
-    root.appendChild(this.nav(title));
+    root.appendChild(this.header(title, withBack));
 
-    if (screen === 'chats') {
-      root.appendChild(this.search());
-      for (let i = 0; i < rows; i++) {
-        root.appendChild(this.chatRow(i));
+    this.count++;
+    const scroll: typeNode.Scroll = typeNode.createNode(this.ctx, 'Scroll');
+    // Align top: a Scroll centres content shorter than itself by default.
+    scroll.attribute.width(W).height(PAGE_H - 46 - 56).align(Alignment.Top);
+    const body = this.col(W, 0, BG);
+
+    if (this.route === RouteKind.Root) {
+      if (this.tab === 0) {
+        body.appendChild(this.searchBar());
+        for (let i = 0; i < this.chats.length; i++) {
+          body.appendChild(this.chatRow(i));
+          body.appendChild(this.divider());
+        }
+      } else if (this.tab === 1) {
+        body.appendChild(this.searchBar());
+        for (let i = 0; i < CONTACT_ACTIONS.length; i++) {
+          body.appendChild(this.menuRow(CONTACT_ACTIONS[i], LINK_ADD_CONTACT));
+        }
+        for (let i = 0; i < CONTACT_GROUPS.length; i++) {
+          const e = CONTACT_GROUPS[i];
+          if (e.length === 1) {
+            body.appendChild(this.sectionLabel(e));
+          } else {
+            body.appendChild(this.contactRow(e));
+          }
+        }
+      } else if (this.tab === 2) {
+        for (let i = 0; i < DISCOVER_ENTRIES.length; i++) {
+          const e = DISCOVER_ENTRIES[i];
+          if (e === '') {
+            body.appendChild(this.col(W, 10, BG));
+          } else {
+            body.appendChild(this.menuRow(e, e === 'Moments' ? LINK_MOMENTS : 0));
+          }
+        }
+      } else {
+        const head = this.tapRow(W, 116, SURFACE, LINK_MY_PROFILE);
+        head.appendChild(this.avatar(64));
+        const hc = this.col(W - 160, 80, SURFACE);
+        hc.appendChild(this.text('Rik Arends', 20, TEXT_C, W - 170, 28));
+        hc.appendChild(this.text('WeChat ID: rikarends', 12, SUBTLE, W - 170, 20));
+        hc.appendChild(this.text('＋ Status', 12, SUBTLE, W - 170, 20));
+        head.appendChild(hc);
+        head.appendChild(this.text('›', 16, SUBTLE, 24, 22));
+        body.appendChild(head);
+        body.appendChild(this.col(W, 10, BG));
+        for (let i = 0; i < PROFILE_ENTRIES.length; i++) {
+          const e = PROFILE_ENTRIES[i];
+          if (e === '') {
+            body.appendChild(this.col(W, 10, BG));
+          } else {
+            body.appendChild(this.menuRow(e, e === 'Moments' ? LINK_MOMENTS : 0));
+          }
+        }
       }
-    } else if (screen === 'chat') {
-      for (let i = 0; i < rows; i++) {
-        root.appendChild(this.messageRow(i));
+    } else if (this.route === RouteKind.Chat) {
+      const msgs: Array<string> = splash.wechatMessages(this.chatId) as Array<string>;
+      for (let i = 0; i < msgs.length; i++) {
+        body.appendChild(this.messageRow(msgs[i]));
       }
-      const c = this.row(W, 48, NAV);
-      c.appendChild(this.text('Message', 14, SUBTLE, W - 100, 20));
-      c.appendChild(this.text('Send', 14, GREEN, 50, 20));
-      root.appendChild(c);
-    } else if (screen === 'contacts') {
-      root.appendChild(this.search());
-      for (let i = 0; i < rows; i++) {
-        root.appendChild(this.contactRow(i));
+      const c = this.row(W, 52, NAV_BG);
+      c.appendChild(this.avatar(28));
+      const input = this.col(W - 130, 34, SURFACE);
+      input.attribute.borderRadius(5);
+      c.appendChild(input);
+      c.appendChild(this.text('😊', 18, TEXT_C, 30, 26));
+      c.appendChild(this.text('＋', 18, TEXT_C, 30, 26));
+      body.appendChild(c);
+    } else if (this.route === RouteKind.Moments) {
+      body.appendChild(this.avatar(120));
+      for (let i = 0; i < MOMENTS.length; i++) {
+        body.appendChild(this.momentRow(MOMENTS[i]));
+        body.appendChild(this.divider());
       }
-    } else if (screen === 'discover') {
-      for (let i = 0; i < rows; i++) {
-        root.appendChild(this.discoverRow(i));
+    } else if (this.route === RouteKind.AddContact) {
+      body.appendChild(this.searchBar());
+      body.appendChild(this.sectionLabel('My WeChat ID: rikarends'));
+      const entries: Array<string> = ['Scan', 'Mobile Contacts', 'Official Accounts', 'WeCom Contacts'];
+      for (let i = 0; i < entries.length; i++) {
+        body.appendChild(this.menuRow(entries[i], 0));
       }
-    } else if (screen === 'moments') {
-      for (let i = 0; i < rows; i++) {
-        root.appendChild(this.momentRow(i));
-      }
-    } else if (screen === 'me') {
-      const h = this.row(W, 110, SURFACE);
-      h.appendChild(this.avatar(64));
-      const hc = this.col(W - 120, 70, SURFACE);
-      hc.appendChild(this.text('Rik Arends', 20, TEXT_C, 200, 26));
-      hc.appendChild(this.text('WeChat ID: rik', 12, SUBTLE, 200, 18));
-      hc.appendChild(this.text('＋ Status', 12, SUBTLE, 200, 18));
-      h.appendChild(hc);
-      h.appendChild(this.avatar(20));
-      h.appendChild(this.text('›', 15, SUBTLE, 20, 20));
-      root.appendChild(h);
-      for (let i = 0; i < rows; i++) {
-        root.appendChild(this.discoverRow(i));
+    } else {
+      const entries: Array<string> = ['Profile Photo', 'Name', 'WeChat ID', 'My QR Code', 'More'];
+      for (let i = 0; i < entries.length; i++) {
+        body.appendChild(this.menuRow(entries[i], 0));
       }
     }
 
-    root.appendChild(this.tabs(0));
+    scroll.appendChild(body);
+    root.appendChild(scroll);
+
+    if (this.route === RouteKind.Root) {
+      root.appendChild(this.tabBar(this.tab));
+    } else {
+      root.appendChild(this.col(W, 56, NAV_BG));
+    }
+
     this.root = root;
     return this.count;
   }
 
-  /** Drop the held screen. */
+  /** The built tree, for mounting. */
+  node(): FrameNode | null {
+    return this.root;
+  }
+
   clear(): void {
     this.root = null;
-  }
-
-  /**
-   * Screens accumulated for the memory arm. A super-app keeps many pages alive
-   * at once, so what matters is the cost of a stack of them, not of one.
-   */
-  private kept: Array<FrameNode> = new Array<FrameNode>();
-
-  /** Build a screen and keep it. Returns how many are now held. */
-  keep(screen: string, rows: number): number {
-    this.build(screen, rows);
-    if (this.root !== null) {
-      this.kept.push(this.root);
-    }
-    this.root = null;
-    return this.kept.length;
-  }
-
-  /** Drop every kept screen. */
-  dropKept(): number {
-    const n = this.kept.length;
-    this.kept.length = 0;
-    return n;
   }
 }
 
 /**
  * A super-app's normal background diet, run on the ArkTS thread.
  *
- * This is the whole point of the exercise. The microbenchmark measured both
- * paths on an idle JS thread, which is not the condition a super-app operates
- * in — its ArkTS thread is continuously parsing messages, resolving promises
- * and running mini-program logic. The napi round trip went from 31 µs idle to
- * 1051 µs under exactly that kind of load in the octos-one port, and 700 µs of
- * that was queue wait.
- *
- * So: JSON parse/stringify (message payloads), array churn (list models), and
- * promise resolution (async plumbing). Deliberately allocation-heavy, because
- * that is what makes a JS thread slow in a way that is hard to schedule around.
+ * The microbenchmark measured both paths on an idle JS thread, which is not the
+ * condition a super-app operates in — its ArkTS thread is continuously parsing
+ * messages, resolving promises and running mini-program logic. JSON round trips,
+ * array churn and promise resolution, because allocation is what makes a JS
+ * thread slow in a way that is hard to schedule around.
  */
 export class LoadGenerator {
   private timer: number = -1;
   private sink: Array<string> = new Array<string>();
 
-  /** One unit of work: roughly what handling a batch of messages costs. */
   private static tick(): void {
     const msgs: Array<string> = new Array<string>();
     for (let i = 0; i < 120; i++) {
       const o: Record<string, string> = {
         'id': 'msg-' + i,
         'from': 'user-' + (i % 17),
-        'body': "Hi there! I'm using WeChat, message number " + i,
+        'body': '体議速人幅触無持編聞組込 ' + i,
         'ts': '1785134173153'
       };
       msgs.push(JSON.stringify(o));
@@ -293,11 +455,6 @@ export class LoadGenerator {
     }
   }
 
-  /**
-   * Start hammering the JS thread. `periodMs` between bursts — small enough
-   * that the thread is rarely idle, large enough that the app is not declared
-   * unresponsive and killed.
-   */
   start(periodMs: number): void {
     if (this.timer !== -1) {
       return;

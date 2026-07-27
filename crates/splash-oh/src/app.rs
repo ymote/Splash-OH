@@ -60,6 +60,13 @@ struct App {
 
 thread_local! {
     static APP: RefCell<Option<App>> = const { RefCell::new(None) };
+    /// Whether the WeChat demo is the mounted surface rather than the catalog.
+    static WECHAT_ACTIVE: RefCell<bool> = const { RefCell::new(false) };
+}
+
+/// Hand the surface to the WeChat demo (or back to the catalog).
+pub fn set_wechat_active(on: bool) {
+    WECHAT_ACTIVE.with(|w| *w.borrow_mut() = on);
 }
 
 /// Called once from `mount`.
@@ -81,6 +88,13 @@ pub fn init(slot: NodeContentHandle) {
 
 /// ArkUI event thread → here. Only the target id matters.
 extern "C" fn on_event(target_id: i32, _event_type: i32) {
+    // The WeChat demo owns the surface once it is mounted, so its ids win.
+    if WECHAT_ACTIVE.with(|w| *w.borrow()) {
+        crate::wechat::handle(target_id);
+        let (node, _, _) = crate::wechat::build();
+        set_root(node);
+        return;
+    }
     match target_id {
         NAV_BACK => set_screen(String::new()),
         BENCH_RUN => {
@@ -107,6 +121,48 @@ fn set_screen(s: String) {
         }
     });
     rebuild();
+}
+
+/// Mount an already-built tree, replacing whatever is there.
+///
+/// The catalog builds its tree from the DSL; the WeChat demo builds its own in
+/// Rust. Both end up here, because detaching the previous root before dropping
+/// it is the part that must not be got wrong — ArkUI keeps rendering nodes we
+/// are about to free otherwise.
+pub fn set_root(new_root: Option<Node>) {
+    let Some(new_root) = new_root else {
+        crate::log("app: build produced nothing");
+        return;
+    };
+    let slot = APP.with(|a| a.borrow().as_ref().map(|x| x.slot));
+    let Some(slot) = slot else { return };
+    APP.with(|a| {
+        let mut b = a.borrow_mut();
+        let app = b.as_mut().unwrap();
+        if let Some(old) = app.root.take() {
+            unsafe { splash_content_remove(slot, old.raw()) };
+            drop(old);
+        }
+        match new_root.mount_keep(slot) {
+            Ok(node) => app.root = Some(node),
+            Err(e) => crate::log(&format!("app: mount failed: {e}")),
+        }
+    });
+}
+
+/// Remove the mounted tree without putting anything back, so another owner can
+/// use the slot.
+pub fn detach_root() {
+    let slot = APP.with(|a| a.borrow().as_ref().map(|x| x.slot));
+    let Some(slot) = slot else { return };
+    APP.with(|a| {
+        let mut b = a.borrow_mut();
+        let app = b.as_mut().unwrap();
+        if let Some(old) = app.root.take() {
+            unsafe { splash_content_remove(slot, old.raw()) };
+            drop(old);
+        }
+    });
 }
 
 /// Re-evaluate the DSL for the current screen and swap the tree in.

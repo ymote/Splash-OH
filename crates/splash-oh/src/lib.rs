@@ -165,38 +165,80 @@ pub fn mem_log(label: String, held: u32) {
 }
 
 // ---------------------------------------------------------------------------
-// The WeChat-shaped app, built through the NDK. See `wechat.rs`.
+// The WeChat demo. See `wechat/mod.rs`.
 // ---------------------------------------------------------------------------
 
-/// Build one screen natively. Returns [nodes built, µs, nodes expected].
-#[napi(js_name = "wechatBuild")]
-pub fn wechat_build(screen: String) -> Vec<f64> {
-    let (n, us) = wechat::build(&screen);
-    vec![n as f64, us, wechat::expected(&screen) as f64]
+/// Build the app for its current navigation state and mount it. Returns
+/// [nodes built, µs].
+#[napi(js_name = "wechatRender")]
+pub fn wechat_render() -> Vec<f64> {
+    app::set_wechat_active(true);
+    let (node, n, us) = wechat::build();
+    app::set_root(node);
+    vec![n as f64, us]
 }
 
-/// Build a screen and keep it alive, stacking with previously kept ones.
-#[napi(js_name = "wechatKeep")]
-pub fn wechat_keep(screen: String) -> u32 {
-    wechat::keep(&screen) as u32
+/// Whether the native header toggle was tapped since the last call. Polled by
+/// ArkTS, which then swaps which implementation owns the surface.
+#[napi(js_name = "wechatTakeToggle")]
+pub fn wechat_take_toggle() -> u32 {
+    if wechat::take_toggle() { 1 } else { 0 }
 }
 
-/// Drop every kept native screen.
-#[napi(js_name = "wechatDropKept")]
-pub fn wechat_drop_kept() -> u32 {
-    wechat::drop_kept() as u32
+/// Detach the native tree and give up the surface, so the ArkTS
+/// implementation can mount its own into the same slot.
+#[napi(js_name = "wechatDetach")]
+pub fn wechat_detach() {
+    app::set_wechat_active(false);
+    app::detach_root();
 }
 
-/// Drop the held native screen.
-#[napi(js_name = "wechatClear")]
-pub fn wechat_clear() {
-    wechat::clear();
+/// Feed a click id in and re-render if it changed the navigation state.
+/// Returns 1 if it did.
+#[napi(js_name = "wechatClick")]
+pub fn wechat_click(target: i32) -> u32 {
+    if wechat::handle(target) {
+        let (node, _, _) = wechat::build();
+        app::set_root(node);
+        1
+    } else {
+        0
+    }
 }
 
-/// Screen ids, in tour order.
-#[napi(js_name = "wechatScreens")]
-pub fn wechat_screens() -> Vec<String> {
-    wechat::SCREENS.iter().map(|s| s.id.to_string()).collect()
+/// Build one route without mounting it, for timing. Returns [nodes, µs].
+#[napi(js_name = "wechatTime")]
+pub fn wechat_time(tab: u32, route: String, chat_id: u32) -> Vec<f64> {
+    let r = match route.as_str() {
+        "chat" => wechat::Route::Chat(chat_id as u64),
+        "moments" => wechat::Route::Moments,
+        "addcontact" => wechat::Route::AddContact,
+        "myprofile" => wechat::Route::MyProfile,
+        _ => wechat::Route::Root,
+    };
+    let (n, us) = wechat::build_timed(tab as usize, r);
+    vec![n as f64, us]
+}
+
+/// The data the ArkTS implementation renders, so both draw the same content.
+#[napi(js_name = "wechatChats")]
+pub fn wechat_chats() -> Vec<String> {
+    wechat::db::CHATS
+        .iter()
+        .map(|c| format!("{}|{}|{}", c.username, c.preview.text(), c.timestamp))
+        .collect()
+}
+
+/// Messages for a chat, as "direction|text".
+#[napi(js_name = "wechatMessages")]
+pub fn wechat_messages(chat_id: u32) -> Vec<String> {
+    (0..wechat::db::MESSAGES_PER_CHAT)
+        .map(|i| {
+            let m = wechat::db::message(chat_id as u64, i);
+            let d = if matches!(m.direction, wechat::db::Direction::Outgoing) { "o" } else { "i" };
+            format!("{d}|{}", m.text)
+        })
+        .collect()
 }
 
 /// One line of results, so everything lands in `hilog` in order.
