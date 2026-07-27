@@ -122,3 +122,56 @@ pub fn fetch_weekday(url: &str, path: &str, idx: i32) -> Option<String> {
     let names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
     Some(names[dow as usize].to_string())
 }
+
+// ---- YouTube via the Piped API ---------------------------------------------
+// YouTube's own player won't run in an embedded WebView (DRM/anti-embed), but a
+// plain <video> does. The Piped API (an open YouTube front-end) hands back the
+// underlying stream URLs with no DRM, so we resolve a muxed (audio+video) mp4
+// stream and let the WebView play it directly — the same way a real third-party
+// YouTube client works. Public instances are flaky, so we try several.
+
+const PIPED_INSTANCES: &[&str] = &[
+    "https://pipedapi.kavin.rocks",
+    "https://pipedapi.adminforge.de",
+    "https://pipedapi.leptons.xyz",
+    "https://api.piped.private.coffee",
+    "https://pipedapi.reallyaweso.me",
+];
+
+/// Resolve a directly-playable stream URL for a YouTube video id. Prefers a
+/// muxed mp4 (has audio); falls back to any video stream. Blocking — call it on
+/// a background thread.
+pub fn youtube_stream_url(video_id: &str) -> Option<String> {
+    for base in PIPED_INSTANCES {
+        let (code, body) = http_get(&format!("{}/streams/{}", base, video_id));
+        if code != 200 {
+            continue;
+        }
+        let Some(body) = body else { continue };
+        let Ok(v) = serde_json::from_slice::<serde_json::Value>(&body) else { continue };
+        let Some(streams) = v.get("videoStreams").and_then(|s| s.as_array()) else { continue };
+        let mut muxed: Option<(String, i64)> = None;
+        let mut any: Option<String> = None;
+        for s in streams {
+            let Some(u) = s.get("url").and_then(|u| u.as_str()) else { continue };
+            if any.is_none() {
+                any = Some(u.to_string());
+            }
+            let video_only = s.get("videoOnly").and_then(|b| b.as_bool()).unwrap_or(true);
+            let mime = s.get("mimeType").and_then(|m| m.as_str()).unwrap_or("");
+            if !video_only && mime.contains("mp4") {
+                let br = s.get("bitrate").and_then(|b| b.as_i64()).unwrap_or(0);
+                if muxed.as_ref().map_or(true, |(_, bb)| br > *bb) {
+                    muxed = Some((u.to_string(), br));
+                }
+            }
+        }
+        if let Some((u, _)) = muxed {
+            return Some(u);
+        }
+        if any.is_some() {
+            return any;
+        }
+    }
+    None
+}

@@ -216,7 +216,7 @@ int splash_http_get(const char *url, char **out_buf, int *out_len) {
     }
 
     std::unique_lock<std::mutex> lk(g_http_mu);
-    g_http_cv.wait_for(lk, std::chrono::seconds(25), [] { return g_http_done; });
+    g_http_cv.wait_for(lk, std::chrono::seconds(10), [] { return g_http_done; });
     if (!g_http_done) {
         lk.unlock();
         OH_Http_Destroy(&req);

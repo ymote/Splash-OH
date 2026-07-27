@@ -12,6 +12,9 @@ import { WeChatArkTs, LoadGenerator, RouteKind } from './WeChatArkTs';
  */
 const YOUTUBE_MODE: boolean = true;
 
+/** The video the app opens with. Big Buck Bunny — Creative Commons, always up. */
+const YT_VIDEO: string = 'aqz-KE-bpKQ';
+
 // NB: YouTube's own player will not play inside an embedded WebView — it needs
 // Widevine DRM / a full browser and blocks embedded playback (blank player /
 // "error 153"). The WebView's media stack itself is fine: a plain HTML5 <video>
@@ -79,8 +82,12 @@ struct Index {
   aboutToAppear(): void {
     splash.mount(this.content);
     if (YOUTUBE_MODE) {
-      // Mount the native YouTube chrome bar; the Web below runs the app.
+      // Mount the native YouTube chrome bar, then resolve a playable stream via
+      // the Piped API (on a background thread) and load it into the Web below
+      // once ready.
       splash.youtubeRender();
+      splash.youtubeResolveStart(YT_VIDEO);
+      this.pollStream(0);
       return;
     }
     this.wc = new WeChatArkTs(this.getUIContext());
@@ -354,6 +361,18 @@ struct Index {
       + 'x, arkts ' + (taL / Math.max(taN, 0.001)).toFixed(2) + 'x');
   }
 
+  // Poll for the Piped-resolved stream URL and load it into the Web once ready.
+  private pollStream(n: number): void {
+    const url: string = splash.youtubeStreamReady() as string;
+    if (url.length > 0) {
+      this.webController.loadUrl(url);
+      return;
+    }
+    if (n < 40) {
+      setTimeout(() => { this.pollStream(n + 1); }, 500);
+    }
+  }
+
   build() {
     Column() {
       if (YOUTUBE_MODE) {
@@ -363,11 +382,10 @@ struct Index {
         }
         .width('100%')
         .height(56)
-        // ...and the YouTube player filling the rest, hosted via loadData so
-        // the embed iframe gets a real https origin (see YT_HTML). A bare embed
-        // URL loaded as the top-level page fails with "error 153".
-        Web({ src: 'https://m.youtube.com/feed/trending',
-              controller: this.webController })
+        // ...and the video player filling the rest. Starts blank; pollStream
+        // loads the Piped-resolved stream URL once ready — a plain video stream
+        // that plays where YouTube's own DRM player will not.
+        Web({ src: 'about:blank', controller: this.webController })
           .javaScriptAccess(true)
           .domStorageAccess(true)
           .mediaPlayGestureAccess(false)
