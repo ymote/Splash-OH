@@ -21,6 +21,7 @@ pub mod browser;
 pub mod taobao;
 pub mod tiktok;
 pub mod ui;
+pub mod weather_web;
 pub mod wonderous;
 
 use crate::arkui::Node;
@@ -37,6 +38,10 @@ pub enum App {
     /// Not part of the benchmark set — it contains an ArkTS `Web` surface, so
     /// it has no ArkTS twin to be compared against and no meaningful node count.
     Browser,
+    /// The web-rendered weather card. Its native twin is
+    /// `assets/weather.splash`, which draws the same Open-Meteo data with real
+    /// widgets — the pair is there to compare the two renderers on one source.
+    WeatherWeb,
 }
 
 impl App {
@@ -47,6 +52,7 @@ impl App {
             App::TikTok => "tiktok",
             App::Wonderous => "wonderous",
             App::Browser => "browser",
+            App::WeatherWeb => "weatherweb",
         }
     }
     pub fn from_id(s: &str) -> App {
@@ -55,6 +61,7 @@ impl App {
             "tiktok" => App::TikTok,
             "wonderous" => App::Wonderous,
             "browser" => App::Browser,
+            "weatherweb" => App::WeatherWeb,
             _ => App::WeChat,
         }
     }
@@ -66,6 +73,7 @@ impl App {
             App::TikTok => &["1|reel0", "1|reel1", "1|reel2", "0|root", "1|sheet", "1|feed"],
             App::Wonderous => &["0|root", "1|root", "2|root", "3|root", "0|w1", "1|w2"],
             App::Browser => &["0|root", "1|root", "2|root", "3|root", "0|root", "1|root"],
+            App::WeatherWeb => &["0|root", "1|root", "2|root", "3|root", "0|root", "1|root"],
         }
     }
 }
@@ -174,6 +182,13 @@ pub fn handle(target: i32) -> bool {
                 browser::RELOAD => true,
                 _ => false,
             },
+            App::WeatherWeb => match target {
+                t if (weather_web::CITY_BASE..weather_web::CITY_BASE + 4).contains(&t) => {
+                    nav.tab = (t - weather_web::CITY_BASE) as usize;
+                    true
+                }
+                _ => false,
+            },
             App::WeChat => crate::wechat::handle(target),
         }
     })
@@ -203,6 +218,7 @@ pub fn build() -> (Option<Node>, usize, f64) {
         }
         App::Wonderous => wonderous::build(tab, sub % wonderous::WONDERS.len()),
         App::Browser => browser::build(tab),
+        App::WeatherWeb => weather_web::build(tab),
         App::WeChat => unreachable!(),
     };
     let us = t0.elapsed().as_nanos() as f64 / 1000.0;
@@ -237,6 +253,7 @@ pub fn build_route(app: App, tab: usize, route: &str) -> (usize, f64) {
             wonderous::build(tab, w % wonderous::WONDERS.len())
         }
         App::Browser => browser::build(tab),
+        App::WeatherWeb => weather_web::build(tab),
         App::WeChat => unreachable!(),
     };
     let us = t0.elapsed().as_nanos() as f64 / 1000.0;

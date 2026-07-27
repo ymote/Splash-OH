@@ -13,7 +13,13 @@ import { Taobao, TikTok, Wonderous } from './AppsArkTs';
  */
 /** Start in the browser card, which is the app that exercises the web overlay.
  *  Empty string starts in the benchmark harness instead. */
-const START_APP: string = 'browser';
+const START_APP: string = 'weatherweb';
+/** Origin given to generated pages. Content loaded with no baseUrl gets an
+ *  opaque origin in ArkWeb and never paints; it needs a real https one. */
+const WEB_BASE: string = 'https://localhost/';
+/** Which app the single-app mode is showing, so a background-data redraw
+ *  rebuilds the right one. */
+let APPS_SHOWN: string = START_APP;
 
 /**
  * The whole ArkTS surface of the app.
@@ -122,25 +128,65 @@ struct Index {
         }
       }
       if (same) {
+        // Geometry unchanged, but a generated page may still be waiting for a
+        // controller that was not ready last time. Retrying is cheap and the
+        // `loaded` map makes it a no-op once it has worked.
+        this.flushPending();
         return;
       }
     }
     this.webSlots = next;
+    this.flushPending();
+  }
+
+  /**
+   * Try to load every generated slot.
+   *
+   * Driven from the poll rather than from `onPageEnd`, because a slot whose
+   * `src` is about:blank never fires a page event at all -- so a load hung on
+   * that event simply never happened, and the surface stayed white with no
+   * error anywhere. Retrying until it sticks is self-healing and costs one map
+   * lookup per tick once it has.
+   */
+  private flushPending(): void {
+    for (let i = 0; i < this.webSlots.length; i++) {
+      const parts: Array<string> = this.webSlots[i].split('|');
+      if (parts[1] === 'html') {
+        this.loadSlot(parts[0], parts[1], parts[6]);
+      }
+    }
   }
 
   /** Load a slot's URL, once the Web component has bound its controller.
    *
    *  Deferred to onPageEnd rather than onControllerAttached: attached only
    *  means the object is bound, not that the engine will accept a load. */
-  private loadSlot(id: string, url: string): void {
-    if (this.loaded.get(id) === url) {
+  private loadSlot(id: string, kind: string, url: string): void {
+    // Key generated pages on their content, not their (empty) url, or a
+    // rebuild with new data would be treated as already-loaded.
+    let key = url;
+    let html = '';
+    if (kind === 'html') {
+      html = splash.webSlotHtml(Number(id)) as string;
+      key = 'html:' + html.length + ':' + html.charCodeAt(0);
+    }
+    if (this.loaded.get(id) === key) {
       return;
     }
     try {
-      this.controllerFor(id).loadUrl(url);
-      this.loaded.set(id, url);
+      if (kind === 'html') {
+        // All four arguments matter.
+        //   - mime and encoding: passing undefined for either fails with code
+        //     401 and renders blank, with no exception.
+        //   - baseUrl: without it the content gets an opaque origin and never
+        //     paints -- loadData reports success and the surface stays white.
+        this.controllerFor(id).loadData(html, 'text/html', 'UTF-8', WEB_BASE);
+      } else {
+        this.controllerFor(id).loadUrl(url);
+      }
+      this.loaded.set(id, key);
     } catch (e) {
-      console.error('web slot ' + id + ' loadUrl failed: ' + JSON.stringify(e));
+      console.error('web slot ' + id + ' load failed: ' + JSON.stringify(e));
     }
   }
 
@@ -151,7 +197,14 @@ struct Index {
       this.syncWebSlots();
       // A tap inside the native tree cannot call back into ArkTS, so Rust
       // rebuilds on its own and this polls for the geometry it declared.
-      setInterval(() => { this.syncWebSlots(); }, 250);
+      setInterval(() => {
+        // Background data (a forecast, a resolved stream) lands on a worker
+        // thread. Rust flags it; re-render so the page picks it up.
+        if ((splash.appTakeDirty() as number) === 1) {
+          splash.appRender(APPS_SHOWN);
+        }
+        this.syncWebSlots();
+      }, 250);
       return;
     }
     this.wc = new WeChatArkTs(this.getUIContext());
@@ -632,8 +685,18 @@ struct Index {
     Stack({ alignContent: Alignment.TopStart }) {
       ContentSlot(this.content)
 
+      // slot = "id|kind|x|y|w|h|url"; kind is 'url' or 'html'.
       ForEach(this.webSlots, (slot: string) => {
-        Web({ src: slot.split('|')[1], controller: this.controllerFor(slot.split('|')[0]) })
+        Web({
+          // A generated page starts blank and is filled by loadData once the
+          // engine is ready; about:blank is the only src that reliably fires
+          // onPageEnd without navigating anywhere.
+          // A URL slot navigates directly. A generated slot starts on a real
+          // https origin and is then replaced by loadData against that same
+          // origin -- see loadSlot for why it cannot be data: or origin-less.
+          src: slot.split('|')[1] === 'html' ? WEB_BASE : slot.split('|')[6],
+          controller: this.controllerFor(slot.split('|')[0])
+        })
           .javaScriptAccess(true)
           .domStorageAccess(true)
           // Stops ArkWeb demanding a tap before it will play media.
@@ -641,11 +704,7 @@ struct Index {
           .position({ x: Number(slot.split('|')[2]), y: Number(slot.split('|')[3]) })
           .width(Number(slot.split('|')[4]))
           .height(Number(slot.split('|')[5]))
-          .onPageEnd(() => {
-            // Flush here, not on onControllerAttached: attached means the
-            // object is bound, not that the engine will accept a load.
-            this.loadSlot(slot.split('|')[0], slot.split('|')[1]);
-          })
+
       }, (slot: string) => slot)
     }
     .width('100%')
