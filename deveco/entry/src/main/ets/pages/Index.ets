@@ -82,6 +82,27 @@ const MEM_COPIES: number = 12;
 /** Which app the memory arm measures. Index into APPS. */
 const MEM_APP: number = 2;
 
+/**
+ * The object ArkWeb injects into a page as `splash_native`.
+ *
+ * `javaScriptProxy` can only expose synchronous, void methods -- it cannot
+ * return a promise or a value asynchronously. So a call is split: the page
+ * hands over a callId here, and Rust's answer is evaluated back into the page
+ * later as `splash._resolve(callId, payload)`. The shim in `bridge.rs` wraps
+ * that pair into the promise API a page actually wants.
+ */
+class SplashNativeBridge {
+  private slot: number = 0;
+
+  constructor(slot: number) {
+    this.slot = slot;
+  }
+
+  invoke(callId: string, tool: string, args: string): void {
+    splash.webBridgeInvoke(this.slot, String(callId), tool, args);
+  }
+}
+
 @Entry
 @Component
 struct Index {
@@ -106,6 +127,49 @@ struct Index {
   /** What each controller was last told to load, so a rebuild that did not
    *  change the URL does not reload the page out from under the user. */
   private loaded: Map<string, string> = new Map();
+
+  /** One bridge object per slot, kept out of @State for the same reason the
+   *  controllers are: a proxy-wrapped object handed to javaScriptProxy is
+   *  inert. */
+  private bridges: Map<string, SplashNativeBridge> = new Map();
+
+  private bridgeFor(id: string): SplashNativeBridge {
+    let b = this.bridges.get(id);
+    if (b === undefined) {
+      b = new SplashNativeBridge(Number(id));
+      this.bridges.set(id, b);
+    }
+    return b;
+  }
+
+  /**
+   * Evaluate finished bridge calls back into their pages.
+   *
+   * Driven from the same 250 ms poll as everything else. A reply is
+   * `slot|callId|payloadJson`, split on the first two separators only because
+   * the payload is JSON and may contain more.
+   */
+  private pumpBridge(): void {
+    const replies: Array<string> = splash.webBridgeDrain() as Array<string>;
+    for (let i = 0; i < replies.length; i++) {
+      const r = replies[i];
+      const a = r.indexOf('|');
+      const b = r.indexOf('|', a + 1);
+      if (a < 0 || b < 0) {
+        continue;
+      }
+      const slot = r.substring(0, a);
+      const callId = r.substring(a + 1, b);
+      const payload = r.substring(b + 1);
+      try {
+        this.controllerFor(slot).runJavaScript(
+          'window.splash&&window.splash._resolve&&window.splash._resolve('
+          + JSON.stringify(callId) + ',' + payload + ')');
+      } catch (e) {
+        console.error('bridge reply to slot ' + slot + ' failed: ' + JSON.stringify(e));
+      }
+    }
+  }
 
   private controllerFor(id: string): webview.WebviewController {
     let c = this.controllers.get(id);
@@ -204,6 +268,7 @@ struct Index {
           splash.appRender(APPS_SHOWN);
         }
         this.syncWebSlots();
+        this.pumpBridge();
       }, 250);
       return;
     }
@@ -699,6 +764,15 @@ struct Index {
         })
           .javaScriptAccess(true)
           .domStorageAccess(true)
+          // The JS -> Rust bridge. A page calls splash.invoke(tool, args); the
+          // shim forwards it here, Rust answers, and pumpBridge evaluates the
+          // result back into the page.
+          .javaScriptProxy({
+            object: this.bridgeFor(slot.split('|')[0]),
+            name: 'splash_native',
+            methodList: ['invoke'],
+            controller: this.controllerFor(slot.split('|')[0]),
+          })
           // Stops ArkWeb demanding a tap before it will play media.
           .mediaPlayGestureAccess(false)
           .position({ x: Number(slot.split('|')[2]), y: Number(slot.split('|')[3]) })

@@ -17,6 +17,7 @@ pub mod catalog;
 pub mod dsl;
 pub mod mem;
 pub mod apps;
+pub mod bridge;
 pub mod net;
 pub mod webslot;
 pub mod wechat;
@@ -191,6 +192,20 @@ pub fn wechat_render() -> Vec<f64> {
 #[napi(js_name = "webSlots")]
 pub fn web_slots() -> Vec<String> {
     webslot::encoded()
+}
+
+/// A page called `splash.invoke(tool, args)`. Fire-and-forget; the answer
+/// comes back through `webBridgeDrain`.
+#[napi(js_name = "webBridgeInvoke")]
+pub fn web_bridge_invoke(slot: u32, call_id: String, tool: String, args: String) {
+    bridge::invoke(slot, call_id, tool, args);
+}
+
+/// Finished calls, as `slot|callId|payloadJson`. ArkTS evaluates each back into
+/// its page with `splash._resolve`.
+#[napi(js_name = "webBridgeDrain")]
+pub fn web_bridge_drain() -> Vec<String> {
+    bridge::drain()
 }
 
 /// True once, if background data landed and the current app should redraw.

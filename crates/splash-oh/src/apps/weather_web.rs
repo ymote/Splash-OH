@@ -268,6 +268,21 @@ body{{width:{w:.0}px;height:{h:.0}px;overflow:hidden;
  <div class=tile><div class=k>Wind</div><div class=v>{wind}</div></div>
  <div class=tile><div class=k>Source</div><div class=v style="font-size:13px">Open-Meteo</div></div>
 </div>
+<div class=tile style="margin-top:12px">
+ <div class=k>JS &#8594; Rust bridge</div>
+ <div class=v id=bridge style="font-size:14px">checking&#8230;</div>
+</div>
+<script>
+// Not decoration: this is the page proving on-device that it can call into
+// Rust and get an answer back. If the bridge regresses, the card says so.
+(function () {{
+  var el = document.getElementById('bridge');
+  if (!window.splash || !splash.available()) {{ el.textContent = 'not present'; return; }}
+  splash.invoke('device.info').then(function (i) {{
+    el.textContent = i.platform + ' \u00b7 slot ' + i.slot;
+  }}).catch(function (e) {{ el.textContent = 'failed: ' + e.message; }});
+}})();
+</script>
 </div></body></html>"#,
         w = w,
         h = h,
