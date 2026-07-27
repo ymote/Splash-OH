@@ -1,7 +1,16 @@
 import { NodeContent } from '@kit.ArkUI';
 import { systemDateTime } from '@kit.BasicServicesKit';
+import { webview } from '@kit.ArkWeb';
 import splash from 'libsplash_oh.so';
 import { WeChatArkTs, LoadGenerator, RouteKind } from './WeChatArkTs';
+
+/**
+ * When true the app is the YouTube demo: Splash-OH renders the native chrome
+ * bar (from assets/youtube.splash) and an ArkTS `Web` runs the YouTube web app
+ * below it. OpenHarmony's WebView is ArkTS-only, so this hybrid is how a
+ * Splash-OH app hosts a WebView. Set false for the original WeChat benchmark.
+ */
+const YOUTUBE_MODE: boolean = true;
 
 /**
  * The whole ArkTS surface of the app.
@@ -58,9 +67,15 @@ struct Index {
   private wc: WeChatArkTs | null = null;
   private load: LoadGenerator = new LoadGenerator();
   private useRust: boolean = true;
+  private webController: webview.WebviewController = new webview.WebviewController();
 
   aboutToAppear(): void {
     splash.mount(this.content);
+    if (YOUTUBE_MODE) {
+      // Mount the native YouTube chrome bar; the Web below runs the app.
+      splash.youtubeRender();
+      return;
+    }
     this.wc = new WeChatArkTs(this.getUIContext());
     this.wc.remount = () => { this.mountArkTs(); };
     this.wc.onToggle = () => { this.toggle(); };
@@ -77,6 +92,9 @@ struct Index {
   }
 
   onPageShow(): void {
+    if (YOUTUBE_MODE) {
+      return;
+    }
     // Let the first frame settle, then run the comparison. Every trial is
     // driven one per event-loop tick: doing the suite inline blocks the JS
     // thread long enough that its timer queue stops being serviced and the
@@ -331,7 +349,22 @@ struct Index {
 
   build() {
     Column() {
-      ContentSlot(this.content)
+      if (YOUTUBE_MODE) {
+        // Splash-OH native chrome bar (fixed height)...
+        Column() {
+          ContentSlot(this.content)
+        }
+        .width('100%')
+        .height(56)
+        // ...and the YouTube web app filling the rest.
+        Web({ src: 'https://m.youtube.com', controller: this.webController })
+          .javaScriptAccess(true)
+          .domStorageAccess(true)
+          .width('100%')
+          .layoutWeight(1)
+      } else {
+        ContentSlot(this.content)
+      }
     }
     .width('100%')
     .height('100%')

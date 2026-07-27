@@ -73,6 +73,15 @@ pub fn build_weather() -> Option<Node> {
     build(WEATHER)
 }
 
+/// The YouTube app's native chrome bar. The video content is an ArkTS `Web`
+/// component (see pages/Index.ets) — OpenHarmony's WebView cannot live in the
+/// native ArkUI node tree, so Splash-OH renders the app shell and the Web sits
+/// below it.
+pub fn build_youtube() -> Option<Node> {
+    const YOUTUBE: &str = include_str!("../assets/youtube.splash");
+    build(YOUTUBE)
+}
+
 /// Evaluate Splash source and build the native tree it describes.
 pub fn build(src: &str) -> Option<Node> {
     let mut std_slot = 0;

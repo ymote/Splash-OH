@@ -181,6 +181,16 @@ pub fn wechat_render() -> Vec<f64> {
     vec![0.0, 0.0]
 }
 
+/// Mount the YouTube app's native chrome bar into the slot. The video content
+/// itself is an ArkTS `Web` component in Index.ets — OpenHarmony's WebView
+/// cannot live in the native ArkUI node tree, so Splash-OH renders the app
+/// shell and the Web is laid out beneath it.
+#[napi(js_name = "youtubeRender")]
+pub fn youtube_render() {
+    let node = crate::dsl::build_youtube();
+    app::set_root(node);
+}
+
 /// Build every screen once and keep them all alive, for the memory arm.
 #[napi(js_name = "wechatKeepAll")]
 pub fn wechat_keep_all() -> u32 {
