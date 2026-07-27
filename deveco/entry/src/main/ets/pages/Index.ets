@@ -257,6 +257,10 @@ struct Index {
   aboutToAppear(): void {
     splash.mount(this.content);
     if (START_APP !== '') {
+      // Prove the VM works on this build. The ported apps build in Rust and
+      // never evaluate a script, so a broken VM would stay hidden until a
+      // .splash card rendered blank.
+      splash.dslSelfTest();
       splash.appRender(START_APP);
       this.syncWebSlots();
       // A tap inside the native tree cannot call back into ArkTS, so Rust

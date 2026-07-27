@@ -8,10 +8,16 @@ description = "Splash DSL rendered to OpenHarmony native ArkUI widgets, without 
 crate-type = ["cdylib"]
 
 [dependencies]
-# The Splash VM. Renderer-free by construction: it depends only on error-log,
-# math, live-id, smallvec, regex and html — no makepad-platform, no draw, no
-# widgets. Pinned to a public revision (the crate is not on crates.io).
-makepad-script = { git = "https://github.com/octos-org/makepad.git", rev = "b6cd8db5113b0cb61c0323e829a013c4aaaeab36" }
+# The Splash VM, via ymote/Splash rather than straight from makepad.
+#
+# splash-core is the standalone runtime: it re-exports the VM as `vm` and
+# path-depends on its OWN vendored copy of it, pinned to a reviewed upstream
+# commit, with widgets, platform scripting, filesystem, process, timer and
+# network deliberately excluded from the import. Taking it from here rather than
+# from a makepad branch means the VM this app runs is pinned and auditable
+# instead of moving under it, and it comes with bounded execution limits and a
+# syntax preflight that the bare VM does not have.
+splash-core = { git = "https://github.com/ymote/Splash.git", branch = "main" }
 
 napi-derive-ohos = "0.0.9"
 napi-ohos = "0.1.3"
