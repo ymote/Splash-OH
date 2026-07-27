@@ -15,6 +15,7 @@ pub mod arkui;
 pub mod bench;
 pub mod catalog;
 pub mod dsl;
+pub mod mem;
 
 use arkui::NodeContentHandle;
 use napi_derive_ohos::napi;
@@ -122,6 +123,45 @@ pub fn report_arkts(n: u32, trials_ms: Vec<f64>) {
 /// own, which is the cheap direction: a direct call, not a queued post.
 #[napi(js_name = "noop")]
 pub fn noop() {}
+
+// ---------------------------------------------------------------------------
+// Memory harness. Both sides read the same RSS counter in the same process, so
+// there is nothing to normalise between them.
+// ---------------------------------------------------------------------------
+
+/// Resident set size, KiB.
+#[napi(js_name = "rssKb")]
+pub fn rss_kb() -> u32 {
+    mem::rss_kb() as u32
+}
+
+/// Peak resident set size, KiB — what an OOM kill would have been judged on.
+#[napi(js_name = "peakRssKb")]
+pub fn peak_rss_kb() -> u32 {
+    mem::peak_rss_kb() as u32
+}
+
+/// Build `n` more nodes through the NDK and hold them. Returns the total held.
+#[napi(js_name = "memHold")]
+pub fn mem_hold(n: u32) -> u32 {
+    mem::hold(n as usize) as u32
+}
+
+/// Drop every held node. Returns how many were dropped.
+#[napi(js_name = "memRelease")]
+pub fn mem_release() -> u32 {
+    mem::release() as u32
+}
+
+/// Log one labelled sample, so the whole ramp lands in `hilog` in order.
+#[napi(js_name = "memLog")]
+pub fn mem_log(label: String, held: u32) {
+    log(&format!(
+        "mem {label}: held={held} rss={} kB peak={} kB",
+        mem::rss_kb(),
+        mem::peak_rss_kb()
+    ));
+}
 
 /// Warm both paths before any timing starts.
 #[napi(js_name = "rustWarmup")]

@@ -9,6 +9,16 @@ import splash from 'libsplash_oh.so';
 const N: number = 2000;
 const TRIALS: number = 10;
 
+// Memory ramp. Built in small chunks rather than big jumps: creating 30k nodes
+// in one callback blocked the UI thread past THREAD_BLOCK_6S and the system
+// killed the app mid-measurement.
+const MEM_CHUNK: number = 1000;
+const MEM_TARGET: number = 8000;
+// How many samples to take after releasing, on each side. Both sides get the
+// same number over the same interval — the first version gave Rust two samples
+// and ArkTS five, which is not a comparison.
+const MEM_SETTLE: number = 10;
+
 /**
  * The entire ArkTS surface of this app.
  *
@@ -45,7 +55,7 @@ struct Index {
   onPageShow(): void {
     // Block body, not `() => this.step(0)`: the concise form silently never
     // fires here.
-    setTimeout(() => { this.step(0); }, 2000);
+    setTimeout(() => { this.memStep(0); }, 2000);
   }
 
   /**
@@ -109,11 +119,70 @@ struct Index {
       // Measurement C, started here rather than from another tick: the chain
       // did not survive one more hop after reportAll.
       splash.runBridgeBench();
-      return; // C drives itself from here
+      return;
     } else {
       return;
     }
     setTimeout(() => { this.step(i + 1); }, 80);
+  }
+
+  private memNodes: Array<typeNode.Text> = new Array<typeNode.Text>();
+
+  /**
+   * Memory ramp, `MEM_CHUNK` widgets per tick.
+   *
+   * Rust first: build up to MEM_TARGET, sampling RSS as it goes, then drop it
+   * all and sample again. Then the identical shape in ArkTS. Both read the same
+   * `/proc/self/status` counter in the same process, so there is nothing to
+   * normalise between them.
+   *
+   * The nodes are held between ticks deliberately — a widget's cost only shows
+   * up in RSS while something still references it.
+   *
+   * Chunked for the same reason the timing suite is: one big allocation loop
+   * blocks the UI thread long enough for the watchdog to kill the app, and a
+   * measurement that gets the process killed measures nothing.
+   */
+  private memStep(i: number): void {
+    const steps = MEM_TARGET / MEM_CHUNK;
+
+    if (i === 0) {
+      splash.memLog('baseline', 0);
+    } else if (i <= steps) {
+      const held: number = splash.memHold(MEM_CHUNK) as number;
+      splash.memLog('rust', held);
+    } else if (i === steps + 1) {
+      splash.memRelease();
+      splash.memLog('rust-released', 0);
+    } else if (i <= steps + 1 + MEM_SETTLE) {
+      // The allocator does not hand pages back at once. Sample repeatedly, and
+      // allocate nothing while doing it — the first version churned garbage
+      // here to provoke the GC, which inflated the RSS it was trying to read.
+      splash.memLog('rust-settled', 0);
+    } else if (i <= steps + 1 + MEM_SETTLE + steps) {
+      const ctx = this.getUIContext();
+      for (let k = 0; k < MEM_CHUNK; k++) {
+        const node: typeNode.Text = typeNode.createNode(ctx, 'Text');
+        node.initialize('benchmark');
+        node.attribute.fontSize(14).fontColor(0xFF1C1B1F).width(200).height(24);
+        this.memNodes.push(node);
+      }
+      splash.memLog('arkts', this.memNodes.length);
+    } else if (i === steps + 2 + MEM_SETTLE + steps) {
+      this.memNodes.length = 0;
+      splash.memLog('arkts-released', 0);
+    } else if (i <= steps + 2 + MEM_SETTLE + steps + MEM_SETTLE) {
+      // Dropping the references only makes them collectable; when the collector
+      // acts is its own business. Same sample count and interval as Rust got,
+      // and nothing allocated here either.
+      splash.memLog('arkts-settled', 0);
+    } else {
+      splash.memLog('final', 0);
+      // Timing suite second, so a stall in it cannot hide the memory numbers.
+      setTimeout(() => { this.step(0); }, 1000);
+      return;
+    }
+    setTimeout(() => { this.memStep(i + 1); }, 400);
   }
 
   /**
