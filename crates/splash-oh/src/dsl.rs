@@ -163,6 +163,34 @@ fn walk(vm: &mut ScriptVm, value: ScriptValue, depth: usize) -> Option<Node> {
     if let Some(v) = num_prop(vm, value, id!(total)) {
         node = node.f32_attr(attr::progress_total(), v as f32);
     }
+    // `align: n` is ArkUI_Alignment. A Scroll whose content is shorter than its
+    // own height centres it by default, which drops the page half way down the
+    // screen; `align: 1` (TOP) is what a page wants.
+    if let Some(v) = num_prop(vm, value, id!(align)) {
+        node = node.i32_attr(attr::alignment(), v as i32);
+    }
+
+    // `on: 1` is the selected state. Which attribute that maps to depends on
+    // the control, so it is resolved from the tag rather than the DSL naming
+    // three different keys for one concept.
+    if let Some(v) = num_prop(vm, value, id!(on)) {
+        let on = v as i32;
+        match tag.as_str() {
+            "checkbox" => {
+                node = node
+                    .i32_attr(attr::checkbox_select(), on)
+                    .u32_attr(attr::checkbox_color(), 0xFF6750A4);
+            }
+            "radio" => node = node.i32_attr(attr::radio_checked(), on),
+            "toggle" => {
+                node = node
+                    .i32_attr(attr::toggle_value(), on)
+                    .u32_attr(attr::toggle_color(), 0xFF6750A4);
+            }
+            _ => {}
+        }
+    }
+
     // `tap: <id>` wires a click straight back to Rust.
     if let Some(v) = num_prop(vm, value, id!(tap)) {
         node = node.on_event(event::click(), v as i32);

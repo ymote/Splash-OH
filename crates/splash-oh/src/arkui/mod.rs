@@ -38,6 +38,11 @@ mod raw {
         pub static splash_a_border_width: i32;
         pub static splash_a_border_radius: i32;
         pub static splash_a_border_color: i32;
+        pub static splash_a_checkbox_select: i32;
+        pub static splash_a_checkbox_color: i32;
+        pub static splash_a_radio_checked: i32;
+        pub static splash_a_toggle_value: i32;
+        pub static splash_a_toggle_color: i32;
         pub static splash_a_alignment: i32;
         pub static splash_a_opacity: i32;
         pub static splash_a_visibility: i32;
@@ -115,6 +120,11 @@ pub mod attr {
         text_align => splash_a_text_align, button_label => splash_a_button_label,
         progress_value => splash_a_progress_value, progress_total => splash_a_progress_total,
         input_placeholder => splash_a_input_placeholder,
+        checkbox_select => splash_a_checkbox_select,
+        checkbox_color => splash_a_checkbox_color,
+        radio_checked => splash_a_radio_checked,
+        toggle_value => splash_a_toggle_value,
+        toggle_color => splash_a_toggle_color,
     }
 }
 

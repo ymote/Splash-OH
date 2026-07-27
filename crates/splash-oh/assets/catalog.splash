@@ -36,6 +36,10 @@ let amber        = argb(255, 245, 166,  35)
 let FULL  = 402
 let PAGEW = FULL - 28
 let CARDW = FULL - 56
+// Viewport height in vp: 2760 px / 3.284 density, less the status and gesture
+// bars. The scroll needs this explicitly — a scroll with no height measures to
+// its content and the page background stops where the content stops.
+let PAGEH = 780
 
 // ---- event ids (must match app.rs) ----
 let NAV_BASE  = 1000
@@ -94,6 +98,14 @@ fn chip(label, w)   { return button(label, w, sec_cont, on_surface, 16, 0, 0) }
 
 fn labelled(label, widget) {
     return {t: "column", w: CARDW, c: [caption(label), widget]}
+}
+
+// Control on the left, label beside it — the Material list-with-control row.
+fn control_row(widget, label) {
+    return {t: "row", w: CARDW, h: 48, c: [
+        widget,
+        {t: "column", w: 12, h: 4},
+        text_w(label, 15, 4, on_surface, CARDW - 70)]}
 }
 
 // ---- index ------------------------------------------------------------
@@ -178,24 +190,24 @@ fn s_fab() { return [
 fn s_checkbox() { return [
     section("CHECKBOX"),
     card([body("Native ARKUI_NODE_CHECKBOX."),
-          labelled("Unselected", {t: "checkbox", w: 34, h: 34, tap: 20}),
-          labelled("Second", {t: "checkbox", w: 34, h: 34, tap: 21}),
-          labelled("Third", {t: "checkbox", w: 34, h: 34, tap: 22})]),
+          control_row({t: "checkbox", w: 34, h: 34, on: 1, tap: 20}, "Selected"),
+          control_row({t: "checkbox", w: 34, h: 34, on: 0, tap: 21}, "Unselected"),
+          control_row({t: "checkbox", w: 34, h: 34, on: 1, tap: 22}, "Third option")]),
 ] }
 
 fn s_radio() { return [
     section("RADIO BUTTON"),
     card([body("Single selection within a group."),
-          labelled("Option A", {t: "radio", w: 34, h: 34, tap: 30}),
-          labelled("Option B", {t: "radio", w: 34, h: 34, tap: 31}),
-          labelled("Option C", {t: "radio", w: 34, h: 34, tap: 32})]),
+          control_row({t: "radio", w: 34, h: 34, on: 1, tap: 30}, "Option A"),
+          control_row({t: "radio", w: 34, h: 34, on: 0, tap: 31}, "Option B"),
+          control_row({t: "radio", w: 34, h: 34, on: 0, tap: 32}, "Option C")]),
 ] }
 
 fn s_switch() { return [
     section("SWITCH"),
     card([body("Native ARKUI_NODE_TOGGLE."),
-          labelled("Wi-Fi", {t: "toggle", w: 52, h: 34, tap: 40}),
-          labelled("Bluetooth", {t: "toggle", w: 52, h: 34, tap: 41})]),
+          control_row({t: "toggle", w: 52, h: 34, on: 1, tap: 40}, "Wi-Fi"),
+          control_row({t: "toggle", w: 52, h: 34, on: 0, tap: 41}, "Bluetooth")]),
 ] }
 
 fn s_slider() { return [
@@ -458,6 +470,6 @@ if screen.len() == 0 {
     kids.push({t: "column", w: 4, h: 32})
 }
 
-{t: "scroll", w: FULL, bg: bg, c: [
+{t: "scroll", w: FULL, h: PAGEH, bg: bg, align: 1, c: [
     {t: "column", w: FULL, pad: 14, c: kids}
 ]}

@@ -4,6 +4,8 @@ Render a UI tree to **OpenHarmony native ArkUI widgets from Rust**, with ArkTS
 reduced to a single slot handover — and no makepad renderer involved.
 
 ![catalog](catalog.jpeg)
+![checkbox](catalog-checkbox.jpeg)
+![benchmark](catalog-bench.jpeg)
 
 Everything in that screenshot is a real ArkUI component (`ARKUI_NODE_TEXT`,
 `ARKUI_NODE_BUTTON`, `TOGGLE`, `CHECKBOX`, `RADIO`, `SLIDER`, `PROGRESS`,
@@ -161,17 +163,19 @@ against makepad's exact behaviour will need review, not just a backend swap.
 
 ## Widget construction: Rust vs ArkTS
 
-Measured on the SUP-AL90 (Performance screen in the app, or at startup in the log):
+Measured on the SUP-AL90 — open **Performance** in the app and tap *Run
+benchmark*, or read it from the log (it also runs once at startup). Three runs:
 
 | path | per widget | 2000 widgets |
 |---|---|---|
-| **Rust → ArkUI NDK** | **23.4 µs** | **46.9 ms** |
+| **Rust → ArkUI NDK** | **21–25 µs** | **42–50 ms** |
 | ArkTS driven over napi | 1051 µs | 2102 ms |
 
-**~45× faster.** The Rust figure is measured directly. The ArkTS figure is one
-napi round trip per widget at the rate measured above — the honest way to state
-it, since napi may only be entered from the JS thread, so there is no cheaper
-way to create an ArkTS widget from native code.
+**42–50× faster.** The Rust figure is measured directly, building 2000 real
+`ARKUI_NODE_TEXT` nodes with four attributes each. The ArkTS figure is one napi
+round trip per widget at the rate measured above — the honest way to state it,
+since napi may only be entered from the JS thread, so there is no cheaper way to
+create an ArkTS widget from native code.
 
 The gap is not marshalling. It is the 730 µs of queue latency waiting for a
 single-threaded event loop that is already busy doing layout.
@@ -183,7 +187,8 @@ navigation; native tree creation, attributes, containers, scrolling, click
 events routed into Rust, tree rebuild on navigation, and the benchmark — all on
 a real device (HarmonyOS 6.1, SUP-AL90).
 
-Not done yet: the event *receiver* is registered but callbacks are not yet
-dispatched back into Rust handlers, there is no diffing (the tree is built
-once), and layout is explicit — the DSL sizes every leaf because ArkUI native
-nodes do not measure themselves.
+Not done yet: there is no diffing — navigation rebuilds the whole tree and
+swaps it, which is fine at 21 µs a node but is not what a real framework would
+do; only `click` is wired, so the demos show state rather than mutate it; and
+layout is explicit, because ArkUI native nodes do not measure themselves, so
+the DSL sizes every leaf and estimates wrapped-text height from `s.len()`.
