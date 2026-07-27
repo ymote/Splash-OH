@@ -1,0 +1,209 @@
+// Tokyo — live weather, in the Splash DSL for the Splash-OH ArkUI renderer.
+//
+// Nothing here is baked: every number is pulled at render time from Open-Meteo
+// and the backdrop is a live satellite tile. The makepad-script VM evaluates
+// this file and src/dsl.rs walks the object tree into native ArkUI widgets.
+// Responses are cached per-URL, so the ~45 field reads cost two HTTP requests.
+
+// ---- colour ---------------------------------------------------------------
+// Hex literals evaluate to 0 in this VM (everything would render transparent),
+// so ARGB words are composed arithmetically. Alpha < 255 lets the map read
+// through.
+fn argb(a, r, g, b) { return ((a * 256 + r) * 256 + g) * 256 + b }
+
+let WHITE   = argb(255, 255, 255, 255)
+let LIGHT   = argb(236, 235, 239, 247)
+let DIM     = argb(196, 209, 216, 230)
+let LABEL   = argb(222, 223, 229, 242)
+let SCRIM   = argb(120,   8,  10,  16)   // dark wash over the map, for legibility
+let PANELBG = argb(165,  19,  23,  33)   // translucent panel — satellite shows through
+let TILEBG  = argb( 80, 140, 151, 178)   // frosted inner tile
+let HAIR    = argb( 46, 255, 255, 255)   // hairline row divider
+
+// ---- geometry (vp) --------------------------------------------------------
+let W       = 402
+let H       = 900
+let PANELW  = 370
+let PANW_IN = 338    // PANELW minus 2 * 16 padding
+let TILEW   = 164    // (PANW_IN - GAP) / 2
+let GAP     = 10
+
+// ---- live sources (Tokyo, lat 35.68 lon 139.76) ---------------------------
+let WX  = "https://api.open-meteo.com/v1/forecast?latitude=35.68&longitude=139.76&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,dew_point_2m,surface_pressure&daily=weather_code,temperature_2m_max,temperature_2m_min,uv_index_max&timezone=Asia%2FTokyo&forecast_days=7"
+let AQ  = "https://air-quality-api.open-meteo.com/v1/air-quality?latitude=35.68&longitude=139.76&current=us_aqi,pm2_5,pm10,ozone,nitrogen_dioxide&timezone=Asia%2FTokyo"
+let SAT = "https://server.arcgisonline.com/arcgis/rest/services/World_Imagery/MapServer/export?bbox=139.60,35.53,139.90,35.85&bboxSR=4326&size=760,1360&format=jpg&f=image"
+
+// ---- WMO weather code -> bundled icon + human label -----------------------
+fn wicon(name) { return "resource://RAWFILE/weather/" + name + ".svg" }
+
+// Cascading ranges: each earlier band has already returned, so a bare `<=`
+// catches its bucket. Codes that never occur in the gaps fall through harmlessly.
+fn wmo_icon(code) {
+    if code <= 0  { return wicon("sunny") }
+    if code == 1  { return wicon("mostly") }
+    if code == 2  { return wicon("partly") }
+    if code == 3  { return wicon("cloudy") }
+    if code <= 48 { return wicon("fog") }
+    if code <= 57 { return wicon("drizzle") }
+    if code <= 67 { return wicon("rain") }
+    if code <= 77 { return wicon("cloudy") }
+    if code <= 82 { return wicon("rain") }
+    if code <= 86 { return wicon("cloudy") }
+    return wicon("storm")
+}
+
+fn wmo_word(code) {
+    if code <= 0  { return "Clear" }
+    if code == 1  { return "Mainly clear" }
+    if code == 2  { return "Partly cloudy" }
+    if code == 3  { return "Overcast" }
+    if code <= 48 { return "Fog" }
+    if code <= 57 { return "Drizzle" }
+    if code <= 67 { return "Rain" }
+    if code <= 77 { return "Snow" }
+    if code <= 82 { return "Rain showers" }
+    if code <= 86 { return "Snow showers" }
+    return "Thunderstorm"
+}
+
+fn aqi_word(a) {
+    if a <= 50  { return "Good" }
+    if a <= 100 { return "Moderate" }
+    if a <= 150 { return "Unhealthy for sensitive" }
+    if a <= 200 { return "Unhealthy" }
+    if a <= 300 { return "Very unhealthy" }
+    return "Hazardous"
+}
+
+// ---- text helpers ---------------------------------------------------------
+// Native Text measures to zero without a width and never auto-sizes height, so
+// every text node carries both. A column centres its children, so a snug width
+// makes a hero line sit centred; byte length is a good-enough proxy for it.
+fn ctext(s, size, weight, color) {
+    return {t: "text", text: s, size: size, weight: weight, color: color,
+            w: s.len() * size * 0.52 + 14, h: size * 1.3 + 10}
+}
+
+// Left-aligned line pinned to a given width (section labels, list/tile text).
+fn ltext(s, size, weight, color, w) {
+    return {t: "text", text: s, size: size, weight: weight, color: color,
+            w: w, h: size * 1.3 + 8}
+}
+
+fn spacer(px)  { return {t: "column", w: 6, h: px} }
+fn hair()      { return {t: "column", w: PANW_IN, h: 1, bg: HAIR} }
+fn section(s)  { return ltext(s, 12, 6, LABEL, PANW_IN) }
+fn panel(kids) { return {t: "column", w: PANELW, bg: PANELBG, radius: 22, pad: 16, c: kids} }
+
+// ---- hero (floats over the map) -------------------------------------------
+fn hero() {
+    let code = fetch_num(WX, "current.weather_code", -1)
+    let summary = "Feels " + fetch_fmt(WX, "current.apparent_temperature", -1, "°") + "   ·   H " + fetch_fmt(WX, "current.relative_humidity_2m", -1, "%") + "   ·   Wind " + fetch_fmt(WX, "current.wind_speed_10m", -1, " km/h")
+    return [
+        ctext("Tokyo", 30, 5, WHITE),
+        {t: "text", text: fetch_fmt(WX, "current.temperature_2m", -1, "°"),
+         size: 76, weight: 3, color: WHITE, w: 140, h: 112},
+        ctext(wmo_word(code), 22, 4, LIGHT),
+        ctext(summary, 15, 4, LIGHT),
+    ]
+}
+
+// ---- 7-day forecast -------------------------------------------------------
+// Column widths sum to PANW_IN so the row fills exactly and the highs/lows land
+// at the right edge: 52 + 40 + 8 + 130 + 54 + 54 = 338.
+fn day_row(i) {
+    let code = fetch_num(WX, "daily.weather_code", i)
+    return {t: "row", w: PANW_IN, h: 46, c: [
+        ltext(fetch_weekday(WX, "daily.time", i), 15, 5, WHITE, 52),
+        {t: "image", src: wmo_icon(code), w: 40, h: 40, fit: 0},
+        {t: "column", w: 8, h: 4},
+        ltext(wmo_word(code), 13, 4, DIM, 130),
+        ltext(fetch_fmt(WX, "daily.temperature_2m_max", i, "°"), 15, 6, WHITE, 54),
+        ltext(fetch_fmt(WX, "daily.temperature_2m_min", i, "°"), 15, 4, DIM, 54),
+    ]}
+}
+
+fn forecast_panel() {
+    let kids = [section("7-DAY FORECAST"), spacer(4)]
+    let i = 0
+    while i < 7 {
+        kids.push(day_row(i))
+        if i < 6 { kids.push(hair()) }
+        i = i + 1
+    }
+    return panel(kids)
+}
+
+// ---- air quality ----------------------------------------------------------
+fn tile(label, value) {
+    return {t: "column", w: TILEW, h: 78, bg: TILEBG, radius: 14, pad: 12, c: [
+        ltext(label, 12, 5, DIM, TILEW - 24),
+        {t: "column", w: 4, h: 3},
+        ltext(value, 18, 6, WHITE, TILEW - 24),
+    ]}
+}
+
+fn tilerow(a, b) {
+    return {t: "row", w: PANW_IN, h: 88, c: [a, {t: "column", w: GAP, h: 4}, b]}
+}
+
+fn air_panel() {
+    let aqi = fetch_num(AQ, "current.us_aqi", -1)
+    let head = {t: "row", w: PANW_IN, h: 70, c: [
+        {t: "text", text: fetch_fmt(AQ, "current.us_aqi", -1, ""),
+         size: 46, weight: 3, color: WHITE, w: 92, h: 62},
+        {t: "column", w: PANW_IN - 92, c: [
+            ltext("US AQI", 12, 5, DIM, PANW_IN - 92),
+            ltext(aqi_word(aqi), 18, 6, WHITE, PANW_IN - 92),
+        ]},
+    ]}
+    return panel([
+        section("AIR QUALITY"), spacer(6),
+        head, spacer(10),
+        tilerow(tile("PM2.5", fetch_fmt(AQ, "current.pm2_5", -1, " µg/m³")),
+                tile("PM10",  fetch_fmt(AQ, "current.pm10",  -1, " µg/m³"))),
+        spacer(10),
+        tilerow(tile("Ozone", fetch_fmt(AQ, "current.ozone", -1, " µg/m³")),
+                tile("NO₂",   fetch_fmt(AQ, "current.nitrogen_dioxide", -1, " µg/m³"))),
+    ])
+}
+
+// ---- details --------------------------------------------------------------
+fn details_panel() {
+    return panel([
+        section("DETAILS"), spacer(6),
+        tilerow(tile("Humidity", fetch_fmt(WX, "current.relative_humidity_2m", -1, "%")),
+                tile("Wind",     fetch_fmt(WX, "current.wind_speed_10m", -1, " km/h"))),
+        spacer(10),
+        tilerow(tile("Feels like", fetch_fmt(WX, "current.apparent_temperature", -1, "°")),
+                tile("Dew point",  fetch_fmt(WX, "current.dew_point_2m", -1, "°"))),
+        spacer(10),
+        tilerow(tile("UV index", fetch_fmt(WX, "daily.uv_index_max", 0, "")),
+                tile("Pressure", fetch_fmt(WX, "current.surface_pressure", -1, " hPa"))),
+    ])
+}
+
+// ---- page -----------------------------------------------------------------
+fn page_kids() {
+    let k = [spacer(58)]
+    for n in hero() { k.push(n) }
+    k.push(spacer(22))
+    k.push(forecast_panel())
+    k.push(spacer(16))
+    k.push(air_panel())
+    k.push(spacer(16))
+    k.push(details_panel())
+    k.push(spacer(48))
+    return k
+}
+
+// Root: satellite map (bottom) · dark scrim · scrolling content (top). The map
+// and scrim are fixed siblings of the scroll, so the backdrop stays put while
+// the card scrolls over it.
+{t: "stack", w: W, h: H, c: [
+    {t: "image", src: SAT, w: W, h: H, fit: 1},
+    {t: "column", w: W, h: H, bg: SCRIM},
+    {t: "scroll", w: W, h: H, align: 1, c: [
+        {t: "column", w: W, c: page_kids()}
+    ]},
+]}

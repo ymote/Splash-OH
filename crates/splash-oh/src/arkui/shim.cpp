@@ -20,6 +20,13 @@
 #include <arkui/native_interface.h>
 #include <arkui/native_type.h>
 
+#include <network/netstack/net_http.h>
+#include <mutex>
+#include <condition_variable>
+#include <chrono>
+#include <string>
+#include <cstdlib>
+
 static ArkUI_NativeNodeAPI_1 *g_api = nullptr;
 
 extern "C" {
@@ -152,6 +159,85 @@ int32_t splash_event_target_id(ArkUI_NodeEvent *e) {
 int32_t splash_event_type(ArkUI_NodeEvent *e) {
     return e ? (int32_t)OH_ArkUI_NodeEvent_GetEventType(e) : -1;
 }
+
+// ---- HTTP: a blocking GET over OpenHarmony's native netstack ----------------
+// The Splash VM's `http_get` / `fetch_*` capabilities call this so the DSL can
+// pull live data itself — nothing baked. OH_Http_Request is asynchronous and
+// its response callback is a bare C function pointer with no user-data slot, so
+// calls are serialised with a mutex and the single in-flight result is handed
+// back through file-static state. netstack delivers the callback on its own
+// worker thread, so blocking the caller here does not deadlock.
+static std::mutex              g_http_serialize;
+static std::mutex              g_http_mu;
+static std::condition_variable g_http_cv;
+static std::string             g_http_body;
+static int                     g_http_code;
+static bool                    g_http_done;
+
+static void splash_http_cb(Http_Response *resp, uint32_t errCode) {
+    std::lock_guard<std::mutex> lk(g_http_mu);
+    g_http_body.clear();
+    if (errCode == 0 && resp) {
+        g_http_code = (int)resp->responseCode;
+        if (resp->body.buffer && resp->body.length) {
+            g_http_body.assign(resp->body.buffer, resp->body.length);
+        }
+    } else {
+        g_http_code = -(int)errCode;
+    }
+    g_http_done = true;
+    g_http_cv.notify_one();
+}
+
+// Blocking GET. Returns the HTTP status code (negative on transport error).
+// If out_buf != null, the body is malloc'd into *out_buf / *out_len and the
+// caller must release it with splash_free.
+int splash_http_get(const char *url, char **out_buf, int *out_len) {
+    std::lock_guard<std::mutex> serialize(g_http_serialize);
+    if (out_buf) *out_buf = nullptr;
+    if (out_len) *out_len = 0;
+
+    Http_Request *req = OH_Http_CreateRequest(url);
+    if (!req) return -1000;
+
+    {
+        std::lock_guard<std::mutex> lk(g_http_mu);
+        g_http_done = false;
+        g_http_code = 0;
+        g_http_body.clear();
+    }
+
+    Http_EventsHandler handler;
+    memset(&handler, 0, sizeof(handler));
+    int rc = OH_Http_Request(req, splash_http_cb, handler);
+    if (rc != 0) {
+        OH_Http_Destroy(&req);
+        return -2000 - rc;
+    }
+
+    std::unique_lock<std::mutex> lk(g_http_mu);
+    g_http_cv.wait_for(lk, std::chrono::seconds(25), [] { return g_http_done; });
+    if (!g_http_done) {
+        lk.unlock();
+        OH_Http_Destroy(&req);
+        return -3000; // timed out
+    }
+    int code = g_http_code;
+    if (out_buf && out_len && !g_http_body.empty()) {
+        int n = (int)g_http_body.size();
+        char *buf = (char *)malloc((size_t)n);
+        if (buf) {
+            memcpy(buf, g_http_body.data(), (size_t)n);
+            *out_buf = buf;
+            *out_len = n;
+        }
+    }
+    lk.unlock();
+    OH_Http_Destroy(&req);
+    return code;
+}
+
+void splash_free(char *p) { free(p); }
 
 } // extern "C"
 

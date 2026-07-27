@@ -1,0 +1,27 @@
+// YouTube app — the top chrome bar, in the Splash DSL, rendered to native
+// OpenHarmony ArkUI. This is the "Splash-OH" half of the app: a native ArkUI
+// bar built from this DSL. The video content below it is an ArkTS `Web`
+// component (OpenHarmony's WebView is ArkTS-only — it cannot be a node in the
+// native ArkUI tree), wired up in pages/Index.ets.
+//
+// The bar brands the *Splash-OH* app shell and tags the hosted web app, rather
+// than duplicating YouTube's own web header just below it. Root is a column so
+// the text children size the same way they do everywhere else in the tree.
+
+fn argb(a, r, g, b) { return ((a * 256 + r) * 256 + g) * 256 + b }
+let bar    = argb(255,  18,  18,  18)   // dark app chrome
+let red    = argb(255, 255,  40,  40)   // YouTube red
+let white  = argb(255, 255, 255, 255)
+let accent = argb(255, 138, 198, 255)   // hosted-app tag
+
+{t: "column", w: 402, h: 56, bg: bar, pad: 14, c: [
+    {t: "row", w: 374, h: 30, c: [
+        {t: "text", text: "Splash-OH", size: 20, weight: 8, color: white, w: 168, h: 30},
+        {t: "column", w: 74, h: 1},
+        {t: "column", w: 30, h: 22, bg: red, radius: 6, c: [
+            {t: "text", text: "▶", size: 11, weight: 7, color: white, w: 30, h: 22}
+        ]},
+        {t: "column", w: 6, h: 1},
+        {t: "text", text: "YouTube", size: 14, weight: 5, color: accent, w: 82, h: 28},
+    ]}
+]}
