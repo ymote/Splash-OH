@@ -194,6 +194,34 @@ pub fn web_slots() -> Vec<String> {
     webslot::encoded()
 }
 
+/// Evaluate a tiny script through the Splash VM and report what came back.
+///
+/// A smoke test for the VM itself, not for any app. The four ported apps build
+/// their trees in Rust and never touch the interpreter, so a broken or swapped
+/// VM would not show up in them at all -- it would only surface later, in a
+/// `.splash` card, as a blank screen. Worth one call to rule out.
+#[napi(js_name = "dslSelfTest")]
+pub fn dsl_self_test() -> String {
+    let src = r#"
+fn argb(a, r, g, b) { return ((a * 256 + r) * 256 + g) * 256 + b }
+let rows = []
+for i in [1, 2, 3] { rows.push({t: "text", text: "row " + i, size: 14, w: 200, h: 20}) }
+{t: "column", w: 200, h: 80, bg: argb(255, 20, 20, 30), c: rows}
+"#;
+    match dsl::build(src) {
+        Some(_) => {
+            let msg = "dsl selftest: ok (fn, for, array push, string+number, node tree)";
+            log(msg);
+            msg.to_string()
+        }
+        None => {
+            let msg = "dsl selftest: FAILED — the VM did not produce a tree";
+            log(msg);
+            msg.to_string()
+        }
+    }
+}
+
 /// A page called `splash.invoke(tool, args)`. Fire-and-forget; the answer
 /// comes back through `webBridgeDrain`.
 #[napi(js_name = "webBridgeInvoke")]

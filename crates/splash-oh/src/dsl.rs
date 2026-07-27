@@ -26,9 +26,14 @@
 //! catalog leans on that heavily (see `assets/catalog.splash`).
 
 use crate::arkui::{attr, event, ty, Node};
+// The VM comes from ymote/Splash, which re-exports it as `vm` from its own
+// pinned vendored copy. Importing it under the old name keeps the walk below
+// unchanged; what changes is provenance, not API.
+use splash_core::vm as makepad_script;
+
 use makepad_script::apply::*;
-use makepad_script::makepad_live_id::*;
 use makepad_script::array::ScriptArrayStorage;
+use makepad_script::makepad_live_id::*;
 use makepad_script::traits::*;
 use makepad_script::*;
 
@@ -106,7 +111,18 @@ pub fn build(src: &str) -> Option<Node> {
     });
 
     if value.is_nil() {
-        crate::log("dsl: script evaluated to nil (parse or runtime error)");
+        // "evaluated to nil" on its own is the least useful error this codebase
+        // produces -- it covers a parse error, a runtime error and a script that
+        // legitimately returned nothing. splash-core can tell them apart, so ask.
+        match splash_core::check_syntax(src) {
+            Ok(report) if !report.diagnostics.is_empty() => {
+                for d in report.diagnostics.iter().take(4) {
+                    crate::log(&format!("dsl: syntax: {d:?}"));
+                }
+            }
+            Ok(_) => crate::log("dsl: script parsed but evaluated to nil (runtime error, or it returned nothing)"),
+            Err(e) => crate::log(&format!("dsl: syntax check failed: {e:?}")),
+        }
         return None;
     }
     walk(vm, value, 0)
