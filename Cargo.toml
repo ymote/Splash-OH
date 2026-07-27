@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/splash-oh"]
+members = ["crates/splash-oh", "crates/splash-render", "crates/splash-makepad"]
 
 [profile.release]
 opt-level = 3
