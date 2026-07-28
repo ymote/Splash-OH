@@ -164,6 +164,15 @@ static GOT: AtomicBool = AtomicBool::new(false);
 /// SAMPLE and hand each caller the other's reading.
 static READING: Mutex<()> = Mutex::new(());
 
+/// Where a running stream sends its samples, and whether one is running.
+///
+/// The C callback takes no user pointer, so the destination cannot travel with
+/// the subscription and has to live here.
+static STREAM_SLOT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+static STREAMING: AtomicBool = AtomicBool::new(false);
+static STREAM_KIND: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
+static STREAM_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
 extern "C" fn on_event(event: *mut c_void, _user: *mut c_void) {
     if event.is_null() {
         return;
@@ -176,6 +185,25 @@ extern "C" fn on_event(event: *mut c_void, _user: *mut c_void) {
     let vals = unsafe { std::slice::from_raw_parts(data, len as usize) }.to_vec();
     let mut acc: i32 = 0;
     unsafe { OH_SensorEvent_GetAccuracy(event, &mut acc) };
+    // A stream pushes each sample straight out. This runs on the sensor
+    // service's thread, so the send must not block -- bridge::emit goes through
+    // a non-blocking threadsafe function for exactly that reason.
+    if STREAMING.load(Ordering::Relaxed) {
+        let n = STREAM_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+        let nums: Vec<String> = vals.iter().map(|v| format!("{v:.3}")).collect();
+        let kind = STREAM_KIND.load(Ordering::Relaxed);
+        crate::bridge::emit(
+            STREAM_SLOT.load(Ordering::Relaxed),
+            "sensor",
+            &format!(
+                "{{\"kind\":{},\"values\":[{}],\"n\":{}}}",
+                json_str(type_name(kind)),
+                nums.join(","),
+                n
+            ),
+        );
+        return;
+    }
     if let Ok(mut s) = SAMPLE.lock() {
         *s = Some((vals, acc));
     }
@@ -281,4 +309,64 @@ pub fn vibrate(ms: i32) -> Result<String, String> {
 
 pub fn vibrate_cancel() -> i32 {
     unsafe { OH_Vibrator_Cancel() }
+}
+
+/// Stream a sensor for `ms`, emitting every sample as a `sensor` event.
+///
+/// The case `emit` exists for. An accelerometer at 20 Hz cannot travel through
+/// a request/reply channel — the page would have to ask sixty times for three
+/// seconds of data, and each answer would already be stale. Here Rust sends and
+/// the page listens.
+pub fn stream(kind: i32, slot: u32, ms: u64) -> Result<String, String> {
+    let _one_at_a_time = READING.lock().map_err(|_| "sensor lock poisoned")?;
+    let ms = ms.clamp(200, 10_000);
+
+    let id = unsafe { OH_Sensor_CreateSubscriptionId() };
+    let attr = unsafe { OH_Sensor_CreateSubscriptionAttribute() };
+    let sub = unsafe { OH_Sensor_CreateSubscriber() };
+    if id.is_null() || attr.is_null() || sub.is_null() {
+        return Err("could not create a subscription".into());
+    }
+
+    let result = (|| {
+        unsafe { OH_SensorSubscriptionId_SetType(id, kind) };
+        // 50 ms -> 20 samples a second, which is a stream rather than a trickle
+        // and still well inside what the bridge can carry.
+        unsafe { OH_SensorSubscriptionAttribute_SetSamplingInterval(attr, 50_000_000) };
+        unsafe { OH_SensorSubscriber_SetCallback(sub, on_event) };
+
+        STREAM_SLOT.store(slot, Ordering::SeqCst);
+        STREAM_KIND.store(kind, Ordering::SeqCst);
+        STREAM_COUNT.store(0, Ordering::SeqCst);
+        STREAMING.store(true, Ordering::SeqCst);
+
+        let rc = unsafe { OH_Sensor_Subscribe(id, attr, sub) };
+        if rc != 0 {
+            STREAMING.store(false, Ordering::SeqCst);
+            return Err(if rc == 201 {
+                format!("permission denied for {} sensor", type_name(kind))
+            } else {
+                format!("subscribe failed ({rc})")
+            });
+        }
+        std::thread::sleep(std::time::Duration::from_millis(ms));
+        STREAMING.store(false, Ordering::SeqCst);
+        unsafe { OH_Sensor_Unsubscribe(id, sub) };
+
+        let sent = STREAM_COUNT.load(Ordering::SeqCst);
+        Ok(format!(
+            "{{\"kind\":{},\"ms\":{},\"events\":{},\"hz\":{:.1}}}",
+            json_str(type_name(kind)),
+            ms,
+            sent,
+            sent as f64 * 1000.0 / ms as f64
+        ))
+    })();
+
+    unsafe {
+        OH_Sensor_DestroySubscriptionId(id);
+        OH_Sensor_DestroySubscriptionAttribute(attr);
+        OH_Sensor_DestroySubscriber(sub);
+    }
+    result
 }
