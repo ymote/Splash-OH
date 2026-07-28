@@ -20,6 +20,8 @@ pub mod device;
 pub mod dsl;
 pub mod mem;
 pub mod net;
+pub mod netinfo;
+pub mod prefs;
 pub mod sensor;
 pub mod webslot;
 pub mod wechat;

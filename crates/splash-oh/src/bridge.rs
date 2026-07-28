@@ -178,6 +178,44 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args: String) {
             });
         }
 
+        // What the default route actually is. `navigator.onLine` is a boolean
+        // that mostly means "the browser has not noticed a failure yet"; this
+        // is the bearer, whether the system considers the link validated, and
+        // whether a proxy sits in front of it.
+        "net.info" => reply(slot, call_id, ok(crate::netinfo::info())),
+
+        // Persistent key-value in the app sandbox. A page here cannot rely on
+        // localStorage: the slot is re-created whenever the DSL rebuilds, and
+        // generated pages arrive under a synthetic baseUrl, so the origin the
+        // storage was scoped to is not reliably the same one next time.
+        "prefs.get" => reply(slot, call_id, ok(crate::prefs::get(args.trim_matches('"')))),
+
+        "prefs.keys" => reply(slot, call_id, ok(crate::prefs::keys())),
+
+        // Args: {"key": "...", "value": "..."}
+        "prefs.set" => {
+            let v: serde_json::Value = serde_json::from_str(&args).unwrap_or_default();
+            let k = v.get("key").and_then(|x| x.as_str()).unwrap_or("");
+            let val = v.get("value").and_then(|x| x.as_str()).unwrap_or("");
+            reply(
+                slot,
+                call_id,
+                match crate::prefs::set(k, val) {
+                    Ok(j) => ok(j),
+                    Err(e) => err(&e),
+                },
+            );
+        }
+
+        "prefs.remove" => reply(
+            slot,
+            call_id,
+            match crate::prefs::remove(args.trim_matches('"')) {
+                Ok(j) => ok(j),
+                Err(e) => err(&e),
+            },
+        ),
+
         // Haptics. A page in a browser has no route to the motor at all.
         "vibrate" => {
             let ms = args
