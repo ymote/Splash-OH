@@ -24,6 +24,7 @@
 use crate::bridge::json_str;
 use std::ffi::{c_void, CString};
 use std::os::raw::c_char;
+use std::sync::Mutex;
 
 #[repr(C)]
 struct ImageString {
@@ -572,4 +573,304 @@ pub fn cameras() -> Result<String, String> {
 
     unsafe { (api.del_manager)(mgr) };
     result
+}
+
+// ---------------------------------------------------------------------------
+// Camera preview.
+//
+// The session pipeline, bound to a surface Rust made itself (see xcomp.rs).
+// ArkTS is nowhere on this path: ARKUI_NODE_XCOMPONENT is a real node type, so
+// the surface is a node in the same native tree as everything else, and the
+// camera writes frames straight into it. No per-frame crossing, and no
+// per-rebuild crossing either -- which is what separates this from the web
+// slots, where the absence of ARKUI_NODE_WEB forces an ArkTS overlay.
+// ---------------------------------------------------------------------------
+
+#[repr(C)]
+struct CameraSize {
+    width: u32,
+    height: u32,
+}
+
+#[repr(C)]
+struct CameraProfile {
+    format: i32,
+    size: CameraSize,
+}
+
+#[repr(C)]
+struct OutputCapability {
+    preview_profiles: *mut *mut CameraProfile,
+    preview_profiles_size: u32,
+    photo_profiles: *mut *mut CameraProfile,
+    photo_profiles_size: u32,
+    video_profiles: *mut *mut c_void,
+    video_profiles_size: u32,
+    supported_metadata_object_types: *mut *mut c_void,
+    metadata_types_size: u32,
+}
+
+struct SessionApi {
+    get_capability:
+        unsafe extern "C" fn(*mut c_void, *const CameraDevice, *mut *mut OutputCapability) -> i32,
+    del_capability: unsafe extern "C" fn(*mut c_void, *mut OutputCapability) -> i32,
+    create_input: unsafe extern "C" fn(*mut c_void, *const CameraDevice, *mut *mut c_void) -> i32,
+    input_open: unsafe extern "C" fn(*mut c_void) -> i32,
+    input_release: unsafe extern "C" fn(*mut c_void) -> i32,
+    create_session: unsafe extern "C" fn(*mut c_void, *mut *mut c_void) -> i32,
+    begin_config: unsafe extern "C" fn(*mut c_void) -> i32,
+    add_input: unsafe extern "C" fn(*mut c_void, *mut c_void) -> i32,
+    create_preview: unsafe extern "C" fn(
+        *mut c_void,
+        *const CameraProfile,
+        *const c_char,
+        *mut *mut c_void,
+    ) -> i32,
+    add_preview: unsafe extern "C" fn(*mut c_void, *mut c_void) -> i32,
+    commit_config: unsafe extern "C" fn(*mut c_void) -> i32,
+    session_start: unsafe extern "C" fn(*mut c_void) -> i32,
+    session_stop: unsafe extern "C" fn(*mut c_void) -> i32,
+    session_release: unsafe extern "C" fn(*mut c_void) -> i32,
+}
+
+static SESSION_API: std::sync::OnceLock<Option<SessionApi>> = std::sync::OnceLock::new();
+
+fn session_api() -> Option<&'static SessionApi> {
+    SESSION_API
+        .get_or_init(|| {
+            let h = open_any(&["libohcamera.so"])?;
+            let hs = [h];
+            Some(SessionApi {
+                get_capability: sym(&hs, "OH_CameraManager_GetSupportedCameraOutputCapability")?,
+                del_capability: sym(
+                    &hs,
+                    "OH_CameraManager_DeleteSupportedCameraOutputCapability",
+                )?,
+                create_input: sym(&hs, "OH_CameraManager_CreateCameraInput")?,
+                input_open: sym(&hs, "OH_CameraInput_Open")?,
+                input_release: sym(&hs, "OH_CameraInput_Release")?,
+                create_session: sym(&hs, "OH_CameraManager_CreateCaptureSession")?,
+                begin_config: sym(&hs, "OH_CaptureSession_BeginConfig")?,
+                add_input: sym(&hs, "OH_CaptureSession_AddInput")?,
+                create_preview: sym(&hs, "OH_CameraManager_CreatePreviewOutput")?,
+                add_preview: sym(&hs, "OH_CaptureSession_AddPreviewOutput")?,
+                commit_config: sym(&hs, "OH_CaptureSession_CommitConfig")?,
+                session_start: sym(&hs, "OH_CaptureSession_Start")?,
+                session_stop: sym(&hs, "OH_CaptureSession_Stop")?,
+                session_release: sym(&hs, "OH_CaptureSession_Release")?,
+            })
+        })
+        .as_ref()
+}
+
+/// A running preview. Held so it can be stopped, and because releasing the
+/// session while it is running is how you get a black surface and a leaked
+/// camera that no other app can then open.
+struct Preview {
+    manager: *mut c_void,
+    input: *mut c_void,
+    session: *mut c_void,
+    output: *mut c_void,
+}
+// The handles are only ever touched under RUNNING's lock, on one worker at a
+// time. Rust cannot see that through the raw pointers, so it is asserted here.
+unsafe impl Send for Preview {}
+
+static RUNNING: Mutex<Option<Preview>> = Mutex::new(None);
+
+fn cam_error(rc: i32) -> String {
+    match rc {
+        7_400_101 => "invalid argument".into(),
+        7_400_102 => "operation not allowed in this session state".into(),
+        7_400_103 => "session not configured".into(),
+        // Do not trust this one's name. The camera service logs
+        //   HCameraService::CheckPermission: Permission to Access Camera Denied
+        //   CreateCameraDevice Check OHOS_PERMISSION_CAMERA fail 15
+        // and the NDK still surfaces 7400201, whose documented meaning is "in
+        // use by another application". A missing CAMERA permission and a
+        // genuine conflict are indistinguishable here, so the message says so
+        // rather than sending the caller after the wrong fix.
+        7_400_201 => "camera unavailable — either in use by another app, or \
+                      ohos.permission.CAMERA is not granted"
+            .into(),
+        7_400_202 => "camera disabled by device policy".into(),
+        7_400_203 => "the camera is already in use here".into(),
+        201 => "permission denied (ohos.permission.CAMERA)".into(),
+        _ => format!("camera error ({rc})"),
+    }
+}
+
+/// Choose a preview profile near the surface, so the camera is not asked to
+/// stream 4K into a 400 px box. Nearest by area rather than exact match: the
+/// supported list is discrete and rarely contains the size actually wanted.
+fn pick_profile(cap: &OutputCapability, want_w: u32, want_h: u32) -> Option<*mut CameraProfile> {
+    if cap.preview_profiles.is_null() || cap.preview_profiles_size == 0 {
+        return None;
+    }
+    let want = (want_w as f64) * (want_h as f64);
+    let mut best: Option<*mut CameraProfile> = None;
+    let mut best_d = f64::MAX;
+    for i in 0..cap.preview_profiles_size as isize {
+        let p = unsafe { *cap.preview_profiles.offset(i) };
+        if p.is_null() {
+            continue;
+        }
+        let s = unsafe { &(*p).size };
+        let d = ((s.width as f64) * (s.height as f64) - want).abs();
+        if d < best_d {
+            best_d = d;
+            best = Some(p);
+        }
+    }
+    best
+}
+
+/// Start the preview into `surface_id`. Idempotent-ish: an already-running
+/// preview is stopped first, because two sessions on one camera is the state
+/// that produces 7400203 and a surface that never lights up.
+pub fn preview_start(
+    surface_id: u64,
+    want_w: u32,
+    want_h: u32,
+    front: bool,
+) -> Result<String, String> {
+    let api = camera_api().ok_or(NO_CAMERA)?;
+    let sapi = session_api().ok_or(NO_CAMERA)?;
+    preview_stop().ok();
+
+    let mut mgr: *mut c_void = std::ptr::null_mut();
+    let rc = unsafe { (api.get_manager)(&mut mgr) };
+    if rc != 0 || mgr.is_null() {
+        return Err(cam_error(rc));
+    }
+
+    // Everything below must unwind on failure or the camera stays held.
+    let built = (|| -> Result<(Preview, String), String> {
+        let mut list: *mut CameraDevice = std::ptr::null_mut();
+        let mut n: u32 = 0;
+        let rc = unsafe { (api.supported)(mgr, &mut list, &mut n) };
+        if rc != 0 || list.is_null() || n == 0 {
+            return Err(cam_error(rc));
+        }
+        let want_pos = if front { 2 } else { 1 };
+        let mut chosen: isize = -1;
+        for i in 0..n as isize {
+            if unsafe { (*list.offset(i)).position } == want_pos {
+                chosen = i;
+                break;
+            }
+        }
+        if chosen < 0 {
+            chosen = 0;
+        }
+        let device = unsafe { list.offset(chosen) };
+
+        let mut cap: *mut OutputCapability = std::ptr::null_mut();
+        let rc = unsafe { (sapi.get_capability)(mgr, device, &mut cap) };
+        if rc != 0 || cap.is_null() {
+            return Err(format!("output capability: {}", cam_error(rc)));
+        }
+        let profile = pick_profile(unsafe { &*cap }, want_w, want_h);
+        let Some(profile) = profile else {
+            unsafe { (sapi.del_capability)(mgr, cap) };
+            return Err("no preview profiles offered".into());
+        };
+        let (pw, ph) = unsafe { ((*profile).size.width, (*profile).size.height) };
+
+        let mut input: *mut c_void = std::ptr::null_mut();
+        let rc = unsafe { (sapi.create_input)(mgr, device, &mut input) };
+        if rc != 0 || input.is_null() {
+            unsafe { (sapi.del_capability)(mgr, cap) };
+            return Err(format!("camera input: {}", cam_error(rc)));
+        }
+        let rc = unsafe { (sapi.input_open)(input) };
+        if rc != 0 {
+            unsafe {
+                (sapi.input_release)(input);
+                (sapi.del_capability)(mgr, cap);
+            }
+            return Err(format!("open camera: {}", cam_error(rc)));
+        }
+
+        // The surface id crosses as a decimal string -- the camera API takes
+        // `const char*`, not the u64 the window handed back.
+        let sid = CString::new(surface_id.to_string()).map_err(|_| "bad surface id")?;
+        let mut output: *mut c_void = std::ptr::null_mut();
+        let rc = unsafe { (sapi.create_preview)(mgr, profile, sid.as_ptr(), &mut output) };
+        unsafe { (sapi.del_capability)(mgr, cap) };
+        if rc != 0 || output.is_null() {
+            unsafe { (sapi.input_release)(input) };
+            return Err(format!("preview output: {}", cam_error(rc)));
+        }
+
+        let mut session: *mut c_void = std::ptr::null_mut();
+        let rc = unsafe { (sapi.create_session)(mgr, &mut session) };
+        if rc != 0 || session.is_null() {
+            unsafe { (sapi.input_release)(input) };
+            return Err(format!("session: {}", cam_error(rc)));
+        }
+
+        // Order matters: begin, add, commit, start. Adding outside a config
+        // block returns 7400102 rather than doing anything.
+        let steps: [(&str, i32); 5] = [
+            ("beginConfig", unsafe { (sapi.begin_config)(session) }),
+            ("addInput", unsafe { (sapi.add_input)(session, input) }),
+            ("addPreview", unsafe { (sapi.add_preview)(session, output) }),
+            ("commitConfig", unsafe { (sapi.commit_config)(session) }),
+            ("start", unsafe { (sapi.session_start)(session) }),
+        ];
+        for (what, rc) in steps {
+            if rc != 0 {
+                unsafe {
+                    (sapi.session_release)(session);
+                    (sapi.input_release)(input);
+                }
+                return Err(format!("{what}: {}", cam_error(rc)));
+            }
+        }
+
+        Ok((
+            Preview {
+                manager: mgr,
+                input,
+                session,
+                output,
+            },
+            format!(
+                "{{\"running\":true,\"surfaceId\":\"{surface_id}\",\"previewWidth\":{pw},\
+                 \"previewHeight\":{ph},\"camera\":\"{}\"}}",
+                if front { "front" } else { "back" }
+            ),
+        ))
+    })();
+
+    match built {
+        Ok((p, json)) => {
+            if let Ok(mut r) = RUNNING.lock() {
+                *r = Some(p);
+            }
+            Ok(json)
+        }
+        Err(e) => {
+            unsafe { (api.del_manager)(mgr) };
+            Err(e)
+        }
+    }
+}
+
+/// Stop and release, in the order that does not leave the camera held.
+pub fn preview_stop() -> Result<String, String> {
+    let api = camera_api().ok_or(NO_CAMERA)?;
+    let sapi = session_api().ok_or(NO_CAMERA)?;
+    let Some(p) = RUNNING.lock().ok().and_then(|mut r| r.take()) else {
+        return Ok("{\"running\":false}".into());
+    };
+    unsafe {
+        (sapi.session_stop)(p.session);
+        (sapi.session_release)(p.session);
+        (sapi.input_release)(p.input);
+        (api.del_manager)(p.manager);
+    }
+    let _ = p.output;
+    Ok("{\"running\":false}".into())
 }

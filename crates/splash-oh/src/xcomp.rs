@@ -167,6 +167,15 @@ pub fn surface(w: f32, h: f32) -> Option<Node> {
     Some(node)
 }
 
+/// The surface state as a struct, for callers inside Rust.
+pub fn surface_state() -> SurfaceState {
+    STATE
+        .lock()
+        .ok()
+        .and_then(|s| s.clone())
+        .unwrap_or_default()
+}
+
 /// What the surface reported, as JSON.
 pub fn state() -> String {
     let s = STATE
