@@ -108,8 +108,11 @@ body{{width:{w:.0}px;height:{h:.0}px;overflow:hidden;background:#12121b;color:#e
  font:400 14px/1.4 -apple-system,'HarmonyOS Sans','Helvetica Neue',sans-serif}}
 #bar{{padding:9px 14px;background:#1b1b26;border-bottom:1px solid #2a2a3a;
  display:flex;align-items:center;gap:10px}}
-#up{{padding:3px 9px;border-radius:7px;background:#2c2c3d;color:#9fd0ff;font-size:12px;
- flex:none}}
+#up,#pick,#pickf{{padding:3px 9px;border-radius:7px;background:#2c2c3d;color:#9fd0ff;
+ font-size:12px;flex:none}}
+#pick,#pickf{{background:#243a52;color:#bfe0ff}}
+.uri{{padding:10px 14px;font-size:11px;color:#9fd0ff;word-break:break-all;
+ border-bottom:1px solid #1e1e2c;line-height:1.5}}
 #up.off{{opacity:.3}}
 #path{{font-size:11px;color:#9a9ab0;word-break:break-all;line-height:1.25}}
 #list{{height:{list_h:.0}px;overflow-y:auto}}
@@ -128,7 +131,7 @@ body{{width:{w:.0}px;height:{h:.0}px;overflow:hidden;background:#12121b;color:#e
 .pv{{flex:none;font-weight:600}}
 .yes{{color:#5ad469}} .no{{color:#ff7676}} .miss{{color:#8a8a9e}}
 </style></head><body>
-<div id=bar><span id=up class=off>&#8593; up</span><span id=path>&#8230;</span></div>
+<div id=bar><span id=up class=off>&#8593; up</span><span id=pick>&#128193; dir</span><span id=pickf>&#128196; file</span><span id=path>&#8230;</span></div>
 <div id=list></div>
 <script>
 (function () {{
@@ -181,36 +184,102 @@ body{{width:{w:.0}px;height:{h:.0}px;overflow:hidden;background:#12121b;color:#e
     }});
   }}
 
+  function render(r, prefix) {{
+    cur = r.path; parent = r.parent;
+    pathEl.textContent = r.path;
+    upEl.className = parent && parent !== r.path ? '' : 'off';
+    var head = prefix || '';
+    if (!r.entries.length) {{
+      listEl.innerHTML = head + '<div class=hint>empty</div>';
+      return;
+    }}
+    listEl.innerHTML = head + (r.truncated
+      ? '<div class=hint>showing the first 500 entries</div>' : '');
+    r.entries.forEach(function (e) {{
+      var d = document.createElement('div');
+      d.className = 'e' + (e.dir ? ' d' : '');
+      d.innerHTML = '<span class=ic>' + (e.dir ? '📁' : '📄') + '</span>'
+        + '<span class=nm>' + esc(e.name) + '</span>'
+        + '<span class=sz>' + (e.dir ? '' : human(e.size)) + '</span>';
+      if (e.dir) {{
+        d.onclick = function () {{
+          go(cur.replace(/\/$/, '') + '/' + e.name);
+        }};
+      }}
+      listEl.appendChild(d);
+    }});
+  }}
+
   function go(p) {{
     listEl.innerHTML = '<div class=hint>reading&#8230;</div>';
     splash.invoke('fs.list', p).then(function (r) {{
-      cur = r.path; parent = r.parent;
-      pathEl.textContent = r.path;
-      upEl.className = parent && parent !== r.path ? '' : 'off';
-      if (!r.entries.length) {{
-        listEl.innerHTML = '<div class=hint>empty</div>';
-        return;
-      }}
-      listEl.innerHTML = r.truncated
-        ? '<div class=hint>showing the first 500 entries</div>' : '';
-      r.entries.forEach(function (e) {{
-        var d = document.createElement('div');
-        d.className = 'e' + (e.dir ? ' d' : '');
-        d.innerHTML = '<span class=ic>' + (e.dir ? '📁' : '📄') + '</span>'
-          + '<span class=nm>' + esc(e.name) + '</span>'
-          + '<span class=sz>' + (e.dir ? '' : human(e.size)) + '</span>';
-        if (e.dir) {{
-          d.onclick = function () {{
-            go(cur.replace(/\/$/, '') + '/' + e.name);
-          }};
-        }}
-        listEl.appendChild(d);
-      }});
+      render(r);
     }}).catch(function (e) {{
       pathEl.textContent = p;
       listEl.innerHTML = '<div class=msg>' + esc(e.message) + '</div>';
     }});
   }}
+
+  // The system picker. fs.list showed that user storage is absent from the
+  // app's mount namespace rather than merely denied, so this is the only way a
+  // page reaches a user's own directories -- and the answer travels
+  // Rust -> ArkTS -> Rust, unlike every other tool here.
+  //
+  // What comes back is a URI plus the path it maps to. Whether that path is
+  // then readable by std::fs in Rust is the open question, so the URI is shown
+  // either way and the listing is attempted on top of it.
+  function pick(mode) {{
+    pathEl.textContent = 'system picker (' + mode + ')\u2026';
+    listEl.innerHTML = '<div class=hint>waiting for the picker</div>';
+    splash.invoke('fs.pick', {{ mode: mode }}).then(function (sel) {{
+      if (!sel || !sel.length) {{
+        listEl.innerHTML = '<div class=hint>nothing picked</div>';
+        return;
+      }}
+      var s = sel[0];
+      // A picked FILE is not listable, so list the directory holding it.
+      // That is also the experiment: the picker's own banner says an app may
+      // reach the file you chose and not the rest of its folder, so whether
+      // the parent lists is how that claim looks from the filesystem side.
+      var dir = s.path.replace(/\/[^/]*$/, '');
+      var target = mode === 'folder' ? s.path : dir;
+      var head = '<div class=uri>granted uri<br>' + esc(s.uri)
+        + '<br><br>maps to path<br>' + esc(s.path)
+        + (target === s.path ? '' : '<br><br>listing its folder<br>' + esc(target))
+        + '</div>';
+      pathEl.textContent = s.name || s.path;
+      listEl.innerHTML = head + '<div class=hint>reading&#8230;</div>';
+
+      // Sequential, not concurrent. Run in parallel, the fs.list handler
+      // rewrites innerHTML and erases whatever fs.stat had inserted -- which
+      // is what happened the first time and made stat look like it had failed.
+      //
+      // fs.stat asks the question a picked file actually raises: the grant
+      // clearly resolves the path, but can Rust *use* it? A size agreeing with
+      // what the picker displayed settles that.
+      splash.invoke('fs.stat', s.path).then(function (st) {{
+        return 'fs.stat on the granted file<br>' + st.size + ' bytes, '
+          + (st.dir ? 'directory' : 'file')
+          + (st.readonly ? ', read-only' : ', writable');
+      }}).catch(function (e) {{
+        return 'fs.stat on the granted file<br>' + esc(e.message);
+      }}).then(function (statLine) {{
+        head += '<div class=uri>' + statLine + '</div>';
+        listEl.innerHTML = head + '<div class=hint>reading&#8230;</div>';
+        splash.invoke('fs.list', target).then(function (r) {{
+          render(r, head);
+        }}).catch(function (e) {{
+          listEl.innerHTML = head
+            + '<div class=msg>fs.list on ' + esc(target) + '<br>' + esc(e.message) + '</div>';
+        }});
+      }});
+    }}).catch(function (e) {{
+      listEl.innerHTML = '<div class=msg>' + esc(e.message) + '</div>';
+    }});
+  }}
+
+  document.getElementById('pick').onclick = function () {{ pick('folder'); }};
+  document.getElementById('pickf').onclick = function () {{ pick('file'); }};
 
   upEl.onclick = function () {{
     if (parent && parent !== cur) {{ go(parent); }}

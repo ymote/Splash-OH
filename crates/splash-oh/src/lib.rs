@@ -235,6 +235,28 @@ pub fn web_bridge_drain() -> Vec<String> {
     bridge::drain()
 }
 
+/// Picker requests a page has made, as `reqId|mode` where mode is
+/// `folder` or `file`.
+///
+/// The one tool that runs the other way. `fs.list` established that user
+/// storage is absent from the app's mount namespace rather than merely denied,
+/// so the system picker — ArkTS-only, needing a UIAbilityContext — is the only
+/// route to a user's own directories. Rust parks the call and ArkTS answers it.
+#[napi(js_name = "pickDrain")]
+pub fn pick_drain() -> Vec<String> {
+    bridge::pick_drain()
+}
+
+/// ArkTS reporting a picker outcome. `payload` is a JSON array of
+/// `{uri, path, name}` when `success`, otherwise a message.
+///
+/// `req_id` is a string because it crosses into JS, where a u64 past 2^53 would
+/// come back rounded — the same reason call ids are.
+#[napi(js_name = "pickResolve")]
+pub fn pick_resolve(req_id: String, success: bool, payload: String) {
+    bridge::pick_resolve(&req_id, success, payload);
+}
+
 /// True once, if background data landed and the current app should redraw.
 /// Polled by ArkTS alongside the web-slot list.
 #[napi(js_name = "appTakeDirty")]
