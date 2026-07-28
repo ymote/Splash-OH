@@ -103,6 +103,11 @@ h2{{font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:#5f5f7a;
 <div class=r><span class=k>capabilities</span><span class="v m" id=w_caps>&#8230;</span></div>
 <div class=r><span class=k>system proxy</span><span class="v m" id=w_proxy>&#8230;</span></div>
 
+<h2>Keystore, database, Bluetooth</h2>
+<div class=r><span class=k>keystore (HUKS)</span><span class="v m" id=k_hks>&#8230;</span></div>
+<div class=r><span class=k>db.roundtrip (SQLite)</span><span class="v m" id=k_db>&#8230;</span></div>
+<div class=r><span class=k>bluetooth</span><span class="v m" id=k_bt>&#8230;</span></div>
+
 <h2>Audio &mdash; libohaudio</h2>
 <div class=r><span class=k>audio.tone (tap)</span><span class="v m" id=a_tone>tap &#8594;</span></div>
 <div class=r><span class=k>audio.level</span><span class="v m" id=a_lvl>&#8230;</span></div>
@@ -165,7 +170,7 @@ devicePixelRatio.</div>
     ['d_phone','d_model','d_os','d_api','d_patch','d_tz','d_notif',
      'p_size','p_dens','p_rot',
      'b_cap','s_list','s_acc','s_light','s_vib',
-     'f_rss','f_stat','f_list','c_cap','w_net','w_caps','w_proxy','a_tone','a_lvl','a_loop','x_surf','x_cam','i_cams','i_pick','i_info','i_thumb','l_on','l_fix','l_city','r_cell','r_wifi','x_abc','x_file','cb_w','cb_r','k_rt','k_runs',
+     'f_rss','f_stat','f_list','c_cap','w_net','w_caps','w_proxy','k_hks','k_db','k_bt','a_tone','a_lvl','a_loop','x_surf','x_cam','i_cams','i_pick','i_info','i_thumb','l_on','l_fix','l_city','r_cell','r_wifi','x_abc','x_file','cb_w','cb_r','k_rt','k_runs',
      'n_get','n_vm','n_lim','n_echo','g_ssrf','g_unk']
       .forEach(function (id) {{ set(id, 'f', 'no bridge'); }});
     return;
@@ -263,6 +268,23 @@ devicePixelRatio.</div>
         n.capabilities.join(', ') || 'none');
     set('w_proxy', n.proxy ? 'w' : 'p',
         n.proxy ? n.proxy.host + ':' + n.proxy.port : 'none');
+  }});
+
+  call('keystore.roundtrip', 'splash-demo-key', ['k_hks'], function (k) {{
+    var good = k.generated && k.existed && k.deleted && k.goneAfterDelete;
+    set('k_hks', good ? 'p' : 'w',
+        k.algorithm + ' · generated, verified, deleted'
+        + (k.sdkVersion ? ' · sdk ' + k.sdkVersion : ''));
+  }});
+
+  // The averages come from SQL, not from this page -- the point of using a
+  // real store rather than the JSON file `prefs` writes.
+  call('db.roundtrip', undefined, ['k_db'], function (d) {{
+    set('k_db', 'p', d.luxRows + ' lux rows · avg ' + d.luxAverage + ' (SELECT)');
+  }});
+
+  call('bluetooth.state', undefined, ['k_bt'], function (b) {{
+    set('k_bt', b.state === 2 ? 'p' : 'w', b.name);
   }});
 
   // Playback needs no permission, so it runs on a tap without any dance.
