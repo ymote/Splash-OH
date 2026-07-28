@@ -506,6 +506,46 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args: String) {
             },
         ),
 
+        // A decoder pointed at the surface the camera preview already uses.
+        // Sandbox files only, delivered by fd -- AVPlayer accepts a URL too,
+        // and that would let a page make the media stack fetch anything it
+        // names, which is wider than http.get's allowlist permits.
+        "video.play" => {
+            std::thread::spawn(move || {
+                let v: serde_json::Value = serde_json::from_str(&args).unwrap_or_default();
+                let path = v
+                    .get("path")
+                    .and_then(|x| x.as_str())
+                    .map(String::from)
+                    .unwrap_or_else(|| args.trim_matches('"').to_string());
+                reply(
+                    slot,
+                    call_id,
+                    match crate::audio::video_play(&path) {
+                        Ok(j) => ok(j),
+                        Err(e) => err(&e),
+                    },
+                );
+            });
+        }
+
+        "video.stop" => {
+            std::thread::spawn(move || {
+                reply(
+                    slot,
+                    call_id,
+                    match crate::audio::video_stop() {
+                        Ok(j) => ok(j),
+                        Err(e) => err(&e),
+                    },
+                );
+            });
+        }
+
+        // BLE scan. The native Bluetooth surface is one function -- switch
+        // state -- so discovery has to go through the ArkTS channel.
+        "bluetooth.scan" => park_arkts(slot, call_id, "bluetooth.scan", ""),
+
         // Whether the system location switch is on. Deliberately separate
         // from whether this app holds the permission: a page told "no
         // location" deserves to know which of the two it is, since only one of
