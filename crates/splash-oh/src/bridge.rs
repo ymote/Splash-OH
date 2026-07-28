@@ -156,6 +156,29 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args: String) {
             });
         }
 
+        // Directory listing, so a page can browse the phone rather than only
+        // the network. Names, sizes and kinds -- no contents: reading a file
+        // out to a web surface is a strictly larger capability than seeing
+        // that it exists, and nothing here needs it yet.
+        //
+        // Deliberately NOT path-restricted. The OS sandbox is the real
+        // boundary and the point of this tool is to find out where it runs, so
+        // a denial has to come back as a denial rather than be pre-empted by
+        // an allowlist of paths guessed from the host side. Errors are
+        // reported verbatim for the same reason.
+        //
+        // Args: a bare path string, or {"path": "..."}.
+        "fs.list" => {
+            std::thread::spawn(move || {
+                let path = args
+                    .strip_prefix('{')
+                    .and_then(|_| serde_json::from_str::<serde_json::Value>(&args).ok())
+                    .and_then(|v| v.get("path").and_then(|p| p.as_str()).map(String::from))
+                    .unwrap_or_else(|| args.trim_matches('"').to_string());
+                reply(slot, call_id, list_dir(&path));
+            });
+        }
+
         // The Splash half of the bridge: a page evaluates DSL and gets JSON
         // back. This is what makes it a JS <-> Rust/Splash bridge rather than
         // a JS -> Rust one -- the same language that describes the native tree
@@ -249,6 +272,69 @@ fn check_https_public(url: &str) -> Result<String, String> {
         return Err(format!("host not on the allowlist: {host}"));
     }
     Ok(host)
+}
+
+/// How many entries one listing may carry. `/system/lib64` alone runs past
+/// this, and the whole listing rides through the reply queue as one string.
+const MAX_ENTRIES: usize = 500;
+
+/// One directory, as JSON. Entries sorted directories-first then by name, which
+/// is what a file browser wants and saves the page doing it.
+///
+/// Carries `truncated` when the cap bit, because a silently capped list reads
+/// as a complete one — `/system/lib64` stopping at exactly 500 looked like a
+/// fact about the directory rather than about this function.
+///
+/// A failure carries the OS's own message. That is the interesting part of this
+/// tool: "Permission denied" and "No such file or directory" are different
+/// answers about where an app's reach ends, and collapsing them to "failed"
+/// would throw away the finding.
+fn list_dir(path: &str) -> String {
+    let dir = match std::fs::read_dir(path) {
+        Ok(d) => d,
+        Err(e) => return err(&format!("{e}")),
+    };
+
+    let mut entries: Vec<(bool, String, u64)> = Vec::new();
+    let mut truncated = false;
+    for e in dir.flatten() {
+        let name = e.file_name().to_string_lossy().to_string();
+        // A symlink to a directory should read as a directory, so ask the
+        // entry rather than the metadata call that follows links lazily.
+        let (is_dir, size) = match e.metadata() {
+            Ok(m) => (m.is_dir(), m.len()),
+            // Listable but not stat-able happens on OHOS system paths; show it
+            // rather than dropping it, since its presence is the information.
+            Err(_) => (false, 0),
+        };
+        entries.push((is_dir, name, size));
+        if entries.len() >= MAX_ENTRIES {
+            truncated = true;
+            break;
+        }
+    }
+    entries.sort_by(|a, b| {
+        b.0.cmp(&a.0)
+            .then_with(|| a.1.to_lowercase().cmp(&b.1.to_lowercase()))
+    });
+
+    let items: Vec<String> = entries
+        .iter()
+        .map(|(d, n, s)| format!("{{\"name\":{},\"dir\":{},\"size\":{}}}", json_str(n), d, s))
+        .collect();
+
+    let parent = std::path::Path::new(path)
+        .parent()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default();
+
+    ok(format!(
+        "{{\"path\":{},\"parent\":{},\"truncated\":{},\"entries\":[{}]}}",
+        json_str(path),
+        json_str(&parent),
+        truncated,
+        items.join(",")
+    ))
 }
 
 /// Evaluate a page-supplied script under limits and encode the result.
