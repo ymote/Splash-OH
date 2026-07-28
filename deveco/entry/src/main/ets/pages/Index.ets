@@ -18,7 +18,7 @@ import { Taobao, TikTok, Wonderous } from './AppsArkTs';
  */
 /** Start in the browser card, which is the app that exercises the web overlay.
  *  Empty string starts in the benchmark harness instead. */
-const START_APP: string = 'native';
+const START_APP: string = 'catalog';
 /** Origin given to generated pages. Content loaded with no baseUrl gets an
  *  opaque origin in ArkWeb and never paints; it needs a real https one. */
 const WEB_BASE: string = 'https://localhost/';

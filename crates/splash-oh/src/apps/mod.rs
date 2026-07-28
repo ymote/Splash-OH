@@ -40,6 +40,12 @@ pub enum App {
     /// Not part of the benchmark set — it contains an ArkTS `Web` surface, so
     /// it has no ArkTS twin to be compared against and no meaningful node count.
     Browser,
+    /// The Material catalog, rendered entirely by the Splash VM.
+    ///
+    /// The one app here with no Rust building its tree: `catalog.splash` is
+    /// 482 lines of DSL evaluated on device, and every widget it produces is a
+    /// real ArkUI node. No makepad anywhere in the path.
+    Catalog,
     /// Every bridge tool on one screen with live values. The fixture the
     /// bridge is verified against, so a new capability is one row rather than
     /// a new panel bolted onto whichever card was nearest.
@@ -64,6 +70,7 @@ impl App {
             App::WeatherWeb => "weatherweb",
             App::Files => "files",
             App::Native => "native",
+            App::Catalog => "catalog",
         }
     }
     pub fn from_id(s: &str) -> App {
@@ -75,6 +82,7 @@ impl App {
             "weatherweb" => App::WeatherWeb,
             "files" => App::Files,
             "native" => App::Native,
+            "catalog" => App::Catalog,
             _ => App::WeChat,
         }
     }
@@ -98,6 +106,7 @@ impl App {
             App::WeatherWeb => &["0|root", "1|root", "2|root", "3|root", "0|root", "1|root"],
             App::Files => &["0|root", "1|root", "2|root", "3|root", "4|root", "0|root"],
             App::Native => &["0|root", "0|root", "0|root", "0|root", "0|root", "0|root"],
+            App::Catalog => &["0|root", "0|buttons", "0|chips", "0|lists", "0|color", "0|root"],
         }
     }
 }
@@ -229,6 +238,26 @@ pub fn handle(target: i32) -> bool {
             },
             // No navigation: one page, every tool live on it.
             App::Native => false,
+            // The DSL owns the ids: NAV_BASE + row index opens a screen, and
+            // NAV_BACK returns to the index. `sub` carries the screen, with 0
+            // meaning the index itself.
+            App::Catalog => match target {
+                splash_oh_native::dsl::CATALOG_NAV_BACK => {
+                    let was = nav.sub != 0;
+                    nav.sub = 0;
+                    was
+                }
+                t if t >= splash_oh_native::dsl::CATALOG_NAV_BASE => {
+                    let idx = (t - splash_oh_native::dsl::CATALOG_NAV_BASE) as usize;
+                    if idx < splash_oh_native::dsl::CATALOG_SCREENS.len() {
+                        nav.sub = idx + 1;
+                        true
+                    } else {
+                        false
+                    }
+                }
+                _ => false,
+            },
             App::WeChat => splash_oh_native::wechat::handle(target),
         }
     })
@@ -263,6 +292,14 @@ pub fn build() -> (Option<Node>, usize, f64) {
         App::WeatherWeb => weather_web::build(tab),
         App::Files => files::build(tab),
         App::Native => native::build(),
+        App::Catalog => {
+            let screen = if sub == 0 {
+                ""
+            } else {
+                splash_oh_native::dsl::CATALOG_SCREENS[sub - 1]
+            };
+            splash_oh_native::dsl::build_screen(screen, None)
+        }
         App::WeChat => unreachable!(),
     };
     let us = t0.elapsed().as_nanos() as f64 / 1000.0;
@@ -306,6 +343,12 @@ pub fn build_route(app: App, tab: usize, route: &str) -> (usize, f64) {
         App::WeatherWeb => weather_web::build(tab),
         App::Files => files::build(tab),
         App::Native => native::build(),
+        App::Catalog => {
+            // The tour names screens directly ("0|chips"), so "root" is the
+            // index and anything else is the screen id verbatim.
+            let screen = if route == "root" { "" } else { route };
+            splash_oh_native::dsl::build_screen(screen, None)
+        }
         App::WeChat => unreachable!(),
     };
     let us = t0.elapsed().as_nanos() as f64 / 1000.0;
