@@ -229,6 +229,60 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args: String) {
             });
         }
 
+        // Cellular network state: operator, technology, roaming. A page has
+        // no route to any of this; the closest a browser offers is
+        // navigator.connection.effectiveType, which is a guess from timings.
+        "radio.cellular" => reply(
+            slot,
+            call_id,
+            match crate::radio::cellular() {
+                Ok(j) => ok(j),
+                Err(e) => err(&e),
+            },
+        ),
+
+        // Whether the Wi-Fi radio is on, which is not the same question as
+        // whether it carries the default route -- that is net.info's.
+        "radio.wifi" => reply(
+            slot,
+            call_id,
+            match crate::radio::wifi() {
+                Ok(j) => ok(j),
+                Err(e) => err(&e),
+            },
+        ),
+
+        // SHA-256 from the system crypto kit. The point of a hash is that
+        // everyone computes the same one, so it uses the platform's rather
+        // than a hand-rolled implementation.
+        //
+        // Args: {"text": "..."} or {"path": "..."}. The file form streams in
+        // chunks, so a page can check what it was handed without the bytes
+        // crossing the bridge at all.
+        "crypto.sha256" => {
+            std::thread::spawn(move || {
+                let v: serde_json::Value = serde_json::from_str(&args).unwrap_or_default();
+                let payload = if let Some(p) = v.get("path").and_then(|x| x.as_str()) {
+                    crate::radio::sha256_file(p)
+                } else {
+                    let t = v
+                        .get("text")
+                        .and_then(|x| x.as_str())
+                        .map(String::from)
+                        .unwrap_or_else(|| args.trim_matches('"').to_string());
+                    crate::radio::sha256(t.as_bytes())
+                };
+                reply(
+                    slot,
+                    call_id,
+                    match payload {
+                        Ok(j) => ok(j),
+                        Err(e) => err(&e),
+                    },
+                );
+            });
+        }
+
         // What the default route actually is. `navigator.onLine` is a boolean
         // that mostly means "the browser has not noticed a failure yet"; this
         // is the bearer, whether the system considers the link validated, and

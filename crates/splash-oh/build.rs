@@ -62,4 +62,8 @@ fn main() {
     println!("cargo:rustc-link-lib=dylib=pixelmap");
     println!("cargo:rustc-link-lib=dylib=time_service_ndk");
     println!("cargo:rustc-link-lib=dylib=ohnotification");
+    // Radio state, Wi-Fi state, and the system SHA-256.
+    println!("cargo:rustc-link-lib=dylib=telephony_radio");
+    println!("cargo:rustc-link-lib=dylib=wifi_ndk");
+    println!("cargo:rustc-link-lib=dylib=ohcrypto");
 }

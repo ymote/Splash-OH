@@ -20,6 +20,10 @@
       {
         "name": "ohos.permission.GET_NETWORK_INFO"
       },
+      // Wi-Fi radio state. system_grant, like the sensors above.
+      {
+        "name": "ohos.permission.GET_WIFI_INFO"
+      },
       // All system_grant, so declaring them is enough — no runtime prompt.
       //
       // Enumerating sensors needs nothing: sensor.list returned 21 with none of

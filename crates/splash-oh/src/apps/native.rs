@@ -94,6 +94,14 @@ h2{{font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:#5f5f7a;
 <div class=r><span class=k>capabilities</span><span class="v m" id=w_caps>&#8230;</span></div>
 <div class=r><span class=k>system proxy</span><span class="v m" id=w_proxy>&#8230;</span></div>
 
+<h2>Radio &mdash; libtelephony_radio, libwifi_ndk</h2>
+<div class=r><span class=k>cellular</span><span class="v m" id=r_cell>&#8230;</span></div>
+<div class=r><span class=k>wifi radio</span><span class="v m" id=r_wifi>&#8230;</span></div>
+
+<h2>Crypto &mdash; libohcrypto</h2>
+<div class=r><span class=k>sha256 of "abc"</span><span class="v m" id=x_abc>&#8230;</span></div>
+<div class=r><span class=k>sha256 of prefs.json</span><span class="v m" id=x_file>&#8230;</span></div>
+
 <h2>Clipboard &mdash; ArkTS pasteboard, via the Rust&#8594;ArkTS channel</h2>
 <div class=r><span class=k>clipboard.write</span><span class="v m" id=cb_w>&#8230;</span></div>
 <div class=r><span class=k>clipboard.read</span><span class="v m" id=cb_r>&#8230;</span></div>
@@ -126,7 +134,7 @@ devicePixelRatio.</div>
     ['d_phone','d_model','d_os','d_api','d_patch','d_tz','d_notif',
      'p_size','p_dens','p_rot',
      'b_cap','s_list','s_acc','s_light','s_vib',
-     'f_rss','f_stat','f_list','c_cap','w_net','w_caps','w_proxy','cb_w','cb_r','k_rt','k_runs',
+     'f_rss','f_stat','f_list','c_cap','w_net','w_caps','w_proxy','r_cell','r_wifi','x_abc','x_file','cb_w','cb_r','k_rt','k_runs',
      'n_get','n_vm','n_echo','g_ssrf','g_unk']
       .forEach(function (id) {{ set(id, 'f', 'no bridge'); }});
     return;
@@ -225,6 +233,29 @@ devicePixelRatio.</div>
     set('w_proxy', n.proxy ? 'w' : 'p',
         n.proxy ? n.proxy.host + ':' + n.proxy.port : 'none');
   }});
+
+  call('radio.cellular', undefined, ['r_cell'], function (c) {{
+    set('r_cell', c.registration === 'in-service' ? 'p' : 'w',
+        (c.operator || 'no operator') + ' · ' + c.technology + ' · ' + c.registration
+        + (c.roaming ? ' · roaming' : ''));
+  }});
+  call('radio.wifi', undefined, ['r_wifi'], function (w) {{
+    set('r_wifi', w.enabled ? 'p' : 'w', w.enabled ? 'on' : 'off');
+  }});
+
+  // A known-answer test, not just "a hash came back". SHA-256("abc") is one of
+  // the most widely published digests there is, so a wrong one is visible.
+  var ABC = 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad';
+  splash.invoke('crypto.sha256', {{ text: 'abc' }})
+    .then(function (h) {{
+      set('x_abc', h.hex === ABC ? 'p' : 'f',
+          h.hex === ABC ? h.hex.slice(0, 16) + '\u2026 \u2713 known answer' : h.hex);
+    }})
+    .catch(function (e) {{ set('x_abc', 'f', e.message); }});
+
+  splash.invoke('crypto.sha256', {{ path: '/data/storage/el2/base/files/prefs.json' }})
+    .then(function (h) {{ set('x_file', 'p', h.hex.slice(0, 16) + '\u2026 (' + h.bytes + ' B)'); }})
+    .catch(function (e) {{ set('x_file', 'f', e.message); }});
 
   // Write and read are reported separately because they are not the same
   // capability here. Writing needs no permission; reading is gated by the
