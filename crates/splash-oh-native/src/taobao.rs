@@ -13,8 +13,8 @@
 //! Product titles, subtitles and prices are the reference app's own, from
 //! `home/catalog_data.rs`.
 
-use crate::ui::*;
 use crate::arkui::Node;
+use crate::ui::*;
 
 const APP: &str = "taobao";
 

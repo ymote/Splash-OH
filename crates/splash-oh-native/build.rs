@@ -87,8 +87,7 @@ fn main() {
 /// which also suits a crate whose tests cannot link on the host.
 fn generate_catalog_screens() {
     println!("cargo:rerun-if-changed=assets/catalog.splash");
-    let src = std::fs::read_to_string("assets/catalog.splash")
-        .expect("assets/catalog.splash");
+    let src = std::fs::read_to_string("assets/catalog.splash").expect("assets/catalog.splash");
     let start = src.find("let COMPONENTS = [").expect("COMPONENTS list");
     let rest = &src[start..];
     let end = rest.find("\n]").expect("end of COMPONENTS");
@@ -98,10 +97,12 @@ fn generate_catalog_screens() {
         .filter_map(|l| l.split('"').next())
         .map(|s| format!("    \"{s}\","))
         .collect();
-    assert!(!ids.is_empty(), "no component ids parsed from catalog.splash");
+    assert!(
+        !ids.is_empty(),
+        "no component ids parsed from catalog.splash"
+    );
 
-    let out = std::path::PathBuf::from(env::var("OUT_DIR").unwrap())
-        .join("catalog_screens.rs");
+    let out = std::path::PathBuf::from(env::var("OUT_DIR").unwrap()).join("catalog_screens.rs");
     std::fs::write(
         &out,
         format!(
