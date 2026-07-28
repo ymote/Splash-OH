@@ -48,6 +48,8 @@ fn widget_name(kind: NodeKind) -> &'static str {
         // A real, continuously-animated Material circular indicator (its shader
         // spins off draw_pass.time). `bg` recolours the arc via draw_bg.color.
         NodeKind::Loading => "LoadingSpinner",
+        // The M3 loading indicator: a solid shape that morphs + rotates.
+        NodeKind::Progress => "LoadingMorph",
         // every container-ish kind is a View with the right flow.
         _ => "View",
     }
