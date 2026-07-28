@@ -402,6 +402,16 @@ body{{width:{w:.0}px;height:{h:.0}px;overflow:hidden;
     }})
     .catch(function (e) {{ echoEl.textContent = 'FAILED: ' + e.message; }});
 
+  // `log` has no visible result by design -- its entire effect is a line in
+  // hilog, so a row on the card could only ever report that the promise
+  // settled, not that the logging happened. Called here so the last tool has a
+  // passing test at all; the check is on the host:
+  //
+  //   hdc shell hilog | grep 'page: card ready'
+  //
+  // which verifies the side effect rather than the acknowledgement.
+  splash.invoke('log', 'card ready: {name}');
+
   // The gate should refuse these three even from a trusted page. If any of
   // them succeeds, the allowlist or the SSRF guard has regressed.
   var gEl = document.getElementById('gate');
