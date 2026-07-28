@@ -13,6 +13,7 @@
 pub mod app;
 pub mod apps;
 pub mod arkui;
+pub mod audio;
 pub mod bench;
 pub mod bridge;
 pub mod capture;

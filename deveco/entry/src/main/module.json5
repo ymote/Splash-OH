@@ -82,6 +82,15 @@
           "abilities": ["EntryAbility"],
           "when": "inuse"
         }
+      },
+      // Playback needs nothing; only capture is gated.
+      {
+        "name": "ohos.permission.MICROPHONE",
+        "reason": "$string:reason_microphone",
+        "usedScene": {
+          "abilities": ["EntryAbility"],
+          "when": "inuse"
+        }
       }
     ],
     "pages": "$profile:main_pages",
