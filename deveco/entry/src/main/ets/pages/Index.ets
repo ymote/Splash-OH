@@ -3,6 +3,7 @@ import { systemDateTime } from '@kit.BasicServicesKit';
 import { webview } from '@kit.ArkWeb';
 import { picker, fileUri } from '@kit.CoreFileKit';
 import { pasteboard } from '@kit.BasicServicesKit';
+import { abilityAccessCtrl, Permissions, PermissionRequestResult } from '@kit.AbilityKit';
 import { window } from '@kit.ArkUI';
 import splash from 'libsplash_oh.so';
 import { WeChatArkTs, LoadGenerator, RouteKind } from './WeChatArkTs';
@@ -214,6 +215,10 @@ struct Index {
       const op = reqs[i].substring(a + 1, b);
       const args = reqs[i].substring(b + 1);
 
+      if (op === 'permission.request') {
+        this.requestPermissions(reqId, args);
+        continue;
+      }
       if (op === 'clipboard.read') {
         this.clipboardRead(reqId);
         continue;
@@ -274,6 +279,42 @@ struct Index {
    * something that is not text (an image, a URI), so the MIME type is reported
    * alongside rather than letting a page read those two as the same thing.
    */
+  /**
+   * Ask the user for runtime permissions.
+   *
+   * The first thing here that puts a dialog in front of a person. It has to go
+   * through ArkTS: requestPermissionsFromUser needs a UIAbilityContext, and
+   * there is no NDK equivalent — the same reason the file picker does.
+   *
+   * The result is per-permission, not a single boolean, because a user can
+   * grant approximate location and refuse precise. Reporting a partial grant as
+   * failure would be wrong: coarse is all the weather card needs.
+   */
+  private requestPermissions(reqId: string, args: string): void {
+    try {
+      const names: Array<Permissions> = JSON.parse(args) as Array<Permissions>;
+      abilityAccessCtrl.createAtManager()
+        .requestPermissionsFromUser(getContext(this), names)
+        .then((r: PermissionRequestResult) => {
+          let out: string = '{"granted":[';
+          let first: boolean = true;
+          for (let i = 0; i < r.permissions.length; i++) {
+            // 0 is PERMISSION_GRANTED; anything else is a refusal of some kind.
+            if (r.authResults[i] === 0) {
+              out += (first ? '' : ',') + JSON.stringify(r.permissions[i]);
+              first = false;
+            }
+          }
+          out += '],"asked":' + r.permissions.length + '}';
+          splash.pickResolve(reqId, true, out);
+        }).catch((e: Error) => {
+          splash.pickResolve(reqId, false, 'permission request: ' + e.message);
+        });
+    } catch (e) {
+      splash.pickResolve(reqId, false, 'permission request failed: ' + JSON.stringify(e));
+    }
+  }
+
   private clipboardRead(reqId: string): void {
     try {
       pasteboard.getSystemPasteboard().getData().then((data: pasteboard.PasteData) => {

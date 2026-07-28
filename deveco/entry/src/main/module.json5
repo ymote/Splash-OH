@@ -49,6 +49,31 @@
       },
       {
         "name": "ohos.permission.GYROSCOPE"
+      },
+      // The first user_grant permissions here. Everything above is system_grant
+      // — declaring it is the whole story. These two are granted or refused by
+      // the person holding the phone, at runtime, which is why they need a
+      // reason and a usedScene and why location.get can fail for a reason no
+      // rebuild will fix.
+      //
+      // Both are requested because they are a pair: APPROXIMATELY_LOCATION
+      // alone yields a coarse fix, and asking for LOCATION without it is
+      // rejected. The card only needs coarse, but the system wants the pair.
+      {
+        "name": "ohos.permission.APPROXIMATELY_LOCATION",
+        "reason": "$string:reason_location",
+        "usedScene": {
+          "abilities": ["EntryAbility"],
+          "when": "inuse"
+        }
+      },
+      {
+        "name": "ohos.permission.LOCATION",
+        "reason": "$string:reason_location",
+        "usedScene": {
+          "abilities": ["EntryAbility"],
+          "when": "inuse"
+        }
       }
     ],
     "pages": "$profile:main_pages",

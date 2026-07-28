@@ -229,6 +229,87 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args: String) {
             });
         }
 
+        // Whether the system location switch is on. Deliberately separate
+        // from whether this app holds the permission: a page told "no
+        // location" deserves to know which of the two it is, since only one of
+        // them it can do anything about.
+        "location.enabled" => reply(
+            slot,
+            call_id,
+            match crate::location::enabled() {
+                Ok(j) => ok(j),
+                Err(e) => err(&e),
+            },
+        ),
+
+        // A single fix. Runs on a worker and can take seconds -- a cold fix is
+        // not instant, which is why the timeout is generous and adjustable.
+        //
+        // Args: {} or {"timeoutMs": n}.
+        "location.get" => {
+            std::thread::spawn(move || {
+                let v: serde_json::Value = serde_json::from_str(&args).unwrap_or_default();
+                let timeout = v
+                    .get("timeoutMs")
+                    .and_then(|x| x.as_u64())
+                    .unwrap_or(8000)
+                    .min(30_000);
+                let scene = v
+                    .get("scene")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("daily")
+                    .to_string();
+                reply(
+                    slot,
+                    call_id,
+                    match crate::location::get(timeout, &scene) {
+                        Ok(j) => ok(j),
+                        Err(e) => err(&e),
+                    },
+                );
+            });
+        }
+
+        // Which of the weather card's cities the phone is nearest, so that
+        // card can start where you are instead of always on Tokyo.
+        //
+        // Args: {"lat": n, "lon": n}
+        "location.nearestCity" => {
+            let v: serde_json::Value = serde_json::from_str(&args).unwrap_or_default();
+            let lat = v.get("lat").and_then(|x| x.as_f64()).unwrap_or(0.0);
+            let lon = v.get("lon").and_then(|x| x.as_f64()).unwrap_or(0.0);
+            let i = crate::location::nearest_city(lat, lon);
+            let (name, clat, clon) = crate::apps::weather_web::CITIES[i];
+            // Rough great-circle distance, only so the row can say how far off
+            // the nearest city is -- "London (8900 km)" is honest about the
+            // card showing somewhere else, where a bare name would not be.
+            let dlat = (clat - lat).to_radians();
+            let dlon = (clon - lon).to_radians() * lat.to_radians().cos();
+            let km = 6371.0 * (dlat * dlat + dlon * dlon).sqrt();
+            reply(
+                slot,
+                call_id,
+                ok(format!(
+                    "{{\"index\":{i},\"city\":{},\"km\":{km:.1}}}",
+                    json_str(name)
+                )),
+            );
+        }
+
+        // Ask the user for runtime permissions. Goes through ArkTS because
+        // requestPermissionsFromUser needs a UIAbilityContext -- the same
+        // reason the picker does.
+        //
+        // Args: a JSON array of permission names.
+        "permission.request" => {
+            let list = if args.trim_start().starts_with('[') {
+                args.clone()
+            } else {
+                format!("[{}]", json_str(args.trim_matches('"')))
+            };
+            park_arkts(slot, call_id, "permission.request", &list);
+        }
+
         // Cellular network state: operator, technology, roaming. A page has
         // no route to any of this; the closest a browser offers is
         // navigator.connection.effectiveType, which is a guess from timings.
