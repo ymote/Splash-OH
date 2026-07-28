@@ -63,7 +63,15 @@ fn flow(kind: NodeKind) -> Option<&'static str> {
 fn emit(node: &UiNode, out: &mut String, depth: usize) {
     let ind = "    ".repeat(depth);
     let name = widget_for(node);
-    let _ = writeln!(out, "{ind}{name} {{");
+    // An `id` makes the widget addressable in the mounted tree: `name := Widget{…}`.
+    match &node.attrs.id {
+        Some(wid) => {
+            let _ = writeln!(out, "{ind}{wid} := {name} {{");
+        }
+        None => {
+            let _ = writeln!(out, "{ind}{name} {{");
+        }
+    }
     emit_attrs(node, out, depth + 1);
     // Only container views carry children.
     if name == "View" || name == "RoundedView" {
@@ -111,6 +119,9 @@ fn emit_attrs(node: &UiNode, out: &mut String, depth: usize) {
     match a.w {
         Some(w) => {
             let _ = writeln!(out, "{ind}width: {w}");
+        }
+        None if a.fillw == Some(1) => {
+            let _ = writeln!(out, "{ind}width: Fill");
         }
         None if a.fitw == Some(1) => {
             let _ = writeln!(out, "{ind}width: Fit");
@@ -168,6 +179,14 @@ fn emit_attrs(node: &UiNode, out: &mut String, depth: usize) {
     // A placeholder maps to a TextInput's `empty_text` (shown when unfocused/empty).
     if let Some(ph) = a.placeholder.as_ref() {
         let _ = writeln!(out, "{ind}empty_text: {ph:?}");
+    }
+    // `tapto` wires an on_click that writes the route into the `nav_signal`
+    // widget; the host app reads that text and re-mounts the target screen.
+    if let Some(target) = a.tapto.as_ref() {
+        let _ = writeln!(
+            out,
+            "{ind}on_click: || {{ ui.nav_signal.set_text({target:?}) }}"
+        );
     }
     if let Some(s) = a.size {
         let _ = writeln!(out, "{ind}draw_text.text_style.font_size: {s}");

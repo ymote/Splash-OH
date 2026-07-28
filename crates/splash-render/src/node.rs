@@ -81,6 +81,12 @@ pub struct Attrs {
     pub text: Option<String>,
     pub label: Option<String>,
     pub placeholder: Option<String>,
+    /// Makepad widget id (`name := Widget{…}`) so the widget is addressable
+    /// (e.g. a signal Label the host reads, or a target of `ui.<id>.set_text`).
+    pub id: Option<String>,
+    /// Navigate on tap: emits `on_click` that writes the target route into the
+    /// `nav_signal` widget, which the host app reads to switch screens.
+    pub tapto: Option<String>,
     /// Image source: a resource ref or an `https://` URL.
     pub src: Option<String>,
     /// ObjectFit-style enum for images.
@@ -91,6 +97,9 @@ pub struct Attrs {
     /// default of Fill — for content-sized items like chips and buttons.
     pub fitw: Option<i32>,
     pub fith: Option<i32>,
+    /// Force Fill sizing on width even for non-containers (e.g. a full-width
+    /// Button used as a navigation list row).
+    pub fillw: Option<i32>,
     pub size: Option<f32>,
     pub weight: Option<i32>,
     pub color: Option<u32>,
