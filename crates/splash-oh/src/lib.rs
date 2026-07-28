@@ -29,6 +29,7 @@ pub mod radio;
 pub mod sensor;
 pub mod webslot;
 pub mod wechat;
+pub mod xcomp;
 
 use arkui::NodeContentHandle;
 use napi_derive_ohos::napi;

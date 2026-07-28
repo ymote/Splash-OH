@@ -281,6 +281,12 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args: String) {
             });
         }
 
+        // Whether a Rust-created XComponent produced a real surface. The
+        // question behind it is whether a camera preview needs ArkTS at all --
+        // it does not, because ARKUI_NODE_XCOMPONENT exists where
+        // ARKUI_NODE_WEB does not.
+        "surface.state" => reply(slot, call_id, ok(crate::xcomp::state())),
+
         // What cameras exist. Enumeration only -- capture is a session pipeline
         // needing ohos.permission.CAMERA, and knowing what the hardware is is
         // worth having before anything asks to use it.
