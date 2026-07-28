@@ -169,6 +169,38 @@ struct Index {
    * `slot|callId|payloadJson`, split on the first two separators only because
    * the payload is JSON and may contain more.
    */
+  /**
+   * Deliver one line the moment Rust produces it.
+   *
+   * Registered as a threadsafe-function callback, so this runs on the JS thread
+   * but is triggered from whichever worker finished the work — no poll, and no
+   * quarter-second of latency added to every call.
+   *
+   * A line is `slot|callId|payload`. A callId beginning with `@` is an event
+   * rather than a reply, which is how one channel carries both directions
+   * without a second registration.
+   */
+  private deliver(line: string): void {
+    const a = line.indexOf('|');
+    const b = line.indexOf('|', a + 1);
+    if (a < 0 || b < 0) {
+      return;
+    }
+    const slot: string = line.substring(0, a);
+    const id: string = line.substring(a + 1, b);
+    const payload: string = line.substring(b + 1);
+    try {
+      const js: string = id.charAt(0) === '@'
+        ? 'window.splash&&window.splash._event&&window.splash._event('
+          + JSON.stringify(id.substring(1)) + ',' + payload + ')'
+        : 'window.splash&&window.splash._resolve&&window.splash._resolve('
+          + JSON.stringify(id) + ',' + payload + ')';
+      this.controllerFor(slot).runJavaScript(js);
+    } catch (e) {
+      console.error('deliver to slot ' + slot + ' failed: ' + JSON.stringify(e));
+    }
+  }
+
   private pumpBridge(): void {
     const replies: Array<string> = splash.webBridgeDrain() as Array<string>;
     for (let i = 0; i < replies.length; i++) {
@@ -436,7 +468,12 @@ struct Index {
   private controllerFor(id: string): webview.WebviewController {
     let c = this.controllers.get(id);
     if (c === undefined) {
-      c = new webview.WebviewController();
+      // Named, so Rust can address this webview directly through
+      // OH_NativeArkWeb_RunJavaScript and evaluate into the page without ArkTS
+      // on the path. The tag is built in one place on each side —
+      // arkweb::web_tag — because a mismatch is silent: the native call simply
+      // does nothing.
+      c = new webview.WebviewController('slot' + id);
       this.controllers.set(id, c);
     }
     return c;
@@ -541,6 +578,9 @@ struct Index {
       splash.dslSelfTest();
       splash.appRender(START_APP);
       this.syncWebSlots();
+      // Hand Rust a direct line in. Everything below this point that Rust
+      // wants to say arrives immediately instead of on the next 250 ms tick.
+      splash.setPush((line: string) => { this.deliver(line); });
       window.getLastWindow(getContext(this)).then((w: window.Window) => {
         this.mainWindow = w;
       }).catch((e: Error) => {
@@ -559,6 +599,8 @@ struct Index {
           splash.appRerender();
         }
         this.syncWebSlots();
+        // Still drained, but only ever catches traffic produced before
+        // setPush registered. Replies now arrive through deliver().
         this.pumpBridge();
         this.pumpPicks();
         this.pumpPainted();
