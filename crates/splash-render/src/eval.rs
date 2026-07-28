@@ -64,6 +64,7 @@ fn walk(vm: &mut ScriptVm, value: ScriptValue, depth: usize) -> Option<UiNode> {
         fitw: int_prop(vm, value, id!(fitw)),
         fith: int_prop(vm, value, id!(fith)),
         fillw: int_prop(vm, value, id!(fillw)),
+        fillh: int_prop(vm, value, id!(fillh)),
         size: f32_prop(vm, value, id!(size)),
         weight: int_prop(vm, value, id!(weight)),
         color: u32_prop(vm, value, id!(color)),

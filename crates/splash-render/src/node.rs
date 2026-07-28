@@ -100,6 +100,9 @@ pub struct Attrs {
     /// Force Fill sizing on width even for non-containers (e.g. a full-width
     /// Button used as a navigation list row).
     pub fillw: Option<i32>,
+    /// Force Fill sizing on height (e.g. a themed page that must cover the
+    /// viewport, not just hug its content).
+    pub fillh: Option<i32>,
     pub size: Option<f32>,
     pub weight: Option<i32>,
     pub color: Option<u32>,

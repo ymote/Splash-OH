@@ -135,6 +135,9 @@ fn emit_attrs(node: &UiNode, out: &mut String, depth: usize) {
         Some(h) => {
             let _ = writeln!(out, "{ind}height: {h}");
         }
+        None if a.fillh == Some(1) => {
+            let _ = writeln!(out, "{ind}height: Fill");
+        }
         None if a.fith == Some(1) => {
             let _ = writeln!(out, "{ind}height: Fit");
         }
