@@ -227,7 +227,7 @@ fn page(city: usize, w: f32, h: f32) -> String {
 
 fn page_with(fc: Forecast, city: usize, w: f32, h: f32) -> String {
     let (label, icon) = wmo(fc.code);
-    let name = CITIES[city.min(CITIES.len() - 1)].0;
+    let (name, lat, lon) = CITIES[city.min(CITIES.len() - 1)];
 
     let rows: String = fc
         .days
@@ -291,6 +291,14 @@ body{{width:{w:.0}px;height:{h:.0}px;overflow:hidden;
 .v{{font-size:20px;font-weight:300;margin-top:2px}}
 .err{{margin-top:10px;padding:8px 12px;border-radius:10px;font-size:12px;
  background:rgba(255,90,90,.25);border:1px solid rgba(255,120,120,.4)}}
+/* The bridge diagnostics, as compact rows rather than one tile each: five
+   full-size tiles do not fit a fixed-height page, and the first thing to slide
+   off the bottom would have been the one reporting the capability gate. */
+.br{{display:flex;justify-content:space-between;gap:10px;padding:5px 0;
+ font-size:13px;line-height:1.35}}
+.br+.br{{border-top:1px solid rgba(255,255,255,.10)}}
+.bk{{opacity:.55;white-space:nowrap}}
+.bv{{text-align:right}}
 </style></head><body><div class=wrap>
 <div class=city>{name}</div>
 <div class=now>{temp}</div>
@@ -306,22 +314,25 @@ body{{width:{w:.0}px;height:{h:.0}px;overflow:hidden;
 </div>
 <div class=tile style="margin-top:12px">
  <div class=k>JS &#8594; Rust bridge</div>
- <div class=v id=bridge style="font-size:14px">checking&#8230;</div>
-</div>
-<div class=tile style="margin-top:10px">
- <div class=k>JS &#8594; Splash VM</div>
- <div class=v id=vm style="font-size:14px">checking&#8230;</div>
-</div>
-<div class=tile style="margin-top:10px">
- <div class=k>Capability gate</div>
- <div class=v id=gate style="font-size:13px">checking&#8230;</div>
+ <div class=br><span class=bk>device.info</span><span class="bv" id=bridge>&#8230;</span></div>
+ <div class=br><span class=bk>splash.eval</span><span class="bv" id=vm>&#8230;</span></div>
+ <div class=br><span class=bk>http.get</span><span class="bv" id=net>&#8230;</span></div>
+ <div class=br><span class=bk>echo</span><span class="bv" id=echo>&#8230;</span></div>
+ <div class=br><span class=bk>gate</span><span class="bv" id=gate>&#8230;</span></div>
 </div>
 <script>
 // Not decoration: this is the page proving on-device that it can call into
 // Rust and get an answer back. If the bridge regresses, the card says so.
 (function () {{
   var el = document.getElementById('bridge');
-  if (!window.splash || !splash.available()) {{ el.textContent = 'not present'; return; }}
+  if (!window.splash || !splash.available()) {{
+    // Say it on every row. Leaving four of them on the ellipsis would read as
+    // "still running" when the answer is already known.
+    ['bridge', 'vm', 'net', 'echo', 'gate'].forEach(function (id) {{
+      document.getElementById(id).textContent = 'no bridge';
+    }});
+    return;
+  }}
   splash.invoke('device.info').then(function (i) {{
     el.textContent = i.platform + ' \u00b7 slot ' + i.slot;
   }}).catch(function (e) {{ el.textContent = 'failed: ' + e.message; }});
@@ -351,9 +362,45 @@ body{{width:{w:.0}px;height:{h:.0}px;overflow:hidden;
     ].join('\n'),
     input: {{ temps: temps }}
   }}).then(function (r) {{
-    vmEl.textContent = 'peak ' + r + '\u00b0 of ' + temps.length + ' days (in Splash)';
+    vmEl.textContent = 'peak ' + r + '\u00b0 of ' + temps.length;
   }}).catch(function (e) {{ vmEl.textContent = 'failed: ' + e.message; }});
   }}
+
+  // http.get's SUCCESS path. Everything else here only ever watched the gate
+  // say no, and a deny-all bug is indistinguishable from a working allowlist
+  // when every test expects a refusal -- so this asks for a host that is ON
+  // the allowlist and requires it to come back.
+  //
+  // The page fetches the same current temperature the card already shows,
+  // which Rust obtained separately through its own net path. Agreement means
+  // the whole chain ran: page JS -> splash_native -> Rust -> network -> reply
+  // queue -> runJavaScript -> promise. A number that merely arrives would only
+  // prove something came back; a number that MATCHES proves it is the right
+  // something.
+  var netEl = document.getElementById('net');
+  var shown = '{temp}';
+  splash.invoke('http.get',
+    'https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}'
+    + '&current=temperature_2m&timezone=auto')
+    .then(function (body) {{
+      var t = JSON.parse(body).current.temperature_2m;
+      var mine = Math.round(t) + '°';
+      netEl.textContent = mine + (mine === shown ? ' ✓ matches card' : ' ≠ card ' + shown);
+    }})
+    .catch(function (e) {{ netEl.textContent = 'FAILED: ' + e.message; }});
+
+  // The cheapest possible round trip, so a bridge that is up but returning
+  // nothing useful is still distinguishable from one that is down.
+  //
+  // No JSON.parse here: the shim passes a string arg through raw rather than
+  // stringifying it, so `echo` gets `ping-0` and not `"ping-0"`, and the reply
+  // is already the decoded string. Parsing it threw on the first run.
+  var echoEl = document.getElementById('echo');
+  splash.invoke('echo', 'ping-{city}')
+    .then(function (r) {{
+      echoEl.textContent = r === 'ping-{city}' ? 'ping-{city} ✓' : 'MISMATCH: ' + r;
+    }})
+    .catch(function (e) {{ echoEl.textContent = 'FAILED: ' + e.message; }});
 
   // The gate should refuse these three even from a trusted page. If any of
   // them succeeds, the allowlist or the SSRF guard has regressed.
@@ -385,6 +432,9 @@ body{{width:{w:.0}px;height:{h:.0}px;overflow:hidden;
         banner = banner,
         rows = rows,
         highs = highs,
+        lat = lat,
+        lon = lon,
+        city = city,
         feels = fc.feels,
         humidity = fc.humidity,
         wind = fc.wind,

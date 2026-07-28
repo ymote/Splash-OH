@@ -309,6 +309,12 @@ pub const SHIM: &str = r#"<script>
 (function(){
   var n = 0, pending = {};
   window.splash = {
+    // NOTE ON ARGS: a string is passed through RAW, anything else is
+    // stringified. So `invoke('echo', 'hi')` sends `hi`, not `"hi"` -- the
+    // args a tool receives are not always valid JSON, and each tool handles
+    // its own shape (http.get trims stray quotes, splash.eval parses). Tools
+    // returning a string therefore return it decoded; JSON.parse on the way
+    // out is a mistake, and was one.
     invoke: function (tool, args) {
       return new Promise(function (res, rej) {
         // Ids are strings: they are u64 in Rust and JS numbers are f64, so
