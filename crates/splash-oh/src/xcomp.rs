@@ -101,6 +101,18 @@ pub struct SurfaceState {
 
 static STATE: Mutex<Option<SurfaceState>> = Mutex::new(None);
 
+/// The `OHNativeWindow*` the surface callback handed over.
+///
+/// Kept alongside the id because the two consumers want different things:
+/// the camera takes a surface id as a decimal string, and AVPlayer takes the
+/// window pointer itself. Stored as usize so the static is Send.
+static WINDOW: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// The native window for this surface, or null if none has been created.
+pub fn window() -> *mut c_void {
+    WINDOW.load(std::sync::atomic::Ordering::SeqCst) as *mut c_void
+}
+
 fn update(f: impl FnOnce(&mut SurfaceState)) {
     if let Ok(mut s) = STATE.lock() {
         let st = s.get_or_insert_with(SurfaceState::default);
@@ -117,6 +129,7 @@ extern "C" fn on_created(component: *mut c_void, window: *mut c_void) {
     if !component.is_null() {
         unsafe { OH_NativeXComponent_GetXComponentSize(component, window, &mut w, &mut h) };
     }
+    WINDOW.store(window as usize, std::sync::atomic::Ordering::SeqCst);
     crate::log(&format!("xcomp: surface created, id {id}, {w}x{h} px"));
     update(|s| {
         s.created = true;
@@ -130,6 +143,7 @@ extern "C" fn on_created(component: *mut c_void, window: *mut c_void) {
 extern "C" fn on_changed(_component: *mut c_void, _window: *mut c_void) {}
 
 extern "C" fn on_destroyed(_component: *mut c_void, _window: *mut c_void) {
+    WINDOW.store(0, std::sync::atomic::Ordering::SeqCst);
     crate::log("xcomp: surface destroyed");
     update(|s| {
         s.created = false;

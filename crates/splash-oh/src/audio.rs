@@ -371,3 +371,164 @@ pub fn record_level(ms: u64) -> Result<String, String> {
         })
     ))
 }
+
+// ---------------------------------------------------------------------------
+// Video playback.
+//
+// AVPlayer takes an OHNativeWindow directly, and xcomp already has one -- so
+// the decoder writes into the same surface the camera preview uses, and ArkTS
+// is on neither path. That is the payoff of ARKUI_NODE_XCOMPONENT being a real
+// node type: one native surface, several native producers.
+//
+// Local files only. AVPlayer would happily fetch a URL, but that would hand a
+// page the ability to make the media stack pull anything it names -- a wider
+// capability than http.get, which is allowlisted precisely to prevent that.
+// ---------------------------------------------------------------------------
+
+struct PlayerApi {
+    create: unsafe extern "C" fn() -> *mut c_void,
+    set_fd_source: unsafe extern "C" fn(*mut c_void, i32, i64, i64) -> i32,
+    set_surface: unsafe extern "C" fn(*mut c_void, *mut c_void) -> i32,
+    prepare: unsafe extern "C" fn(*mut c_void) -> i32,
+    play: unsafe extern "C" fn(*mut c_void) -> i32,
+    stop: unsafe extern "C" fn(*mut c_void) -> i32,
+    release: unsafe extern "C" fn(*mut c_void) -> i32,
+    get_state: unsafe extern "C" fn(*mut c_void, *mut i32) -> i32,
+    get_duration: unsafe extern "C" fn(*mut c_void, *mut i32) -> i32,
+}
+
+static PLAYER_API: std::sync::OnceLock<Option<PlayerApi>> = std::sync::OnceLock::new();
+
+fn player_api() -> Option<&'static PlayerApi> {
+    PLAYER_API
+        .get_or_init(|| {
+            let name = std::ffi::CString::new("libavplayer.so").ok()?;
+            let h = unsafe { dlopen(name.as_ptr(), 2) };
+            if h.is_null() {
+                crate::log("video: libavplayer.so did not load");
+                return None;
+            }
+            Some(PlayerApi {
+                create: sym(h, "OH_AVPlayer_Create")?,
+                set_fd_source: sym(h, "OH_AVPlayer_SetFDSource")?,
+                set_surface: sym(h, "OH_AVPlayer_SetVideoSurface")?,
+                prepare: sym(h, "OH_AVPlayer_Prepare")?,
+                play: sym(h, "OH_AVPlayer_Play")?,
+                stop: sym(h, "OH_AVPlayer_Stop")?,
+                release: sym(h, "OH_AVPlayer_Release")?,
+                get_state: sym(h, "OH_AVPlayer_GetState")?,
+                get_duration: sym(h, "OH_AVPlayer_GetDuration")?,
+            })
+        })
+        .as_ref()
+}
+
+struct Playing {
+    player: *mut c_void,
+}
+unsafe impl Send for Playing {}
+static PLAYING: Mutex<Option<Playing>> = Mutex::new(None);
+
+fn state_name(s: i32) -> &'static str {
+    match s {
+        0 => "idle",
+        1 => "initialized",
+        2 => "prepared",
+        3 => "playing",
+        4 => "paused",
+        5 => "stopped",
+        6 => "completed",
+        7 => "released",
+        8 => "error",
+        _ => "unknown",
+    }
+}
+
+/// Play a file from the app sandbox into the native surface.
+///
+/// Delivered by file descriptor rather than URL. AVPlayer accepts both, and the
+/// fd form is the one that cannot be pointed at the network: the path is opened
+/// here, checked to be inside the sandbox, and only the handle is handed over.
+pub fn video_play(path: &str) -> Result<String, String> {
+    use std::os::fd::AsRawFd;
+    let api = player_api().ok_or("video player unavailable on this device")?;
+
+    const SANDBOX: &str = "/data/storage/el2/base/";
+    if !path.starts_with(SANDBOX) || path.contains("..") {
+        return Err(format!("only files under {SANDBOX} may be played"));
+    }
+    let file = std::fs::File::open(path).map_err(|e| format!("{path}: {e}"))?;
+    let size = file.metadata().map(|m| m.len()).unwrap_or(0) as i64;
+
+    let window = crate::xcomp::window();
+    if window.is_null() {
+        return Err("no native surface yet".into());
+    }
+
+    video_stop().ok();
+
+    let player = unsafe { (api.create)() };
+    if player.is_null() {
+        return Err("could not create a player".into());
+    }
+
+    let out = (|| -> Result<String, String> {
+        let rc = unsafe { (api.set_fd_source)(player, file.as_raw_fd(), 0, size) };
+        if rc != 0 {
+            return Err(format!("source: {rc}"));
+        }
+        let rc = unsafe { (api.set_surface)(player, window) };
+        if rc != 0 {
+            return Err(format!("surface: {rc}"));
+        }
+        let rc = unsafe { (api.prepare)(player) };
+        if rc != 0 {
+            return Err(format!("prepare: {rc}"));
+        }
+        let rc = unsafe { (api.play)(player) };
+        if rc != 0 {
+            return Err(format!("play: {rc}"));
+        }
+        // Let the state settle before reporting it -- prepare/play are async
+        // and reading immediately reports whatever it was a moment ago.
+        std::thread::sleep(std::time::Duration::from_millis(400));
+        let mut st: i32 = -1;
+        let mut dur: i32 = 0;
+        unsafe {
+            (api.get_state)(player, &mut st);
+            (api.get_duration)(player, &mut dur);
+        }
+        Ok(format!(
+            "{{\"path\":{},\"bytes\":{},\"state\":{},\"durationMs\":{}}}",
+            json_str(path),
+            size,
+            json_str(state_name(st)),
+            dur
+        ))
+    })();
+
+    match out {
+        Ok(j) => {
+            if let Ok(mut p) = PLAYING.lock() {
+                *p = Some(Playing { player });
+            }
+            Ok(j)
+        }
+        Err(e) => {
+            unsafe { (api.release)(player) };
+            Err(e)
+        }
+    }
+}
+
+pub fn video_stop() -> Result<String, String> {
+    let api = player_api().ok_or("video player unavailable on this device")?;
+    let Some(p) = PLAYING.lock().ok().and_then(|mut g| g.take()) else {
+        return Ok("{\"playing\":false}".into());
+    };
+    unsafe {
+        (api.stop)(p.player);
+        (api.release)(p.player);
+    }
+    Ok("{\"playing\":false}".into())
+}

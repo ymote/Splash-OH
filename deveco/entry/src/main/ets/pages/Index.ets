@@ -4,6 +4,7 @@ import { webview } from '@kit.ArkWeb';
 import { picker, fileUri } from '@kit.CoreFileKit';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { abilityAccessCtrl, Permissions, PermissionRequestResult } from '@kit.AbilityKit';
+import { ble } from '@kit.ConnectivityKit';
 import { window } from '@kit.ArkUI';
 import splash from 'libsplash_oh.so';
 import { WeChatArkTs, LoadGenerator, RouteKind } from './WeChatArkTs';
@@ -215,6 +216,10 @@ struct Index {
       const op = reqs[i].substring(a + 1, b);
       const args = reqs[i].substring(b + 1);
 
+      if (op === 'bluetooth.scan') {
+        this.bleScan(reqId);
+        continue;
+      }
       if (op === 'permission.request') {
         this.requestPermissions(reqId, args);
         continue;
@@ -312,6 +317,64 @@ struct Index {
         });
     } catch (e) {
       splash.pickResolve(reqId, false, 'permission request failed: ' + JSON.stringify(e));
+    }
+  }
+
+  /**
+   * A BLE scan, because the native Bluetooth surface cannot do one.
+   *
+   * OH_Bluetooth_GetBluetoothSwitchState is the entire NDK — discovery, pairing
+   * and GATT live only in ArkTS, so this takes the same road the file picker
+   * and the clipboard do.
+   *
+   * Scanning is a stream, not a call. It runs for a fixed window, collects
+   * whatever advertises in that time, and reports the set — a page asking
+   * "what is nearby" wants an answer, not a subscription it has to manage
+   * across the bridge.
+   */
+  private bleScan(reqId: string): void {
+    try {
+      const seen: Map<string, number> = new Map();
+      const onFind = (results: Array<ble.ScanResult>) => {
+        for (let i = 0; i < results.length; i++) {
+          // Keep the strongest sighting: a device seen repeatedly should be
+          // reported at its best signal, not its most recent.
+          const id: string = results[i].deviceId;
+          const prev: number | undefined = seen.get(id);
+          if (prev === undefined || results[i].rssi > prev) {
+            seen.set(id, results[i].rssi);
+          }
+        }
+      };
+      ble.on('BLEDeviceFind', onFind);
+      // null, not []. An empty filter array is rejected with 401 (invalid
+      // parameter); null is what the API takes to mean "no filter, report
+      // everything". The .d.ts types the parameter as non-nullable, so this
+      // needs the cast -- the runtime contract and the declaration disagree.
+      ble.startBLEScan(null as ESObject as Array<ble.ScanFilter>);
+      setTimeout(() => {
+        try {
+          ble.stopBLEScan();
+          ble.off('BLEDeviceFind', onFind);
+        } catch (e) {
+          // Stopping a scan that already failed to start is not worth
+          // reporting over the result we do have.
+        }
+        let out: string = '{"devices":[';
+        let first: boolean = true;
+        seen.forEach((rssi: number, id: string) => {
+          // The address is truncated on purpose. A page asking what is nearby
+          // does not need a stable identifier for every device around the
+          // user, and a full BLE address is exactly that.
+          out += (first ? '' : ',') + '{"id":' + JSON.stringify(id.substring(0, 8) + '…')
+               + ',"rssi":' + rssi + '}';
+          first = false;
+        });
+        out += '],"count":' + seen.size + '}';
+        splash.pickResolve(reqId, true, out);
+      }, 4000);
+    } catch (e) {
+      splash.pickResolve(reqId, false, 'ble scan: ' + JSON.stringify(e));
     }
   }
 

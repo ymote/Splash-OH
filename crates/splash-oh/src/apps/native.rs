@@ -107,6 +107,7 @@ h2{{font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:#5f5f7a;
 <div class=r><span class=k>keystore (HUKS)</span><span class="v m" id=k_hks>&#8230;</span></div>
 <div class=r><span class=k>db.roundtrip (SQLite)</span><span class="v m" id=k_db>&#8230;</span></div>
 <div class=r><span class=k>bluetooth</span><span class="v m" id=k_bt>&#8230;</span></div>
+<div class=r><span class=k>ble scan (tap, 4s)</span><span class="v m" id=k_ble>tap &#8594;</span></div>
 
 <h2>Audio &mdash; libohaudio</h2>
 <div class=r><span class=k>audio.tone (tap)</span><span class="v m" id=a_tone>tap &#8594;</span></div>
@@ -116,6 +117,7 @@ h2{{font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:#5f5f7a;
 <h2>Native surface &mdash; ARKUI_NODE_XCOMPONENT</h2>
 <div class=r><span class=k>surface (no ArkTS)</span><span class="v m" id=x_surf>&#8230;</span></div>
 <div class=r><span class=k>camera preview (tap)</span><span class="v m" id=x_cam>tap &#8594;</span></div>
+<div class=r><span class=k>video (tap)</span><span class="v m" id=x_vid>tap &#8594;</span></div>
 
 <h2>Camera and image codecs</h2>
 <div class=r><span class=k>camera.list</span><span class="v m" id=i_cams>&#8230;</span></div>
@@ -170,7 +172,7 @@ devicePixelRatio.</div>
     ['d_phone','d_model','d_os','d_api','d_patch','d_tz','d_notif',
      'p_size','p_dens','p_rot',
      'b_cap','s_list','s_acc','s_light','s_vib',
-     'f_rss','f_stat','f_list','c_cap','w_net','w_caps','w_proxy','k_hks','k_db','k_bt','a_tone','a_lvl','a_loop','x_surf','x_cam','i_cams','i_pick','i_info','i_thumb','l_on','l_fix','l_city','r_cell','r_wifi','x_abc','x_file','cb_w','cb_r','k_rt','k_runs',
+     'f_rss','f_stat','f_list','c_cap','w_net','w_caps','w_proxy','k_hks','k_db','k_bt','k_ble','a_tone','a_lvl','a_loop','x_surf','x_cam','x_vid','i_cams','i_pick','i_info','i_thumb','l_on','l_fix','l_city','r_cell','r_wifi','x_abc','x_file','cb_w','cb_r','k_rt','k_runs',
      'n_get','n_vm','n_lim','n_echo','g_ssrf','g_unk']
       .forEach(function (id) {{ set(id, 'f', 'no bridge'); }});
     return;
@@ -286,6 +288,47 @@ devicePixelRatio.</div>
   call('bluetooth.state', undefined, ['k_bt'], function (b) {{
     set('k_bt', b.state === 2 ? 'p' : 'w', b.name);
   }});
+
+  // Discovery is a stream, so it runs for a fixed window and reports the set.
+  document.getElementById('k_ble').parentNode.onclick = function () {{
+    // ACCESS_BLUETOOTH is user_grant even though the read is passive, so the
+    // scan needs the runtime grant and not just the manifest entry -- declaring
+    // it got 201 until this asked. Same shape as camera and microphone.
+    set('k_ble', 'w', 'asking\u2026');
+    splash.invoke('permission.request', ['ohos.permission.ACCESS_BLUETOOTH'])
+      .then(function (g) {{
+        if (!g.granted.length) {{ set('k_ble', 'w', 'refused by user'); return; }}
+        set('k_ble', 'w', 'scanning 4s\u2026');
+        return splash.invoke('bluetooth.scan')
+          .then(function (r) {{
+            set('k_ble', r.count > 0 ? 'p' : 'w',
+                r.count + ' devices'
+                + (r.count ? ' · strongest ' + Math.max.apply(null,
+                    r.devices.map(function (d) {{ return d.rssi; }})) + ' dBm' : ''));
+          }});
+      }})
+      .catch(function (e) {{ set('k_ble', 'f', e.message); }});
+  }};
+
+  // The same surface the camera writes into, with a decoder behind it instead.
+  var vidOn = false;
+  document.getElementById('x_vid').parentNode.onclick = function () {{
+    if (vidOn) {{
+      splash.invoke('video.stop').then(function () {{
+        vidOn = false; set('x_vid', 'm', 'stopped · tap \u2192');
+      }});
+      return;
+    }}
+    set('x_vid', 'w', 'opening\u2026');
+    splash.invoke('video.play', {{ path: '/data/storage/el2/base/files/test.mp4' }})
+      .then(function (v) {{
+        vidOn = v.state === 'playing';
+        set('x_vid', vidOn ? 'p' : 'w',
+            v.state + ' · ' + (v.durationMs / 1000).toFixed(1) + 's · '
+            + Math.round(v.bytes / 1024) + ' KB' + (vidOn ? ' · tap to stop' : ''));
+      }})
+      .catch(function (e) {{ set('x_vid', 'w', e.message); }});
+  }};
 
   // Playback needs no permission, so it runs on a tap without any dance.
   // The number that matters is `frames`: a stream can start cleanly and never
