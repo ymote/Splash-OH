@@ -21,6 +21,18 @@ Rust-vs-ArkTS benchmark those apps exist to run.
 
 It does not know that webviews exist.
 
+### The component catalog
+
+`assets/catalog.splash` is a Material component catalog written in the DSL and
+rendered to native ArkUI — an index plus 28 screens, no makepad, no ArkTS
+widgets. All 28 are photographed in `catalog-screens.png`; every one of them has
+been looked at on a device rather than merely being reachable.
+
+Two of them were wrong when that check was first run, and both are fixed:
+the Badges screen drew unlabelled pills under a caption promising numbers, and
+the Text picker drew empty rows because nothing ever set its range. Setting
+`CATALOG_WALK_MS` in `Index.ets` re-runs the sweep that found them.
+
 ## splash-oh (the bridge)
 
 A Tauri-style `splash.invoke(tool, args)` from a page to Rust, plus the 45

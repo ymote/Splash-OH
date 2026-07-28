@@ -286,12 +286,22 @@ fn s_dividers() { return [
           divider()]),
 ] }
 
+// A numeric badge is a pill with the count centred in it. `talign: 1` is what
+// centres the glyphs -- without it the text sits at the pill's left edge, and
+// with no text at all (as this screen first shipped) the pill is just a dot
+// that the caption calls "numeric".
+fn badge(w, n) {
+    return {t: "stack", w: w, h: 22, bg: error, radius: 11, margin: 4, align: 4,
+            c: [{t: "text", text: n, size: 12, weight: 6, color: on_primary,
+                 w: w, h: 18, talign: 1}]}
+}
+
 fn s_badges() { return [
     section("BADGES"),
     card([body("Small dot and large numeric badges."),
           row(56, [box(10, 10, error, 5), spacer(30),
-                   box(22, 22, error, 11), spacer(30),
-                   box(34, 22, error, 11)])]),
+                   badge(22, "8"), spacer(30),
+                   badge(34, "99+")])]),
 ] }
 
 fn s_tabs() { return [
@@ -329,7 +339,9 @@ fn s_timepicker() { return [
 
 fn s_textpicker() { return [
     section("TEXT PICKER"),
-    card([body("A single-column picker."), {t: "textpicker", w: CARDW, h: 160}]),
+    card([body("A single-column picker."),
+          {t: "textpicker", w: CARDW, h: 160,
+           range: "Small;Medium;Large;Extra large"}]),
 ] }
 
 fn s_swiper() { return [

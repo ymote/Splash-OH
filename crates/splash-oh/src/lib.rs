@@ -34,13 +34,13 @@ pub mod sensor;
 pub mod webslot;
 pub mod xcomp;
 
-use splash_oh_native::arkui::NodeContentHandle;
-use splash_oh_native::wechat;
 use napi_derive_ohos::napi;
 use napi_ohos::threadsafe_function::{
     ErrorStrategy, ThreadsafeFunction, ThreadsafeFunctionCallMode,
 };
 use napi_ohos::{Env, JsFunction, JsObject, NapiRaw};
+use splash_oh_native::arkui::NodeContentHandle;
+use splash_oh_native::wechat;
 use std::sync::{Condvar, Mutex, OnceLock};
 
 extern "C" {
@@ -84,7 +84,6 @@ pub fn mount(env: Env, content: JsObject) -> napi_ohos::Result<()> {
     app::init(slot);
     Ok(())
 }
-
 
 // ---------------------------------------------------------------------------
 // Benchmark plumbing.
@@ -388,6 +387,33 @@ pub fn app_render(app: String) -> Vec<f64> {
     let (node, n, us) = apps::build();
     app::set_root(node);
     vec![n as f64, us]
+}
+
+/// Mount one catalog screen by name. `""` is the index.
+///
+/// A verification affordance rather than a feature: the catalog's 28 screens
+/// sit behind a scrolling index, and tapping through it to look at each one is
+/// slow and misses the rows below the fold. This drives them directly, so a
+/// screenshot sweep can cover all of them. `CATALOG_WALK_MS` in `Index.ets`
+/// turns that sweep on.
+///
+/// An unknown name lands on the index rather than failing — the caller is a
+/// capture script, and a silent no-op there would be harder to spot than a
+/// screen that visibly is not the one asked for.
+#[napi(js_name = "catalogScreen")]
+pub fn catalog_screen(name: String) -> u32 {
+    apps::set_app(apps::App::Catalog);
+    app::set_wechat_active(true);
+    // +1 because index 0 is the index page and screen 0 is the first entry.
+    let idx = splash_oh_native::dsl::CATALOG_SCREENS
+        .iter()
+        .position(|s| *s == name)
+        .map(|i| i + 1)
+        .unwrap_or(0);
+    apps::set_catalog_screen(idx);
+    let (node, n, _) = apps::build();
+    app::set_root(node);
+    n as u32
 }
 
 /// Redraw whatever is on screen, leaving navigation alone. Returns [nodes, µs].

@@ -288,6 +288,18 @@ fn walk(vm: &mut ScriptVm, value: ScriptValue, depth: usize) -> Option<Node> {
     if let Some(v) = num_prop(vm, value, id!(fit)) {
         node = node.i32_attr(attr::image_fit(), v as i32);
     }
+    // `range: "A;B;C"` populates a text picker. A picker with no range is not
+    // an error — it draws, and draws its rows empty, which is how the catalog
+    // screen shipped looking broken.
+    if let Some(s) = string_prop(vm, value, id!(range)) {
+        // 0 is ARKUI_TEXTPICKER_RANGETYPE_SINGLE: one column, items split on ';'.
+        node = node.i32_string_attr(attr::textpicker_range(), 0, &s);
+    }
+    // `talign: n` is ArkUI_TextAlignment — 1 is CENTER. Distinct from `align`,
+    // which positions a container's children rather than glyphs within a text.
+    if let Some(v) = num_prop(vm, value, id!(talign)) {
+        node = node.i32_attr(attr::text_align(), v as i32);
+    }
     if let Some(v) = num_prop(vm, value, id!(w)) {
         node = node.width(v as f32);
     }
