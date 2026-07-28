@@ -58,4 +58,6 @@ fn main() {
     // What the default route actually is, including whether a proxy sits
     // in front of it -- a stale one is invisible from inside a page.
     println!("cargo:rustc-link-lib=dylib=net_connection");
+    // Screen capture returns an OH_PixelmapNative, whose accessors live here.
+    println!("cargo:rustc-link-lib=dylib=pixelmap");
 }

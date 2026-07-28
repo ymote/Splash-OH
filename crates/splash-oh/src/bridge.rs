@@ -178,6 +178,25 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args: String) {
             });
         }
 
+        // Can an app read the framebuffer? On Android the equivalent needs
+        // READ_FRAME_BUFFER, which the shell user has and an app does not.
+        // Whether OpenHarmony draws the line in the same place is a question
+        // worth measuring rather than assuming -- so this reports the OS's own
+        // refusal when it refuses. See capture.rs for why it returns a
+        // description and an average colour rather than the frame.
+        "screen.capture" => {
+            std::thread::spawn(move || {
+                reply(
+                    slot,
+                    call_id,
+                    match crate::capture::screen() {
+                        Ok(j) => ok(j),
+                        Err(e) => err(&e),
+                    },
+                );
+            });
+        }
+
         // What the default route actually is. `navigator.onLine` is a boolean
         // that mostly means "the browser has not noticed a failure yet"; this
         // is the bearer, whether the system considers the link validated, and
