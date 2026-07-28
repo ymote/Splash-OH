@@ -458,6 +458,54 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args: String) {
             });
         }
 
+        // A key generated inside the secure keystore, confirmed, and deleted.
+        //
+        // Distinct from crypto.sha256 in the way that matters: sha256 computes
+        // over data the caller already holds, whereas nothing in this API hands
+        // back the private key. A page can ask for a key to exist and can never
+        // learn it.
+        "keystore.roundtrip" => {
+            std::thread::spawn(move || {
+                let alias = if args.trim_matches('"').is_empty() {
+                    "splash-demo-key".to_string()
+                } else {
+                    args.trim_matches('"').chars().take(64).collect()
+                };
+                reply(
+                    slot,
+                    call_id,
+                    match crate::secure::keystore_roundtrip(&alias) {
+                        Ok(j) => ok(j),
+                        Err(e) => err(&e),
+                    },
+                );
+            });
+        }
+
+        // Real SQLite. `prefs` rewrites one JSON file whole, which is right at
+        // a few dozen keys and wrong the moment anything wants a query.
+        "db.roundtrip" => {
+            std::thread::spawn(move || {
+                reply(
+                    slot,
+                    call_id,
+                    match crate::secure::db_roundtrip() {
+                        Ok(j) => ok(j),
+                        Err(e) => err(&e),
+                    },
+                );
+            });
+        }
+
+        "bluetooth.state" => reply(
+            slot,
+            call_id,
+            match crate::secure::bluetooth_state() {
+                Ok(j) => ok(j),
+                Err(e) => err(&e),
+            },
+        ),
+
         // Whether the system location switch is on. Deliberately separate
         // from whether this app holds the permission: a page told "no
         // location" deserves to know which of the two it is, since only one of

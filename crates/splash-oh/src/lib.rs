@@ -27,6 +27,7 @@ pub mod net;
 pub mod netinfo;
 pub mod prefs;
 pub mod radio;
+pub mod secure;
 pub mod sensor;
 pub mod webslot;
 pub mod wechat;

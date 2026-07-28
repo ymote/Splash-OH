@@ -83,6 +83,17 @@
           "when": "inuse"
         }
       },
+      // Bluetooth adapter state. user_grant despite being read-only, so it
+      // needs a reason like the camera and microphone -- hvigor refuses to
+      // build without one, which is how this was discovered.
+      {
+        "name": "ohos.permission.ACCESS_BLUETOOTH",
+        "reason": "$string:reason_bluetooth",
+        "usedScene": {
+          "abilities": ["EntryAbility"],
+          "when": "inuse"
+        }
+      },
       // Playback needs nothing; only capture is gated.
       {
         "name": "ohos.permission.MICROPHONE",
