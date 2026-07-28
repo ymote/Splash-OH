@@ -28,6 +28,15 @@
       // added here. That is exactly why sensor.read reports a 201 as a
       // permission error instead of a generic failure: the two have different
       // fixes and only one of them is in this file.
+      // Deliberately NOT requested: ohos.permission.READ_PASTEBOARD.
+      //
+      // Writing the clipboard needs no permission and works. Reading it is
+      // gated three ways by the pasteboard service — READ_PASTEBOARD,
+      // SECURE_PASTE, or being a genuine user paste action — and the first is
+      // user_grant, so asking for it means a runtime prompt and a stated
+      // reason. A web surface that could silently read the clipboard is
+      // precisely the capability that should stay behind that prompt, so
+      // clipboard.read reports the refusal rather than engineering around it.
       {
         "name": "ohos.permission.VIBRATE"
       },

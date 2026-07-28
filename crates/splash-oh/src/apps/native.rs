@@ -94,6 +94,10 @@ h2{{font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:#5f5f7a;
 <div class=r><span class=k>capabilities</span><span class="v m" id=w_caps>&#8230;</span></div>
 <div class=r><span class=k>system proxy</span><span class="v m" id=w_proxy>&#8230;</span></div>
 
+<h2>Clipboard &mdash; ArkTS pasteboard, via the Rust&#8594;ArkTS channel</h2>
+<div class=r><span class=k>clipboard.write</span><span class="v m" id=cb_w>&#8230;</span></div>
+<div class=r><span class=k>clipboard.read</span><span class="v m" id=cb_r>&#8230;</span></div>
+
 <h2>Persistent storage</h2>
 <div class=r><span class=k>prefs round trip</span><span class="v m" id=k_rt>&#8230;</span></div>
 <div class=r><span class=k>launches seen</span><span class="v m" id=k_runs>&#8230;</span></div>
@@ -122,7 +126,7 @@ devicePixelRatio.</div>
     ['d_phone','d_model','d_os','d_api','d_patch','d_tz','d_notif',
      'p_size','p_dens','p_rot',
      'b_cap','s_list','s_acc','s_light','s_vib',
-     'f_rss','f_stat','f_list','c_cap','w_net','w_caps','w_proxy','k_rt','k_runs',
+     'f_rss','f_stat','f_list','c_cap','w_net','w_caps','w_proxy','cb_w','cb_r','k_rt','k_runs',
      'n_get','n_vm','n_echo','g_ssrf','g_unk']
       .forEach(function (id) {{ set(id, 'f', 'no bridge'); }});
     return;
@@ -221,6 +225,24 @@ devicePixelRatio.</div>
     set('w_proxy', n.proxy ? 'w' : 'p',
         n.proxy ? n.proxy.host + ':' + n.proxy.port : 'none');
   }});
+
+  // Write and read are reported separately because they are not the same
+  // capability here. Writing needs no permission; reading is gated by the
+  // pasteboard service unless the app holds READ_PASTEBOARD (user_grant) or
+  // the call is a genuine user paste. An empty read is the gate, not a bug,
+  // so the row says so rather than showing a mismatch.
+  var mark = 'splash-' + Math.floor(Date.now() / 1000 % 100000);
+  splash.invoke('clipboard.write', mark)
+    .then(function (w) {{ set('cb_w', 'p', 'wrote ' + w.wrote + ' chars \u2713'); }})
+    .catch(function (e) {{ set('cb_w', 'f', e.message); }});
+
+  splash.invoke('clipboard.read')
+    .then(function (c) {{
+      if (c.text === mark) {{ set('cb_r', 'p', mark + ' \u2713 (' + c.mimeType + ')'); }}
+      else if (!c.text) {{ set('cb_r', 'w', 'empty \u2014 needs READ_PASTEBOARD or a real paste'); }}
+      else {{ set('cb_r', 'p', 'read "' + c.text + '"'); }}
+    }})
+    .catch(function (e) {{ set('cb_r', 'w', e.message); }});
 
   // Written, read back, and counted across launches -- so the row proves the
   // value survived the process rather than just this page.

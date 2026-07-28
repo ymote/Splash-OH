@@ -262,6 +262,17 @@ pub fn pick_resolve(req_id: String, success: bool, payload: String) {
     bridge::pick_resolve(&req_id, success, payload);
 }
 
+/// Slots whose page has reported its script running, as ids.
+///
+/// The only reliable "it rendered" signal: `loadData` returns without throwing
+/// when it has silently painted nothing, and `onPageEnd` fires for the blank
+/// origin a generated slot starts on, so neither distinguishes a live page from
+/// a white one.
+#[napi(js_name = "webSlotsPainted")]
+pub fn web_slots_painted() -> Vec<String> {
+    bridge::painted_drain()
+}
+
 /// True once, if background data landed and the current app should redraw.
 /// Polled by ArkTS alongside the web-slot list.
 #[napi(js_name = "appTakeDirty")]
