@@ -35,8 +35,17 @@ pub fn build() -> Option<Node> {
     )?);
     root = root.child(bar);
 
-    let body_h = PAGE_H - BAR_H;
-    root = root.child(web_html(page(W, body_h), 0.0, BAR_H, W, body_h)?);
+    // A native render surface, created by Rust with no ArkTS involved, so the
+    // page below can report whether one actually materialised. It sits above
+    // the web slot: an XComponent is a real ArkUI node in the same tree, unlike
+    // a Web, which has no native node type and must be overlaid by ArkTS.
+    let surf_h = 120.0;
+    if let Some(s) = crate::xcomp::surface(W, surf_h) {
+        root = root.child(s);
+    }
+
+    let body_h = PAGE_H - BAR_H - surf_h;
+    root = root.child(web_html(page(W, body_h), 0.0, BAR_H + surf_h, W, body_h)?);
     Some(root)
 }
 
@@ -94,6 +103,9 @@ h2{{font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:#5f5f7a;
 <div class=r><span class=k>capabilities</span><span class="v m" id=w_caps>&#8230;</span></div>
 <div class=r><span class=k>system proxy</span><span class="v m" id=w_proxy>&#8230;</span></div>
 
+<h2>Native surface &mdash; ARKUI_NODE_XCOMPONENT</h2>
+<div class=r><span class=k>surface (no ArkTS)</span><span class="v m" id=x_surf>&#8230;</span></div>
+
 <h2>Camera and image codecs</h2>
 <div class=r><span class=k>camera.list</span><span class="v m" id=i_cams>&#8230;</span></div>
 <div class=r><span class=k>pick an image &#8594;</span><span class="v m" id=i_pick>tap &#8594;</span></div>
@@ -146,7 +158,7 @@ devicePixelRatio.</div>
     ['d_phone','d_model','d_os','d_api','d_patch','d_tz','d_notif',
      'p_size','p_dens','p_rot',
      'b_cap','s_list','s_acc','s_light','s_vib',
-     'f_rss','f_stat','f_list','c_cap','w_net','w_caps','w_proxy','i_cams','i_pick','i_info','i_thumb','l_on','l_fix','l_city','r_cell','r_wifi','x_abc','x_file','cb_w','cb_r','k_rt','k_runs',
+     'f_rss','f_stat','f_list','c_cap','w_net','w_caps','w_proxy','x_surf','i_cams','i_pick','i_info','i_thumb','l_on','l_fix','l_city','r_cell','r_wifi','x_abc','x_file','cb_w','cb_r','k_rt','k_runs',
      'n_get','n_vm','n_echo','g_ssrf','g_unk']
       .forEach(function (id) {{ set(id, 'f', 'no bridge'); }});
     return;
@@ -244,6 +256,15 @@ devicePixelRatio.</div>
         n.capabilities.join(', ') || 'none');
     set('w_proxy', n.proxy ? 'w' : 'p',
         n.proxy ? n.proxy.host + ':' + n.proxy.port : 'none');
+  }});
+
+  // The point of this row: a Web needs an ArkTS overlay because there is no
+  // ARKUI_NODE_WEB, but a render surface does not -- XComponent is a real node
+  // type, so Rust builds it and the producer writes frames straight in.
+  call('surface.state', undefined, ['x_surf'], function (s) {{
+    set('x_surf', s.created ? 'p' : 'w',
+        s.created ? 'id ' + s.surfaceId + ' · ' + s.width + '×' + s.height + ' px'
+                  : (s.destroyed ? 'destroyed' : 'no surface yet'));
   }});
 
   call('camera.list', undefined, ['i_cams'], function (cs) {{
