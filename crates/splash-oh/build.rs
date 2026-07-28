@@ -46,4 +46,13 @@ fn main() {
     println!("cargo:rustc-link-lib=dylib=ace_napi.z");
     // OpenHarmony's native HTTP stack — lets the Splash VM fetch live data.
     println!("cargo:rustc-link-lib=dylib=net_http");
+    // Native device facts reachable from Rust with no C++ shim and no ArkTS:
+    // what the phone is, how the panel is configured, what the battery is doing.
+    println!("cargo:rustc-link-lib=dylib=deviceinfo_ndk.z");
+    println!("cargo:rustc-link-lib=dylib=native_display_manager");
+    println!("cargo:rustc-link-lib=dylib=ohbattery_info");
+    // Sensors and haptics. Vibration additionally needs
+    // ohos.permission.VIBRATE declared in module.json5.
+    println!("cargo:rustc-link-lib=dylib=ohsensor");
+    println!("cargo:rustc-link-lib=dylib=ohvibrator.z");
 }

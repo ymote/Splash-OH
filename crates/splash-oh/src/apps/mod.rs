@@ -19,6 +19,7 @@
 
 pub mod browser;
 pub mod files;
+pub mod native;
 pub mod taobao;
 pub mod tiktok;
 pub mod ui;
@@ -39,6 +40,10 @@ pub enum App {
     /// Not part of the benchmark set — it contains an ArkTS `Web` surface, so
     /// it has no ArkTS twin to be compared against and no meaningful node count.
     Browser,
+    /// Every bridge tool on one screen with live values. The fixture the
+    /// bridge is verified against, so a new capability is one row rather than
+    /// a new panel bolted onto whichever card was nearest.
+    Native,
     /// A file browser in a web surface. Like Browser it has no ArkTS twin,
     /// and it exists to find out how far into the phone a web surface can see.
     Files,
@@ -58,6 +63,7 @@ impl App {
             App::Browser => "browser",
             App::WeatherWeb => "weatherweb",
             App::Files => "files",
+            App::Native => "native",
         }
     }
     pub fn from_id(s: &str) -> App {
@@ -68,6 +74,7 @@ impl App {
             "browser" => App::Browser,
             "weatherweb" => App::WeatherWeb,
             "files" => App::Files,
+            "native" => App::Native,
             _ => App::WeChat,
         }
     }
@@ -90,6 +97,7 @@ impl App {
             App::Browser => &["0|root", "1|root", "2|root", "3|root", "0|root", "1|root"],
             App::WeatherWeb => &["0|root", "1|root", "2|root", "3|root", "0|root", "1|root"],
             App::Files => &["0|root", "1|root", "2|root", "3|root", "4|root", "0|root"],
+            App::Native => &["0|root", "0|root", "0|root", "0|root", "0|root", "0|root"],
         }
     }
 }
@@ -219,6 +227,8 @@ pub fn handle(target: i32) -> bool {
                 }
                 _ => false,
             },
+            // No navigation: one page, every tool live on it.
+            App::Native => false,
             App::WeChat => crate::wechat::handle(target),
         }
     })
@@ -252,6 +262,7 @@ pub fn build() -> (Option<Node>, usize, f64) {
         App::Browser => browser::build(tab),
         App::WeatherWeb => weather_web::build(tab),
         App::Files => files::build(tab),
+        App::Native => native::build(),
         App::WeChat => unreachable!(),
     };
     let us = t0.elapsed().as_nanos() as f64 / 1000.0;
@@ -294,6 +305,7 @@ pub fn build_route(app: App, tab: usize, route: &str) -> (usize, f64) {
         App::Browser => browser::build(tab),
         App::WeatherWeb => weather_web::build(tab),
         App::Files => files::build(tab),
+        App::Native => native::build(),
         App::WeChat => unreachable!(),
     };
     let us = t0.elapsed().as_nanos() as f64 / 1000.0;

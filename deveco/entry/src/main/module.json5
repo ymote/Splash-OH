@@ -19,6 +19,23 @@
       },
       {
         "name": "ohos.permission.GET_NETWORK_INFO"
+      },
+      // All system_grant, so declaring them is enough — no runtime prompt.
+      //
+      // Enumerating sensors needs nothing: sensor.list returned 21 with none of
+      // these declared. Reading is per-sensor — ambient light was readable
+      // immediately, the accelerometer came back 201 until ACCELEROMETER was
+      // added here. That is exactly why sensor.read reports a 201 as a
+      // permission error instead of a generic failure: the two have different
+      // fixes and only one of them is in this file.
+      {
+        "name": "ohos.permission.VIBRATE"
+      },
+      {
+        "name": "ohos.permission.ACCELEROMETER"
+      },
+      {
+        "name": "ohos.permission.GYROSCOPE"
       }
     ],
     "pages": "$profile:main_pages",
