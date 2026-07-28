@@ -11,6 +11,10 @@
     {
       "name": "EntryAbility_label",
       "value": "label"
+    },
+    {
+      "name": "reason_location",
+      "value": "So a card can show weather and nearby information for where you are."
     }
   ]
 }

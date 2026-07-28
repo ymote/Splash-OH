@@ -94,6 +94,11 @@ h2{{font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:#5f5f7a;
 <div class=r><span class=k>capabilities</span><span class="v m" id=w_caps>&#8230;</span></div>
 <div class=r><span class=k>system proxy</span><span class="v m" id=w_proxy>&#8230;</span></div>
 
+<h2>Location &mdash; liblocation_ndk</h2>
+<div class=r><span class=k>system switch</span><span class="v m" id=l_on>&#8230;</span></div>
+<div class=r><span class=k>fix (tap to allow)</span><span class="v m" id=l_fix>&#8230;</span></div>
+<div class=r><span class=k>nearest weather city</span><span class="v m" id=l_city>&#8230;</span></div>
+
 <h2>Radio &mdash; libtelephony_radio, libwifi_ndk</h2>
 <div class=r><span class=k>cellular</span><span class="v m" id=r_cell>&#8230;</span></div>
 <div class=r><span class=k>wifi radio</span><span class="v m" id=r_wifi>&#8230;</span></div>
@@ -134,7 +139,7 @@ devicePixelRatio.</div>
     ['d_phone','d_model','d_os','d_api','d_patch','d_tz','d_notif',
      'p_size','p_dens','p_rot',
      'b_cap','s_list','s_acc','s_light','s_vib',
-     'f_rss','f_stat','f_list','c_cap','w_net','w_caps','w_proxy','r_cell','r_wifi','x_abc','x_file','cb_w','cb_r','k_rt','k_runs',
+     'f_rss','f_stat','f_list','c_cap','w_net','w_caps','w_proxy','l_on','l_fix','l_city','r_cell','r_wifi','x_abc','x_file','cb_w','cb_r','k_rt','k_runs',
      'n_get','n_vm','n_echo','g_ssrf','g_unk']
       .forEach(function (id) {{ set(id, 'f', 'no bridge'); }});
     return;
@@ -232,6 +237,65 @@ devicePixelRatio.</div>
         n.capabilities.join(', ') || 'none');
     set('w_proxy', n.proxy ? 'w' : 'p',
         n.proxy ? n.proxy.host + ':' + n.proxy.port : 'none');
+  }});
+
+  call('location.enabled', undefined, ['l_on'], function (l) {{
+    set('l_on', l.enabled ? 'p' : 'w', l.enabled ? 'on' : 'off in system settings');
+  }});
+
+  // The first capability whose availability is not a property of the build.
+  // A 201 here is not a bug and not a wall -- it is a question that has not
+  // been asked yet, so the row offers to ask it rather than reporting failure.
+  function showFix(f) {{
+    set('l_fix', 'p', f.latitude.toFixed(4) + ', ' + f.longitude.toFixed(4)
+        + ' · ±' + f.accuracy.toFixed(0) + ' m');
+    return splash.invoke('splash.eval', {{
+      source: ['input.lat', ''].join('\n'), input: {{ lat: f.latitude }}
+    }}).then(function () {{ return f; }}).catch(function () {{ return f; }});
+  }}
+
+  // Two attempts, cheap first. The daily-life scene lands on the passive
+  // provider, which only forwards fixes another app asked for -- so on a quiet
+  // phone it returns nothing at all. Falling back to the navigation scene asks
+  // a provider that actually goes and looks.
+  function locate() {{
+    return splash.invoke('location.get', {{ timeoutMs: 6000, scene: 'daily' }})
+      .catch(function () {{
+        set('l_fix', 'w', 'passive gave nothing; asking GNSS\u2026');
+        return splash.invoke('location.get', {{ timeoutMs: 20000, scene: 'navigation' }});
+      }});
+  }}
+
+  function tryFix() {{
+    set('l_fix', 'w', 'locating\u2026');
+    return locate().then(function (f) {{
+      showFix(f);
+      return splash.invoke('location.nearestCity', {{ lat: f.latitude, lon: f.longitude }});
+    }}).then(function (c) {{
+      set('l_city', 'p', c.city + ' (' + c.km.toFixed(0) + ' km)');
+    }});
+  }}
+
+  tryFix().catch(function (e) {{
+    var needsAsk = /permission/i.test(e.message || '');
+    // A timeout here is almost always the sky, not the code. The system log
+    // says so plainly ("satellite num: 1 < 4") but an app cannot read that, so
+    // the row states the likely cause rather than repeating the bare timeout.
+    var noSignal = /no fix within/.test(e.message || '');
+    set('l_fix', 'w', needsAsk ? 'tap to allow \u2192'
+        : noSignal ? 'no fix \u2014 needs sky, or wait longer' : e.message);
+    set('l_city', 'm', needsAsk ? 'waiting on location' : '\u2014');
+    if (!needsAsk) {{ return; }}
+    document.getElementById('l_fix').parentNode.onclick = function () {{
+      set('l_fix', 'w', 'asking\u2026');
+      splash.invoke('permission.request',
+          ['ohos.permission.APPROXIMATELY_LOCATION', 'ohos.permission.LOCATION'])
+        .then(function (r) {{
+          if (!r.granted.length) {{ set('l_fix', 'w', 'refused by user'); return; }}
+          return tryFix();
+        }})
+        .catch(function (e2) {{ set('l_fix', 'f', e2.message); }});
+    }};
   }});
 
   call('radio.cellular', undefined, ['r_cell'], function (c) {{

@@ -66,4 +66,5 @@ fn main() {
     println!("cargo:rustc-link-lib=dylib=telephony_radio");
     println!("cargo:rustc-link-lib=dylib=wifi_ndk");
     println!("cargo:rustc-link-lib=dylib=ohcrypto");
+    println!("cargo:rustc-link-lib=dylib=location_ndk");
 }

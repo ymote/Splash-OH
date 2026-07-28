@@ -19,6 +19,7 @@ pub mod capture;
 pub mod catalog;
 pub mod device;
 pub mod dsl;
+pub mod location;
 pub mod mem;
 pub mod net;
 pub mod netinfo;
