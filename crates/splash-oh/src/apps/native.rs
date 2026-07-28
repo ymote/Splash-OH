@@ -105,6 +105,7 @@ h2{{font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:#5f5f7a;
 
 <h2>Native surface &mdash; ARKUI_NODE_XCOMPONENT</h2>
 <div class=r><span class=k>surface (no ArkTS)</span><span class="v m" id=x_surf>&#8230;</span></div>
+<div class=r><span class=k>camera preview (tap)</span><span class="v m" id=x_cam>tap &#8594;</span></div>
 
 <h2>Camera and image codecs</h2>
 <div class=r><span class=k>camera.list</span><span class="v m" id=i_cams>&#8230;</span></div>
@@ -158,7 +159,7 @@ devicePixelRatio.</div>
     ['d_phone','d_model','d_os','d_api','d_patch','d_tz','d_notif',
      'p_size','p_dens','p_rot',
      'b_cap','s_list','s_acc','s_light','s_vib',
-     'f_rss','f_stat','f_list','c_cap','w_net','w_caps','w_proxy','x_surf','i_cams','i_pick','i_info','i_thumb','l_on','l_fix','l_city','r_cell','r_wifi','x_abc','x_file','cb_w','cb_r','k_rt','k_runs',
+     'f_rss','f_stat','f_list','c_cap','w_net','w_caps','w_proxy','x_surf','x_cam','i_cams','i_pick','i_info','i_thumb','l_on','l_fix','l_city','r_cell','r_wifi','x_abc','x_file','cb_w','cb_r','k_rt','k_runs',
      'n_get','n_vm','n_echo','g_ssrf','g_unk']
       .forEach(function (id) {{ set(id, 'f', 'no bridge'); }});
     return;
@@ -266,6 +267,42 @@ devicePixelRatio.</div>
         s.created ? 'id ' + s.surfaceId + ' · ' + s.width + '×' + s.height + ' px'
                   : (s.destroyed ? 'destroyed' : 'no surface yet'));
   }});
+
+  // Start a live preview into that surface. The surface id is taken from
+  // Rust, not from the page -- a page can ask for a preview and cannot say
+  // where the frames should go.
+  var camOn = false;
+  function startPreview() {{
+    set('x_cam', 'w', 'starting\u2026');
+    return splash.invoke('camera.preview', {{ front: false }}).then(function (r) {{
+      camOn = true;
+      set('x_cam', 'p', 'live ' + r.previewWidth + '×' + r.previewHeight
+          + ' (' + r.camera + ') · tap to stop');
+    }});
+  }}
+
+  document.getElementById('x_cam').parentNode.onclick = function () {{
+    if (camOn) {{
+      splash.invoke('camera.stop').then(function () {{
+        camOn = false;
+        set('x_cam', 'm', 'stopped · tap \u2192');
+      }});
+      return;
+    }}
+    // Ask first, then open -- rather than opening and interpreting the error.
+    // The camera framework reports a missing CAMERA permission as 7400201,
+    // whose documented meaning is "in use by another application", so there is
+    // no error text to branch on. Requesting up front costs nothing when the
+    // permission is already held: the system resolves immediately without a
+    // dialog.
+    set('x_cam', 'w', 'asking\u2026');
+    splash.invoke('permission.request', ['ohos.permission.CAMERA'])
+      .then(function (r) {{
+        if (!r.granted.length) {{ set('x_cam', 'w', 'refused by user'); return; }}
+        return startPreview();
+      }})
+      .catch(function (e) {{ set('x_cam', 'f', e.message); }});
+  }};
 
   call('camera.list', undefined, ['i_cams'], function (cs) {{
     var back = cs.filter(function (c) {{ return c.position === 'back'; }}).length;

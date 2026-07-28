@@ -287,6 +287,47 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args: String) {
         // ARKUI_NODE_WEB does not.
         "surface.state" => reply(slot, call_id, ok(crate::xcomp::state())),
 
+        // Start a live preview into the surface Rust built. No ArkTS on the
+        // path: the surface is an ARKUI_NODE_XCOMPONENT in the same native
+        // tree, and the camera writes frames straight into it.
+        //
+        // Args: {"front": bool} — the surface id comes from xcomp, not the
+        // page, so a page cannot aim the camera at someone else's surface.
+        "camera.preview" => {
+            std::thread::spawn(move || {
+                let v: serde_json::Value = serde_json::from_str(&args).unwrap_or_default();
+                let front = v.get("front").and_then(|x| x.as_bool()).unwrap_or(false);
+                let st = crate::xcomp::surface_state();
+                let payload = if !st.created || st.surface_id == 0 {
+                    err("no native surface yet")
+                } else {
+                    match crate::image::preview_start(
+                        st.surface_id,
+                        st.width as u32,
+                        st.height as u32,
+                        front,
+                    ) {
+                        Ok(j) => ok(j),
+                        Err(e) => err(&e),
+                    }
+                };
+                reply(slot, call_id, payload);
+            });
+        }
+
+        "camera.stop" => {
+            std::thread::spawn(move || {
+                reply(
+                    slot,
+                    call_id,
+                    match crate::image::preview_stop() {
+                        Ok(j) => ok(j),
+                        Err(e) => err(&e),
+                    },
+                );
+            });
+        }
+
         // What cameras exist. Enumeration only -- capture is a session pipeline
         // needing ohos.permission.CAMERA, and knowing what the hardware is is
         // worth having before anything asks to use it.
