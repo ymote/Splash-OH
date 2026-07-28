@@ -351,12 +351,23 @@ fn park_pick(slot: u32, call_id: String, mode: &str) {
         }
         Err(_) => return,
     };
-    if let Ok(mut q) = PICK_INFLIGHT.lock() {
-        // A user who dismisses pickers forever should not grow this.
-        if q.len() > 16 {
-            q.remove(0);
+    // A user who dismisses pickers forever should not grow this list, but the
+    // evicted entry is a call some page is still awaiting. Dropping it silently
+    // left that promise pending for the life of the page; settle it instead.
+    let evicted = match PICK_INFLIGHT.lock() {
+        Ok(mut q) => {
+            let old = if q.len() > 16 {
+                Some(q.remove(0))
+            } else {
+                None
+            };
+            q.push((id, slot, call_id));
+            old
         }
-        q.push((id, slot, call_id));
+        Err(_) => None,
+    };
+    if let Some((_, s, c)) = evicted {
+        reply(s, c, err("picker request dropped: too many still open"));
     }
     if let Ok(mut q) = PICK_QUEUE.lock() {
         q.push((id, mode.to_string()));
