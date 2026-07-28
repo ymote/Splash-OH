@@ -44,6 +44,7 @@ fn widget_name(kind: NodeKind) -> &'static str {
         NodeKind::Slider => "Slider",
         NodeKind::Checkbox => "CheckBox",
         NodeKind::Toggle => "Toggle",
+        NodeKind::Radio => "RadioButton",
         // every container-ish kind is a View with the right flow.
         _ => "View",
     }
@@ -93,11 +94,32 @@ fn emit_attrs(node: &UiNode, out: &mut String, depth: usize) {
     if let Some(f) = flow(node.kind) {
         let _ = writeln!(out, "{ind}flow: {f}");
     }
-    if let Some(w) = a.w {
-        let _ = writeln!(out, "{ind}width: {w}");
+    // A row reads best with its children vertically centred (a widget and its
+    // label line up), matching how ArkUI lays a row out.
+    if node.kind == NodeKind::Row {
+        let _ = writeln!(out, "{ind}align: Align{{y: 0.5}}");
     }
-    if let Some(h) = a.h {
-        let _ = writeln!(out, "{ind}height: {h}");
+    // makepad containers default to Fill on both axes, which makes a card
+    // stretch far past its content. A container with no explicit size hugs its
+    // content vertically (`Fit`) and fills horizontally — the ArkUI default.
+    let container = flow(node.kind).is_some();
+    match a.w {
+        Some(w) => {
+            let _ = writeln!(out, "{ind}width: {w}");
+        }
+        None if container => {
+            let _ = writeln!(out, "{ind}width: Fill");
+        }
+        None => {}
+    }
+    match a.h {
+        Some(h) => {
+            let _ = writeln!(out, "{ind}height: {h}");
+        }
+        None if container => {
+            let _ = writeln!(out, "{ind}height: Fit");
+        }
+        None => {}
     }
     if let Some(p) = a.pad {
         let _ = writeln!(out, "{ind}padding: {p}");
@@ -125,7 +147,7 @@ fn emit_attrs(node: &UiNode, out: &mut String, depth: usize) {
         let _ = writeln!(out, "{ind}draw_text.text_style.font_size: {s}");
     }
     if let Some(c) = a.color {
-        let _ = writeln!(out, "{ind}draw_text: {{ color: {} }}", hex_rgba(c));
+        let _ = writeln!(out, "{ind}draw_text.color: {}", hex_rgba(c));
     }
     if let Some(src) = &a.src {
         let _ = writeln!(out, "{ind}source: {src:?}");

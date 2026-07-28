@@ -1,0 +1,68 @@
+// A widget catalog authored in the Splash DSL (plain data, evaluated by the
+// makepad-script VM) and rendered by the makepad backend into native makepad
+// widgets — the same UiNode tree Splash-OH renders to ArkUI. Sized to sit in
+// one screen with ArkUI-like spacing and alignment.
+
+fn argb(a, r, g, b) { return ((a * 256 + r) * 256 + g) * 256 + b }
+let bg     = argb(255, 16, 18, 24)
+let panel  = argb(255, 32, 36, 48)
+let white  = argb(255, 245, 247, 250)
+let sub    = argb(255, 150, 160, 180)
+let accent = argb(255, 122, 190, 255)
+
+// A titled card. A tight header row of children, then the widgets.
+fn section(title, kids) {
+    let c = [
+        {t: "text", text: title, size: 11, weight: 7, color: sub, w: 360, h: 18},
+        {t: "column", w: 8, h: 10},
+    ]
+    for k in kids { c.push(k) }
+    return {t: "column", w: 394, bg: panel, radius: 16, pad: 16, c: c}
+}
+fn gap(h) { return {t: "column", w: 8, h: h} }
+fn hgap(w) { return {t: "column", w: w, h: 4} }
+
+{t: "column", w: 420, bg: bg, pad: 14, c: [
+    {t: "text", text: "Widget Catalog", size: 22, weight: 8, color: white, w: 392, h: 30},
+    {t: "text", text: "Splash DSL \u{2192} makepad native widgets", size: 13, color: sub, w: 392, h: 20},
+    gap(10),
+
+    section("BUTTONS", [
+        {t: "row", w: 362, h: 40, c: [
+            {t: "button", label: "Primary", w: 118, h: 38},
+            hgap(12),
+            {t: "button", label: "Secondary", w: 140, h: 38},
+        ]},
+    ]),
+    gap(10),
+
+    section("SELECTION", [
+        {t: "row", w: 362, h: 32, c: [
+            {t: "checkbox", text: "Checkbox", w: 180, h: 30},
+            {t: "toggle", text: "Toggle", w: 150, h: 30},
+        ]},
+        gap(8),
+        {t: "row", w: 362, h: 32, c: [
+            {t: "radio", text: "Option A", w: 180, h: 30},
+            {t: "radio", text: "Option B", w: 150, h: 30},
+        ]},
+    ]),
+    gap(10),
+
+    section("SLIDER", [
+        {t: "slider", text: "Volume", w: 362, h: 36},
+    ]),
+    gap(10),
+
+    section("TEXT INPUT", [
+        {t: "input", placeholder: "Type here", w: 362, h: 40},
+    ]),
+    gap(10),
+
+    section("TYPOGRAPHY", [
+        {t: "text", text: "Heading", size: 20, weight: 8, color: white, w: 362, h: 28},
+        {t: "text", text: "Body copy rendered by makepad.", size: 14, color: sub, w: 362, h: 22},
+        gap(2),
+        {t: "text", text: "one VM \u{00b7} one UiNode \u{00b7} two backends", size: 13, weight: 6, color: accent, w: 362, h: 20},
+    ]),
+]}

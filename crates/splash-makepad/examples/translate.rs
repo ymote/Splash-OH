@@ -20,7 +20,12 @@ let red   = argb(255, 255, 40, 40)
 "#;
 
 fn main() {
-    let tree = splash_render::build(SAMPLE, |_vm| {}).expect("evaluates");
+    // Optional .splash file arg; otherwise the embedded sample.
+    let src = match std::env::args().nth(1) {
+        Some(path) => std::fs::read_to_string(&path).expect("read .splash file"),
+        None => SAMPLE.to_string(),
+    };
+    let tree = splash_render::build(&src, |_vm| {}).expect("evaluates");
     eprintln!("// UiNode tree: {} nodes\n", tree.count());
     print!("{}", splash_makepad::to_makepad_ui(&tree));
 }
