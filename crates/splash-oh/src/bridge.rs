@@ -42,6 +42,21 @@ use std::sync::Mutex;
 /// be embedded under limits rather than trusted, so use them: a script that
 /// loops forever, allocates without bound, or returns a megabyte of JSON is
 /// stopped by the runtime instead of taking the thread with it.
+///
+/// # These are set explicitly, and tighter than the defaults
+///
+/// `Runtime::new` is not unbounded — I had implied it was, and it is not.
+/// It applies `ExecutionLimits::default()`, which is already conservative:
+/// 256 KB of source, an 8 MB script heap, 200k instructions, and 32/64 ms
+/// soft/hard timeouts. A runaway script was never going to hang the process.
+///
+/// What the defaults are not is *calibrated to this caller*. They are sized for
+/// a trusted script an app ships. The scripts arriving here come from a web
+/// page, and the work they do is arithmetic over a handful of numbers — a
+/// weather card finding the highest of six temperatures. Nothing legitimate
+/// needs 200,000 instructions or a megabyte of heap, so the budget is cut to
+/// what the real workload uses with room to spare. A limit set where the
+/// legitimate work actually sits is the one that means something.
 const EVAL_MAX_SOURCE: usize = 64 * 1024;
 const JSON_MAX_BYTES: usize = 256 * 1024;
 const JSON_MAX_DEPTH: usize = 32;
@@ -55,6 +70,60 @@ pub struct Reply {
 }
 
 static REPLIES: Mutex<VecDeque<Reply>> = Mutex::new(VecDeque::new());
+
+/// Calls that have been dispatched and not yet answered, as
+/// (slot, call_id, deadline). Without this a wedged worker leaves a promise
+/// pending for the life of the page, with nothing on the JS side able to
+/// notice -- the page cannot time out a call it has no handle on.
+static PENDING: Mutex<Vec<(u32, String, std::time::Instant)>> = Mutex::new(Vec::new());
+
+/// How long any one call may take before the bridge answers for it.
+///
+/// Generous, because it is a backstop rather than a policy: the slowest
+/// legitimate call is a cold location fix, which is allowed 30 s of its own.
+const CALL_DEADLINE: std::time::Duration = std::time::Duration::from_secs(45);
+
+fn track(slot: u32, call_id: &str) {
+    if let Ok(mut p) = PENDING.lock() {
+        p.push((
+            slot,
+            call_id.to_string(),
+            std::time::Instant::now() + CALL_DEADLINE,
+        ));
+    }
+}
+
+fn untrack(slot: u32, call_id: &str) {
+    if let Ok(mut p) = PENDING.lock() {
+        p.retain(|(s, c, _)| !(*s == slot && c == call_id));
+    }
+}
+
+/// Settle anything past its deadline. Driven from `drain`, which ArkTS already
+/// polls -- no extra timer, and it runs on the thread that delivers replies.
+fn expire_stale() {
+    let now = std::time::Instant::now();
+    let expired: Vec<(u32, String)> = match PENDING.lock() {
+        Ok(mut p) => {
+            let (dead, alive): (Vec<_>, Vec<_>) = p.drain(..).partition(|(_, _, d)| *d <= now);
+            *p = alive;
+            dead.into_iter().map(|(s, c, _)| (s, c)).collect()
+        }
+        Err(_) => Vec::new(),
+    };
+    for (slot, call_id) in expired {
+        crate::log(&format!("bridge: call {call_id} on slot {slot} timed out"));
+        // Straight onto the queue: reply() would re-enter the tracking that
+        // just removed this entry.
+        if let Ok(mut q) = REPLIES.lock() {
+            q.push_back(Reply {
+                slot,
+                call_id,
+                payload: err("timed out waiting for the native side"),
+            });
+        }
+    }
+}
 
 /// Slots whose page has reported its script running. ArkTS drains this to know
 /// which loads actually took, rather than inferring it from signals that cannot
@@ -70,6 +139,7 @@ pub fn painted_drain() -> Vec<String> {
 }
 
 fn reply(slot: u32, call_id: String, payload: String) {
+    untrack(slot, &call_id);
     if let Ok(mut q) = REPLIES.lock() {
         // A page that stops draining should not grow this without bound.
         if q.len() > 256 {
@@ -117,6 +187,11 @@ pub fn json_str(s: &str) -> String {
 /// Anything that can block runs on a worker. The caller here is ArkTS's JS
 /// thread, and blocking it is what `net::mark_ui_thread` exists to catch.
 pub fn invoke(slot: u32, call_id: String, tool: String, args: String) {
+    // Tracked before dispatch, so a tool that never replies is still answered.
+    // slot.ready is fire-and-forget by design and has no promise waiting.
+    if tool != "slot.ready" {
+        track(slot, &call_id);
+    }
     // The capability gate, enforced here rather than in ArkTS.
     //
     // ArkTS already declines to attach the proxy to an untrusted slot, but that
@@ -1024,8 +1099,31 @@ fn list_dir(path: &str) -> String {
 /// Deliberately a fresh `Runtime` per call. Sharing one across pages would let
 /// a card leave state behind for the next caller, and the VM is cheap enough
 /// that isolation is the better default.
+fn page_limits() -> splash_core::ExecutionLimits {
+    let d = splash_core::ExecutionLimits::default();
+    splash_core::ExecutionLimits {
+        // One number, not two: the source cap the tool already enforces.
+        max_source_bytes: EVAL_MAX_SOURCE,
+        // 8 MB -> 1 MB. A card computing over its own data does not need a
+        // script heap larger than the whole page that sent it.
+        max_heap_bytes: 1024 * 1024,
+        // 1024 -> 64 frames. Deep recursion from a page is a mistake or an
+        // attack; neither deserves a thousand frames.
+        max_call_frames: 64,
+        max_syntax_nesting: 32,
+        // 200k -> 20k instructions. The weather card's loop over six values is
+        // a few hundred; twenty thousand is two orders of magnitude of slack.
+        instruction_limit: 20_000,
+        // 32/64 ms -> 10/25 ms. These run on a worker, so the ceiling is about
+        // not tying up a thread rather than about frame budget.
+        soft_timeout: std::time::Duration::from_millis(10),
+        hard_timeout: std::time::Duration::from_millis(25),
+        ..d
+    }
+}
+
 fn eval_splash(source: &str, input: Option<&serde_json::Value>) -> String {
-    let mut rt = match splash_core::Runtime::<(), ()>::new((), ()) {
+    let mut rt = match splash_core::Runtime::<(), ()>::with_limits((), (), page_limits()) {
         Ok(r) => r,
         Err(e) => return err(&format!("runtime: {e:?}")),
     };
@@ -1038,9 +1136,16 @@ fn eval_splash(source: &str, input: Option<&serde_json::Value>) -> String {
 
     let evaluation = match rt.eval(source) {
         Ok(e) => e,
-        // A syntax rejection carries line/column, which is the whole reason to
-        // go through splash-core rather than the bare VM. Pass it on.
-        Err(e) => return err(&format!("{e:?}")),
+        // Name the limit that stopped it. The error variants distinguish
+        // SourceTooLarge from HeapLimitExceeded from a timeout, and a page
+        // author fixing "too big" does something different from one fixing
+        // "too slow" -- collapsing them to "failed" throws that away, the same
+        // reason fs.list reports the OS errno verbatim.
+        Err(e) => {
+            let m = limit_message(&e);
+            crate::log(&format!("splash.eval stopped: {m}"));
+            return err(&m);
+        }
     };
 
     if evaluation.suspended {
@@ -1050,8 +1155,30 @@ fn eval_splash(source: &str, input: Option<&serde_json::Value>) -> String {
     match rt.script_value_as_json(evaluation.value, JSON_MAX_BYTES, JSON_MAX_DEPTH) {
         Ok(j) => ok(j.to_string()),
         // Functions, handles, cycles and non-finite numbers are not encodable.
-        Err(e) => err(&format!("result not representable as JSON: {e:?}")),
+        Err(e) => {
+            crate::log(&format!("splash.eval result not encodable: {e:?}"));
+            err(&format!("result not representable as JSON: {e:?}"))
+        }
     }
+}
+
+/// Turn a runtime rejection into something a page author can act on.
+fn limit_message(e: &impl std::fmt::Debug) -> String {
+    let d = format!("{e:?}");
+    let hint = if d.contains("SourceTooLarge") || d.contains("FormattedSourceTooLarge") {
+        " — script is larger than the source limit"
+    } else if d.contains("HeapLimitExceeded") {
+        " — script allocated past the heap limit"
+    } else if d.contains("StringLimitExceeded") {
+        " — a single string exceeded the string limit"
+    } else if d.contains("Timeout") || d.contains("Budget") || d.contains("Instruction") {
+        " — script ran past its instruction or time budget"
+    } else if d.contains("SyntaxRejected") {
+        " — syntax rejected; the report carries line and column"
+    } else {
+        ""
+    };
+    format!("{d}{hint}")
 }
 
 /// Replies waiting to be evaluated, as `slot|callId|payload`.
@@ -1059,6 +1186,7 @@ fn eval_splash(source: &str, input: Option<&serde_json::Value>) -> String {
 /// Payload is JSON and can contain `|`, so it is last and the ArkTS side splits
 /// on the first two separators only.
 pub fn drain() -> Vec<String> {
+    expire_stale();
     let mut out = Vec::new();
     if let Ok(mut q) = REPLIES.lock() {
         while let Some(r) = q.pop_front() {
