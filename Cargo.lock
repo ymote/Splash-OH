@@ -325,6 +325,13 @@ version = "1.15.1"
 source = "git+https://github.com/octos-org/makepad.git?rev=b6cd8db5113b0cb61c0323e829a013c4aaaeab36#b6cd8db5113b0cb61c0323e829a013c4aaaeab36"
 
 [[package]]
+name = "splash-makepad"
+version = "0.1.0"
+dependencies = [
+ "splash-render",
+]
+
+[[package]]
 name = "splash-oh"
 version = "0.1.0"
 dependencies = [
@@ -333,6 +340,13 @@ dependencies = [
  "napi-derive-ohos",
  "napi-ohos",
  "serde_json",
+]
+
+[[package]]
+name = "splash-render"
+version = "0.1.0"
+dependencies = [
+ "makepad-script",
 ]
 
 [[package]]
