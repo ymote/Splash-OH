@@ -268,8 +268,12 @@ struct Index {
       setInterval(() => {
         // Background data (a forecast, a resolved stream) lands on a worker
         // thread. Rust flags it; re-render so the page picks it up.
+        //
+        // appRerender, NOT appRender: the latter resets navigation, so the
+        // arrival of the very data a tap asked for would throw the user back
+        // to the first tab -- making the tap look like it had done nothing.
         if ((splash.appTakeDirty() as number) === 1) {
-          splash.appRender(APPS_SHOWN);
+          splash.appRerender();
         }
         this.syncWebSlots();
         this.pumpBridge();
