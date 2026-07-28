@@ -312,10 +312,28 @@ pub fn app_data(key: String) -> Vec<String> {
 }
 
 /// Switch which app is on screen and mount it. Returns [nodes, µs].
+///
+/// This *resets* navigation — it is the "show me app X from the top" call. For
+/// redrawing what is already there, use [`app_rerender`].
 #[napi(js_name = "appRender")]
 pub fn app_render(app: String) -> Vec<f64> {
     apps::set_app(apps::App::from_id(&app));
     app::set_wechat_active(true);
+    let (node, n, us) = apps::build();
+    app::set_root(node);
+    vec![n as f64, us]
+}
+
+/// Redraw whatever is on screen, leaving navigation alone. Returns [nodes, µs].
+///
+/// The dirty path used `appRender`, which goes through `set_app` and so resets
+/// tab, sub, pushed and feed to zero. Any background data landing therefore
+/// threw the user back to the first tab — and because the data that lands is
+/// usually the data the tap asked for, **a tap appeared to do nothing at all**:
+/// it registered, changed the tab, started a fetch, and the fetch's own arrival
+/// undid it a moment later.
+#[napi(js_name = "appRerender")]
+pub fn app_rerender() -> Vec<f64> {
     let (node, n, us) = apps::build();
     app::set_root(node);
     vec![n as f64, us]

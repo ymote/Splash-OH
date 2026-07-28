@@ -79,7 +79,15 @@ struct Forecast {
 ///
 /// So: build reads this cache and returns immediately, a worker fills it, and
 /// the next render picks it up.
-static CACHE: Mutex<Option<(usize, Forecast)>> = Mutex::new(None);
+/// One entry per city, not one entry total. A single slot meant switching city
+/// evicted the previous one, so going back re-fetched something already had —
+/// and while that fetch was in flight the card showed placeholders for a city
+/// it already knew the answer for. There are four cities; keep all of them.
+static CACHE: Mutex<Vec<(usize, Forecast)>> = Mutex::new(Vec::new());
+/// Cities with a worker already running. A tap produced two builds and so two
+/// identical fetches; the second was pure waste and its later arrival
+/// re-flagged DIRTY for nothing.
+static INFLIGHT: Mutex<Vec<usize>> = Mutex::new(Vec::new());
 /// Set when a worker lands new data, so the surface can be redrawn. Without it
 /// the page renders once with placeholders and never updates -- the poll on the
 /// ArkTS side has nothing to notice, because the slot geometry is unchanged.
@@ -94,11 +102,10 @@ pub fn take_dirty() -> bool {
 }
 
 fn cached(city: usize) -> Option<Forecast> {
-    CACHE.lock().ok().and_then(|c| {
-        c.as_ref()
-            .filter(|(i, _)| *i == city)
-            .map(|(_, f)| f.clone())
-    })
+    CACHE
+        .lock()
+        .ok()
+        .and_then(|c| c.iter().find(|(i, _)| *i == city).map(|(_, f)| f.clone()))
 }
 
 /// Fetch `city` on a worker thread and cache it. Cheap to call repeatedly.
@@ -106,15 +113,25 @@ pub fn prefetch(city: usize) {
     if cached(city).is_some() {
         return;
     }
+    // Claim the city before spawning, so a rebuild while the fetch is in
+    // flight does not start a second one.
+    match INFLIGHT.lock() {
+        Ok(mut f) if !f.contains(&city) => f.push(city),
+        _ => return,
+    }
     std::thread::spawn(move || {
         let f = fetch(city);
         if let Ok(mut c) = CACHE.lock() {
-            *c = Some((city, f));
+            c.retain(|(i, _)| *i != city);
+            c.push((city, f));
+        }
+        if let Ok(mut inf) = INFLIGHT.lock() {
+            inf.retain(|i| *i != city);
         }
         if let Ok(mut d) = DIRTY.lock() {
             *d = true;
         }
-        crate::log("weather: forecast ready");
+        crate::log(&format!("weather: forecast ready for {}", CITIES[city].0));
     });
 }
 
@@ -230,6 +247,19 @@ fn page_with(fc: Forecast, city: usize, w: f32, h: f32) -> String {
         "<div class=err>No data — the forecast request did not return</div>".to_string()
     };
 
+    // What the Splash VM computes over. It used to be a hardcoded literal,
+    // which exercised the bridge but proved nothing with it: the answer was the
+    // same 29° for every city, including ones whose forecast peaked at 37°. Fed
+    // the card's own highs, the number has to agree with the right-hand column
+    // of the list above it, so a wrong answer is visible rather than plausible.
+    let highs: String = fc
+        .days
+        .iter()
+        .filter_map(|(_, hi, _, _)| hi.trim_end_matches('°').parse::<i64>().ok())
+        .map(|v| v.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
+
     format!(
         r#"<!doctype html><html><head><meta charset=utf-8>
 <meta name=viewport content="width={w:.0}, initial-scale=1">
@@ -300,6 +330,12 @@ body{{width:{w:.0}px;height:{h:.0}px;overflow:hidden;
   // computes over it and the result comes back as JSON. Same language that
   // describes the native widgets around this webview.
   var vmEl = document.getElementById('vm');
+  // The card's own six highs, so the answer must match the right-hand column
+  // of the list above. Empty only while the forecast is still in flight.
+  var temps = [{highs}];
+  if (!temps.length) {{
+    vmEl.textContent = 'waiting for forecast';
+  }} else {{
   splash.invoke('splash.eval', {{
     // Canonical Splash wants one statement per line -- the one-liner form
     // of this was rejected at line 2 col 43, which is exactly the located
@@ -313,10 +349,11 @@ body{{width:{w:.0}px;height:{h:.0}px;overflow:hidden;
       '}}',
       'hi'
     ].join('\n'),
-    input: {{ temps: [22, 23, 24, 26, 27, 29] }}
+    input: {{ temps: temps }}
   }}).then(function (r) {{
-    vmEl.textContent = 'peak ' + r + '\u00b0 (computed in Splash)';
+    vmEl.textContent = 'peak ' + r + '\u00b0 of ' + temps.length + ' days (in Splash)';
   }}).catch(function (e) {{ vmEl.textContent = 'failed: ' + e.message; }});
+  }}
 
   // The gate should refuse these three even from a trusted page. If any of
   // them succeeds, the allowlist or the SSRF guard has regressed.
@@ -347,6 +384,7 @@ body{{width:{w:.0}px;height:{h:.0}px;overflow:hidden;
         lo = fc.lo,
         banner = banner,
         rows = rows,
+        highs = highs,
         feels = fc.feels,
         humidity = fc.humidity,
         wind = fc.wind,
