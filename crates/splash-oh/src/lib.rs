@@ -16,9 +16,11 @@ pub mod arkui;
 pub mod bench;
 pub mod bridge;
 pub mod catalog;
+pub mod device;
 pub mod dsl;
 pub mod mem;
 pub mod net;
+pub mod sensor;
 pub mod webslot;
 pub mod wechat;
 

@@ -126,11 +126,78 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args: String) {
         // Round-trip check, so a page can prove the bridge is live.
         "echo" => reply(slot, call_id, ok(json_str(&args))),
 
-        "device.info" => {
-            let info = format!(
-                "{{\"platform\":\"OpenHarmony\",\"renderer\":\"ArkUI NDK via Rust\",\"slot\":{slot}}}"
+        // Real device facts from libdeviceinfo_ndk, not a hardcoded string.
+        // A page in a browser gets a user-agent; a page here can ask what the
+        // phone actually is.
+        "device.info" => reply(slot, call_id, ok(crate::device::info(slot))),
+
+        // How the panel is really configured — size in px, density, refresh
+        // rate, rotation. `devicePixelRatio` is the only part of this a web
+        // page can normally see, and it is a rounded approximation of one field.
+        "device.display" => reply(slot, call_id, ok(crate::device::display())),
+
+        "device.battery" => reply(slot, call_id, ok(crate::device::battery())),
+
+        // What the phone can actually sense. Enumeration needs no permission,
+        // so this works even where reading an individual sensor would not.
+        "sensor.list" => reply(
+            slot,
+            call_id,
+            match crate::sensor::list() {
+                Ok(j) => ok(j),
+                Err(e) => err(&e),
+            },
+        ),
+
+        // One reading. Blocks until the sensor service ticks, so it runs on a
+        // worker -- see sensor::sample.
+        //
+        // Args: a bare kind ("accelerometer"), or {"kind": "...", "timeoutMs": n}.
+        "sensor.read" => {
+            std::thread::spawn(move || {
+                let (name, timeout) = if args.starts_with('{') {
+                    let v: serde_json::Value = serde_json::from_str(&args).unwrap_or_default();
+                    (
+                        v.get("kind")
+                            .and_then(|x| x.as_str())
+                            .unwrap_or("accelerometer")
+                            .to_string(),
+                        v.get("timeoutMs").and_then(|x| x.as_u64()).unwrap_or(1500),
+                    )
+                } else {
+                    (args.trim_matches('"').to_string(), 1500)
+                };
+                let payload = match crate::sensor::type_from_name(&name) {
+                    Some(k) => match crate::sensor::sample(k, timeout.min(5000)) {
+                        Ok(j) => ok(j),
+                        Err(e) => err(&e),
+                    },
+                    None => err(&format!("unknown sensor: {name}")),
+                };
+                reply(slot, call_id, payload);
+            });
+        }
+
+        // Haptics. A page in a browser has no route to the motor at all.
+        "vibrate" => {
+            let ms = args
+                .trim_matches('"')
+                .parse::<i32>()
+                .ok()
+                .or_else(|| {
+                    serde_json::from_str::<serde_json::Value>(&args)
+                        .ok()
+                        .and_then(|v| v.get("ms").and_then(|x| x.as_i64()).map(|n| n as i32))
+                })
+                .unwrap_or(40);
+            reply(
+                slot,
+                call_id,
+                match crate::sensor::vibrate(ms) {
+                    Ok(j) => ok(j),
+                    Err(e) => err(&e),
+                },
             );
-            reply(slot, call_id, ok(info));
         }
 
         "log" => {
@@ -200,6 +267,25 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args: String) {
                         Err(e) => err(&format!("{e}")),
                     },
                 );
+            });
+        }
+
+        // File contents. Strictly larger than `fs.list` and `fs.stat`, and the
+        // one the picker makes worth having: a granted URI resolves to a path
+        // Rust can stat, so it is a path Rust can read, and without this a page
+        // can be told a file exists and never see it.
+        //
+        // Capped, and binary-safe by declaring the encoding rather than
+        // guessing. Text that is not valid UTF-8 comes back as base64 with
+        // `"encoding":"base64"` instead of being silently lossy — a page that
+        // renders replacement characters and calls it the file is worse than
+        // one that is told it got bytes.
+        //
+        // Args: a bare path, or {"path": "...", "max": <bytes>}.
+        "fs.read" => {
+            std::thread::spawn(move || {
+                let (path, max) = read_args(&args);
+                reply(slot, call_id, read_file(&path, max));
             });
         }
 
@@ -403,6 +489,99 @@ pub fn pick_resolve(req_id: &str, success: bool, payload: String) {
     } else {
         reply(slot, call_id, err(&payload));
     }
+}
+
+/// Ceiling on `fs.read`, and its default when a page names none.
+///
+/// The whole payload rides through the reply queue as one JSON string and is
+/// then evaluated into the page by `runJavaScript`, so a large file is paid for
+/// three times over. A page that wants more than this wants streaming, which is
+/// a different tool.
+const READ_MAX: u64 = 1024 * 1024;
+
+/// `(path, max_bytes)` from either a bare path string or `{path, max}`.
+fn read_args(args: &str) -> (String, u64) {
+    if args.starts_with('{') {
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(args) {
+            let p = v.get("path").and_then(|x| x.as_str()).unwrap_or_default();
+            let m = v
+                .get("max")
+                .and_then(|x| x.as_u64())
+                .unwrap_or(READ_MAX)
+                .min(READ_MAX);
+            return (p.to_string(), m);
+        }
+    }
+    (args.trim_matches('"').to_string(), READ_MAX)
+}
+
+/// One file's contents, as UTF-8 text when it is text and base64 when it is not.
+///
+/// `truncated` is reported for the same reason `fs.list` reports it: a clipped
+/// file that says nothing reads as a whole one.
+fn read_file(path: &str, max: u64) -> String {
+    let meta = match std::fs::metadata(path) {
+        Ok(m) => m,
+        Err(e) => return err(&format!("{e}")),
+    };
+    if meta.is_dir() {
+        return err("is a directory");
+    }
+    let bytes = match std::fs::read(path) {
+        Ok(b) => b,
+        Err(e) => return err(&format!("{e}")),
+    };
+    let truncated = bytes.len() as u64 > max;
+    let slice = if truncated {
+        &bytes[..max as usize]
+    } else {
+        &bytes[..]
+    };
+
+    // Decide by what the bytes are, not by the extension: a .txt holding a JPEG
+    // is still a JPEG, and String::from_utf8_lossy would hand the page a string
+    // of replacement characters and call it the file.
+    match std::str::from_utf8(slice) {
+        Ok(text) => format!(
+            "{{\"ok\":true,\"data\":{{\"path\":{},\"size\":{},\"encoding\":\"utf8\",\
+             \"truncated\":{},\"content\":{}}}}}",
+            json_str(path),
+            meta.len(),
+            truncated,
+            json_str(text)
+        ),
+        Err(_) => format!(
+            "{{\"ok\":true,\"data\":{{\"path\":{},\"size\":{},\"encoding\":\"base64\",\
+             \"truncated\":{},\"content\":{}}}}}",
+            json_str(path),
+            meta.len(),
+            truncated,
+            json_str(&b64(slice))
+        ),
+    }
+}
+
+/// Base64, for bytes that are not text.
+fn b64(bytes: &[u8]) -> String {
+    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for c in bytes.chunks(3) {
+        let b = [c[0], *c.get(1).unwrap_or(&0), *c.get(2).unwrap_or(&0)];
+        let n = ((b[0] as u32) << 16) | ((b[1] as u32) << 8) | b[2] as u32;
+        out.push(T[(n >> 18 & 63) as usize] as char);
+        out.push(T[(n >> 12 & 63) as usize] as char);
+        out.push(if c.len() > 1 {
+            T[(n >> 6 & 63) as usize] as char
+        } else {
+            '='
+        });
+        out.push(if c.len() > 2 {
+            T[(n & 63) as usize] as char
+        } else {
+            '='
+        });
+    }
+    out
 }
 
 /// How many entries one listing may carry. `/system/lib64` alone runs past
