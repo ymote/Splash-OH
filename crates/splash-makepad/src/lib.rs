@@ -80,7 +80,8 @@ fn emit(node: &UiNode, out: &mut String, depth: usize) {
 /// boxes with only their text children showing.
 fn widget_for(node: &UiNode) -> &'static str {
     let base = widget_name(node.kind);
-    if base == "View" && (node.attrs.bg.is_some() || node.attrs.radius.is_some()) {
+    let a = &node.attrs;
+    if base == "View" && (a.bg.is_some() || a.radius.is_some() || a.border.is_some()) {
         "RoundedView"
     } else {
         base
@@ -94,9 +95,13 @@ fn emit_attrs(node: &UiNode, out: &mut String, depth: usize) {
     if let Some(f) = flow(node.kind) {
         let _ = writeln!(out, "{ind}flow: {f}");
     }
-    // A row reads best with its children vertically centred (a widget and its
-    // label line up), matching how ArkUI lays a row out.
-    if node.kind == NodeKind::Row {
+    // Explicit alignment wins; otherwise a row centres its children vertically
+    // (a widget and its label line up), matching how ArkUI lays a row out.
+    if a.alignx.is_some() || a.aligny.is_some() {
+        let x = a.alignx.unwrap_or(0.0);
+        let y = a.aligny.unwrap_or(0.0);
+        let _ = writeln!(out, "{ind}align: Align{{x: {x}, y: {y}}}");
+    } else if node.kind == NodeKind::Row {
         let _ = writeln!(out, "{ind}align: Align{{y: 0.5}}");
     }
     // makepad containers default to Fill on both axes, which makes a card
@@ -107,6 +112,9 @@ fn emit_attrs(node: &UiNode, out: &mut String, depth: usize) {
         Some(w) => {
             let _ = writeln!(out, "{ind}width: {w}");
         }
+        None if a.fitw == Some(1) => {
+            let _ = writeln!(out, "{ind}width: Fit");
+        }
         None if container => {
             let _ = writeln!(out, "{ind}width: Fill");
         }
@@ -116,6 +124,9 @@ fn emit_attrs(node: &UiNode, out: &mut String, depth: usize) {
         Some(h) => {
             let _ = writeln!(out, "{ind}height: {h}");
         }
+        None if a.fith == Some(1) => {
+            let _ = writeln!(out, "{ind}height: Fit");
+        }
         None if container => {
             let _ = writeln!(out, "{ind}height: Fit");
         }
@@ -124,9 +135,14 @@ fn emit_attrs(node: &UiNode, out: &mut String, depth: usize) {
     if let Some(p) = a.pad {
         let _ = writeln!(out, "{ind}padding: {p}");
     }
-    // bg + radius share one draw_bg block.
-    if a.bg.is_some() || a.radius.is_some() {
-        if a.bg.is_some() {
+    if let Some(sp) = a.spacing {
+        let _ = writeln!(out, "{ind}spacing: {sp}");
+    }
+    // bg / radius / border share one draw_bg block. A RoundedView defaults to a
+    // transparent fill, so a border with no bg paints a clean outline (Material
+    // "outlined" components); a border needs show_bg so the outline is painted.
+    if a.bg.is_some() || a.radius.is_some() || a.border.is_some() {
+        if a.bg.is_some() || a.border.is_some() {
             let _ = writeln!(out, "{ind}show_bg: true");
         }
         let mut parts = Vec::new();
@@ -136,12 +152,22 @@ fn emit_attrs(node: &UiNode, out: &mut String, depth: usize) {
         if let Some(r) = a.radius {
             parts.push(format!("radius: {r}"));
         }
+        if let Some(b) = a.border {
+            parts.push(format!("border_size: {b}"));
+        }
+        if let Some(bc) = a.bordercolor {
+            parts.push(format!("border_color: {}", hex_rgba(bc)));
+        }
         // `draw_bg +:` merges onto the widget's draw shader (makepad convention).
         let _ = writeln!(out, "{ind}draw_bg +: {{ {} }}", parts.join(", "));
     }
     // Text goes on both Label and Button.
     if let Some(t) = a.text.as_ref().or(a.label.as_ref()) {
         let _ = writeln!(out, "{ind}text: {t:?}");
+    }
+    // A placeholder maps to a TextInput's `empty_text` (shown when unfocused/empty).
+    if let Some(ph) = a.placeholder.as_ref() {
+        let _ = writeln!(out, "{ind}empty_text: {ph:?}");
     }
     if let Some(s) = a.size {
         let _ = writeln!(out, "{ind}draw_text.text_style.font_size: {s}");

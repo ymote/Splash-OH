@@ -87,18 +87,26 @@ pub struct Attrs {
     pub fit: Option<i32>,
     pub w: Option<f32>,
     pub h: Option<f32>,
+    /// Force Fit (hug-content) sizing on an axis, overriding the container
+    /// default of Fill — for content-sized items like chips and buttons.
+    pub fitw: Option<i32>,
+    pub fith: Option<i32>,
     pub size: Option<f32>,
     pub weight: Option<i32>,
     pub color: Option<u32>,
     pub bg: Option<u32>,
     pub radius: Option<f32>,
     pub pad: Option<f32>,
+    pub spacing: Option<f32>,
     pub margin: Option<f32>,
     pub border: Option<f32>,
     pub bordercolor: Option<u32>,
     pub value: Option<f32>,
     pub total: Option<f32>,
     pub align: Option<i32>,
+    /// Child alignment within a container, 0.0..=1.0 on each axis.
+    pub alignx: Option<f32>,
+    pub aligny: Option<f32>,
     pub on: Option<i32>,
     pub tap: Option<i32>,
 }
