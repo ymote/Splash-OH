@@ -489,21 +489,33 @@ pub fn video_play(path: &str) -> Result<String, String> {
         if rc != 0 {
             return Err(format!("play: {rc}"));
         }
-        // Let the state settle before reporting it -- prepare/play are async
-        // and reading immediately reports whatever it was a moment ago.
-        std::thread::sleep(std::time::Duration::from_millis(400));
+        // GetState does not track playback on this device.
+        //
+        // It reports idle (0) while the decoder is visibly rendering frames --
+        // measured: the surface goes from RGB [4,4,4] to [222,222,222] showing
+        // a running timecode, and GetState still says idle after polling for
+        // three seconds. So the state is reported as observed and playback is
+        // reported from what Play() returned, which is the fact that can be
+        // trusted here. A row must not contradict the screen.
         let mut st: i32 = -1;
-        let mut dur: i32 = 0;
-        unsafe {
-            (api.get_state)(player, &mut st);
-            (api.get_duration)(player, &mut dur);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(3000);
+        while std::time::Instant::now() < deadline {
+            unsafe { (api.get_state)(player, &mut st) };
+            if st == 3 || st == 8 {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
         }
+        let mut dur: i32 = 0;
+        unsafe { (api.get_duration)(player, &mut dur) };
         Ok(format!(
-            "{{\"path\":{},\"bytes\":{},\"state\":{},\"durationMs\":{}}}",
+            "{{\"path\":{},\"bytes\":{},\"started\":true,\"state\":{},\"durationMs\":{},\
+             \"stateTracks\":{}}}",
             json_str(path),
             size,
             json_str(state_name(st)),
-            dur
+            dur,
+            st == 3
         ))
     })();
 

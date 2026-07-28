@@ -506,6 +506,85 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args: String) {
             },
         ),
 
+        // Fetch a URL straight into the app sandbox.
+        //
+        // The bytes never cross the bridge. `http.get` returns the body as a
+        // JSON string that is then evaluated into the page, which is fine for a
+        // weather forecast and hopeless for a video -- and `fs.read` caps at
+        // 1 MB for the same reason. This writes to disk and returns a path, so
+        // the only thing that crosses is a filename.
+        //
+        // The name is sanitised rather than trusted: a page choosing where in
+        // the sandbox to write is a different capability from a page asking for
+        // a download.
+        //
+        // Args: {"url": "https://...", "name": "clip.mp4"}
+        "net.fetchToFile" => {
+            std::thread::spawn(move || {
+                let v: serde_json::Value = serde_json::from_str(&args).unwrap_or_default();
+                let url = v
+                    .get("url")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let raw = v
+                    .get("name")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("download.bin");
+                let name: String = raw
+                    .chars()
+                    .filter(|c| c.is_ascii_alphanumeric() || *c == '.' || *c == '-' || *c == '_')
+                    .take(64)
+                    .collect();
+                if name.is_empty() || name.starts_with('.') {
+                    reply(slot, call_id, err("bad file name"));
+                    return;
+                }
+                if let Err(e) = check_https_public(&url) {
+                    reply(slot, call_id, err(&e));
+                    return;
+                }
+                let (code, body) = net::http_get(&url);
+                if !(200..300).contains(&code) {
+                    reply(slot, call_id, err(&format!("http {code}")));
+                    return;
+                }
+                let Some(bytes) = body else {
+                    reply(slot, call_id, err("empty response"));
+                    return;
+                };
+                // http_get buffers the whole body before returning, so the cap
+                // is about memory, not disk. The first URL tried here was
+                // 249 MB, which would have been held entirely in RAM on a
+                // phone -- a page naming a large file should get an error, not
+                // an allocation the size of the file.
+                if bytes.len() > FETCH_MAX {
+                    reply(
+                        slot,
+                        call_id,
+                        err(&format!(
+                            "response is {} bytes, over the {FETCH_MAX}-byte limit",
+                            bytes.len()
+                        )),
+                    );
+                    return;
+                }
+                let path = format!("/data/storage/el2/base/files/{name}");
+                match std::fs::write(&path, &bytes) {
+                    Ok(()) => reply(
+                        slot,
+                        call_id,
+                        ok(format!(
+                            "{{\"path\":{},\"bytes\":{}}}",
+                            json_str(&path),
+                            bytes.len()
+                        )),
+                    ),
+                    Err(e) => reply(slot, call_id, err(&format!("write {path}: {e}"))),
+                }
+            });
+        }
+
         // A decoder pointed at the surface the camera preview already uses.
         // Sandbox files only, delivered by fd -- AVPlayer accepts a URL too,
         // and that would let a page make the media stack fetch anything it
@@ -917,6 +996,12 @@ const HTTP_GET_ALLOWED_HOSTS: &[&str] = &[
     "open-meteo.com",
     "api.open-meteo.com",
     "air-quality-api.open-meteo.com",
+    // W3C's test-media host, so `net.fetchToFile` has something to fetch:
+    // nothing else can put a media file where the app can read it -- hdc's
+    // push resolves outside the app's mount namespace, so the file never
+    // arrives. Google's gtv-videos-bucket was the first choice and answers 403
+    // to an anonymous GET; this one serves openly.
+    "media.w3.org",
 ];
 
 /// https-only, public hosts only. Blocks the SSRF shapes -- loopback, private
@@ -1064,6 +1149,11 @@ pub fn pick_resolve(req_id: &str, success: bool, payload: String) {
         reply(slot, call_id, err(&payload));
     }
 }
+
+/// Ceiling on one `net.fetchToFile`. See the note at the size check: the body
+/// is buffered whole before it reaches disk, so this bounds memory rather than
+/// storage, and a streaming download would need a different transport.
+const FETCH_MAX: usize = 16 * 1024 * 1024;
 
 /// Ceiling on `fs.read`, and its default when a page names none.
 ///
