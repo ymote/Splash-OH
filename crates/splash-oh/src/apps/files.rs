@@ -19,8 +19,9 @@
 //! boundary and pre-empting it from the host side would mean the probe was
 //! measuring my guesses rather than the system.
 
-use super::ui::*;
-use crate::arkui::Node;
+use crate::webslot::{web, web_html};
+use splash_oh_native::ui::*;
+use splash_oh_native::arkui::Node;
 
 const CHROME: u32 = 0xFF1B1B26;
 const SUBTLE: u32 = 0xFF8A8A9E;

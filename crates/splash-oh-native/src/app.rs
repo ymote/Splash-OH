@@ -97,9 +97,17 @@ extern "C" fn on_event(target_id: i32, _event_type: i32) {
     // `build_route` rather than taps, and the on-device tour was driven by a
     // timer -- nothing in the harness ever exercised a tap outside WeChat.
     if WECHAT_ACTIVE.with(|w| *w.borrow()) {
-        if crate::apps::handle(target_id) {
-            let (node, _, _) = crate::apps::build();
-            set_root(node);
+        // Routed through a hook, not a direct call.
+        //
+        // This is the one place the renderer would otherwise have to know what
+        // an app is. The router lives in splash-oh-webview -- it dispatches to
+        // both the native demos and the web cards -- and a direct call here
+        // would make the renderer depend on the bridge, inverting the whole
+        // point of the split.
+        if let Some(route) = router() {
+            if let Some(node) = route(target_id) {
+                set_root(Some(node));
+            }
         }
         return;
     }
@@ -137,6 +145,24 @@ fn set_screen(s: String) {
 /// Rust. Both end up here, because detaching the previous root before dropping
 /// it is the part that must not be got wrong — ArkUI keeps rendering nodes we
 /// are about to free otherwise.
+/// Handle a tap and, if it changed anything, return the tree to mount.
+///
+/// `None` means the tap was not for this app and nothing should be rebuilt.
+pub type Router = fn(i32) -> Option<Node>;
+
+static ROUTER: std::sync::Mutex<Option<Router>> = std::sync::Mutex::new(None);
+
+/// Installed once by the crate that owns the apps.
+pub fn set_router(f: Router) {
+    if let Ok(mut r) = ROUTER.lock() {
+        *r = Some(f);
+    }
+}
+
+fn router() -> Option<Router> {
+    ROUTER.lock().ok().and_then(|r| *r)
+}
+
 pub fn set_root(new_root: Option<Node>) {
     let Some(new_root) = new_root else {
         crate::log("app: build produced nothing");

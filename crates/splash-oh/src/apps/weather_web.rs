@@ -16,9 +16,10 @@
 //! requests of its own. That matters: a webview that fetches its own data is a
 //! second, invisible network path with its own failure modes.
 
-use super::ui::*;
-use crate::arkui::Node;
-use crate::net;
+use crate::webslot::{web, web_html};
+use splash_oh_native::ui::*;
+use splash_oh_native::arkui::Node;
+use splash_oh_native::net;
 use std::sync::Mutex;
 
 const CHROME: u32 = 0xFF1C1C2E;

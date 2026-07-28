@@ -21,7 +21,7 @@
 //! and a frame producer writes into that surface directly. ArkTS is not on the
 //! frame path, and here it is not on the setup path either.
 
-use crate::arkui::Node;
+use splash_oh_native::arkui::Node;
 use std::ffi::c_void;
 use std::os::raw::c_char;
 use std::sync::Mutex;

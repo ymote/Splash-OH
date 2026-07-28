@@ -15,8 +15,9 @@
 //! refresh rate, the battery's charge, and the process's own resident set —
 //! because Rust asks the system and hands the answer back across the bridge.
 
-use super::ui::*;
-use crate::arkui::Node;
+use crate::webslot::{web, web_html};
+use splash_oh_native::ui::*;
+use splash_oh_native::arkui::Node;
 
 const CHROME: u32 = 0xFF14141C;
 
