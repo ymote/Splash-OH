@@ -45,6 +45,9 @@ fn widget_name(kind: NodeKind) -> &'static str {
         NodeKind::Checkbox => "CheckBox",
         NodeKind::Toggle => "Toggle",
         NodeKind::Radio => "RadioButton",
+        // A real, continuously-animated Material circular indicator (its shader
+        // spins off draw_pass.time). `bg` recolours the arc via draw_bg.color.
+        NodeKind::Loading => "LoadingSpinner",
         // every container-ish kind is a View with the right flow.
         _ => "View",
     }
