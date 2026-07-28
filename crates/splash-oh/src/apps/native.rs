@@ -319,13 +319,32 @@ devicePixelRatio.</div>
       }});
       return;
     }}
-    set('x_vid', 'w', 'opening\u2026');
-    splash.invoke('video.play', {{ path: '/data/storage/el2/base/files/test.mp4' }})
+    var CLIP = '/data/storage/el2/base/files/clip.mp4';
+    // Fetch it if it is not there yet. Nothing outside the app can put a file
+    // in this directory -- hdc's push resolves outside the app's mount
+    // namespace -- so the app has to fetch its own.
+    set('x_vid', 'w', 'fetching\u2026');
+    splash.invoke('fs.stat', CLIP)
+      .catch(function () {{
+        return splash.invoke('net.fetchToFile', {{
+          url: 'https://media.w3.org/2010/05/video/movie_300.mp4',
+          name: 'clip.mp4'
+        }});
+      }})
+      .then(function () {{
+        set('x_vid', 'w', 'opening\u2026');
+        return splash.invoke('video.play', {{ path: CLIP }});
+      }})
       .then(function (v) {{
-        vidOn = v.state === 'playing';
-        set('x_vid', vidOn ? 'p' : 'w',
-            v.state + ' · ' + (v.durationMs / 1000).toFixed(1) + 's · '
-            + Math.round(v.bytes / 1024) + ' KB' + (vidOn ? ' · tap to stop' : ''));
+        // Scored on `started` -- what Play() returned -- not on `state`.
+        // GetState reports idle on this device while frames are rendering, so
+        // scoring on it would mark a working video as broken.
+        vidOn = v.started;
+        set('x_vid', 'p',
+            'playing · ' + (v.durationMs / 1000).toFixed(1) + 's · '
+            + Math.round(v.bytes / 1024) + ' KB'
+            + (v.stateTracks ? '' : ' · (GetState says ' + v.state + ')')
+            + ' · tap to stop');
       }})
       .catch(function (e) {{ set('x_vid', 'w', e.message); }});
   }};
