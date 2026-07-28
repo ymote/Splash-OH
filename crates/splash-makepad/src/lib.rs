@@ -61,16 +61,29 @@ fn flow(kind: NodeKind) -> Option<&'static str> {
 
 fn emit(node: &UiNode, out: &mut String, depth: usize) {
     let ind = "    ".repeat(depth);
-    let name = widget_name(node.kind);
+    let name = widget_for(node);
     let _ = writeln!(out, "{ind}{name} {{");
     emit_attrs(node, out, depth + 1);
-    // Only containers (Views) carry children.
-    if name == "View" {
+    // Only container views carry children.
+    if name == "View" || name == "RoundedView" {
         for c in &node.children {
             emit(c, out, depth + 1);
         }
     }
     let _ = writeln!(out, "{ind}}}");
+}
+
+/// The concrete makepad widget for a node. A container that carries a background
+/// or corner radius must be a `RoundedView` — plain `View` does not paint
+/// `draw_bg` in makepad, which renders such containers as (invisible) empty
+/// boxes with only their text children showing.
+fn widget_for(node: &UiNode) -> &'static str {
+    let base = widget_name(node.kind);
+    if base == "View" && (node.attrs.bg.is_some() || node.attrs.radius.is_some()) {
+        "RoundedView"
+    } else {
+        base
+    }
 }
 
 fn emit_attrs(node: &UiNode, out: &mut String, depth: usize) {
@@ -99,9 +112,10 @@ fn emit_attrs(node: &UiNode, out: &mut String, depth: usize) {
             parts.push(format!("color: {}", hex_rgba(bg)));
         }
         if let Some(r) = a.radius {
-            parts.push(format!("border_radius: {r}"));
+            parts.push(format!("radius: {r}"));
         }
-        let _ = writeln!(out, "{ind}draw_bg: {{ {} }}", parts.join(", "));
+        // `draw_bg +:` merges onto the widget's draw shader (makepad convention).
+        let _ = writeln!(out, "{ind}draw_bg +: {{ {} }}", parts.join(", "));
     }
     // Text goes on both Label and Button.
     if let Some(t) = a.text.as_ref().or(a.label.as_ref()) {
@@ -163,7 +177,7 @@ mod tests {
                    {t:"text", text:"Hi", size: 20, color: argb(255,255,255,255), w:100, h:28}
                ]}"#,
         ));
-        assert!(ui.contains("View {"), "container is a View:\n{ui}");
+        assert!(ui.contains("RoundedView {"), "filled container must be a RoundedView:\n{ui}");
         assert!(ui.contains("flow: Down"));
         assert!(ui.contains("padding: 12"));
         assert!(ui.contains("show_bg: true"));
