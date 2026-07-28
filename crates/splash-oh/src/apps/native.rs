@@ -64,6 +64,9 @@ h2{{font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:#5f5f7a;
 <div class=r><span class=k>api / abi</span><span class="v m" id=d_api>&#8230;</span></div>
 <div class=r><span class=k>security patch</span><span class="v m" id=d_patch>&#8230;</span></div>
 
+<div class=r><span class=k>time zone</span><span class="v m" id=d_tz>&#8230;</span></div>
+<div class=r><span class=k>notifications</span><span class="v m" id=d_notif>&#8230;</span></div>
+
 <h2>Display &mdash; libnative_display_manager</h2>
 <div class=r><span class=k>panel</span><span class="v m" id=p_size>&#8230;</span></div>
 <div class=r><span class=k>density</span><span class="v m" id=p_dens>&#8230;</span></div>
@@ -116,7 +119,8 @@ devicePixelRatio.</div>
   }}
 
   if (!window.splash || !splash.available()) {{
-    ['d_phone','d_model','d_os','d_api','d_patch','p_size','p_dens','p_rot',
+    ['d_phone','d_model','d_os','d_api','d_patch','d_tz','d_notif',
+     'p_size','p_dens','p_rot',
      'b_cap','s_list','s_acc','s_light','s_vib',
      'f_rss','f_stat','f_list','c_cap','w_net','w_caps','w_proxy','k_rt','k_runs',
      'n_get','n_vm','n_echo','g_ssrf','g_unk']
@@ -143,6 +147,14 @@ devicePixelRatio.</div>
       set('d_api', 'p', 'API ' + i.sdkApiVersion + ' · ' + i.abiList);
       set('d_patch', 'p', i.securityPatch || 'n/a');
     }});
+
+  call('device.time', undefined, ['d_tz'], function (t) {{
+    var skew = Math.abs(t.unixSeconds * 1000 - Date.now()) / 1000;
+    set('d_tz', 'p', t.timeZone + ' · clock ±' + skew.toFixed(1) + 's vs JS');
+  }});
+  call('device.notifications', undefined, ['d_notif'], function (n) {{
+    set('d_notif', n.enabled ? 'p' : 'w', n.enabled ? 'enabled' : 'disabled by user');
+  }});
 
   call('device.display', undefined, ['p_size','p_dens','p_rot'], function (d) {{
     set('p_size', 'p', d.width + ' × ' + d.height + ' px @ ' + d.refreshRate + ' Hz');

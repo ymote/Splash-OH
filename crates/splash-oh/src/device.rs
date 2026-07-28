@@ -167,3 +167,44 @@ pub fn battery() -> String {
         plugged >= 1 && plugged <= 3,
     )
 }
+
+// time_service and notification. Two more single-call kits, grouped here
+// rather than given files of their own — a module per extern block would be
+// more files than facts.
+extern "C" {
+    fn OH_TimeService_GetTimeZone(buf: *mut c_char, len: u32) -> i32;
+    fn OH_Notification_IsNotificationEnabled() -> bool;
+}
+
+/// System time and zone. JSON object.
+///
+/// The zone is the point: `Intl.DateTimeFormat().resolvedOptions().timeZone` in
+/// a page reports what the *webview* was configured with, which is not
+/// necessarily what the user set on the phone. This asks the time service.
+pub fn time() -> String {
+    let mut buf = [0 as c_char; 128];
+    let zone = if unsafe { OH_TimeService_GetTimeZone(buf.as_mut_ptr(), buf.len() as u32) } == 0 {
+        s(buf.as_ptr())
+    } else {
+        String::new()
+    };
+    let unix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    format!(
+        "{{\"timeZone\":{},\"unixSeconds\":{}}}",
+        json_str(&zone),
+        unix
+    )
+}
+
+/// Whether the user has notifications switched on for this app.
+///
+/// Read-only: the native NotificationKit exposes exactly this one call, so a
+/// page can find out whether posting would be seen — and cannot post.
+pub fn notifications_enabled() -> String {
+    format!("{{\"enabled\":{}}}", unsafe {
+        OH_Notification_IsNotificationEnabled()
+    })
+}
