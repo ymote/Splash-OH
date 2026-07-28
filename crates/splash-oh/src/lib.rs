@@ -15,6 +15,7 @@ pub mod apps;
 pub mod arkui;
 pub mod bench;
 pub mod bridge;
+pub mod capture;
 pub mod catalog;
 pub mod device;
 pub mod dsl;

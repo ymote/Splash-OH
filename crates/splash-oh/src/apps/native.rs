@@ -83,6 +83,9 @@ h2{{font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:#5f5f7a;
 <div class=r><span class=k>fs.stat sandbox</span><span class="v m" id=f_stat>&#8230;</span></div>
 <div class=r><span class=k>fs.list sandbox</span><span class="v m" id=f_list>&#8230;</span></div>
 
+<h2>Screen capture &mdash; libnative_display_manager</h2>
+<div class=r><span class=k>screen.capture</span><span class="v m" id=c_cap>&#8230;</span></div>
+
 <h2>Network &mdash; libnet_connection</h2>
 <div class=r><span class=k>default route</span><span class="v m" id=w_net>&#8230;</span></div>
 <div class=r><span class=k>capabilities</span><span class="v m" id=w_caps>&#8230;</span></div>
@@ -115,7 +118,7 @@ devicePixelRatio.</div>
   if (!window.splash || !splash.available()) {{
     ['d_phone','d_model','d_os','d_api','d_patch','p_size','p_dens','p_rot',
      'b_cap','s_list','s_acc','s_light','s_vib',
-     'f_rss','f_stat','f_list','w_net','w_caps','w_proxy','k_rt','k_runs',
+     'f_rss','f_stat','f_list','c_cap','w_net','w_caps','w_proxy','k_rt','k_runs',
      'n_get','n_vm','n_echo','g_ssrf','g_unk']
       .forEach(function (id) {{ set(id, 'f', 'no bridge'); }});
     return;
@@ -188,6 +191,12 @@ devicePixelRatio.</div>
   call('fs.list', SANDBOX, ['f_list'], function (l) {{
     set('f_list', 'p', l.entries.length + ' entries');
   }});
+
+  // A refusal here is a result, not a bug -- the row says which refusal.
+  splash.invoke('screen.capture').then(function (c) {{
+    set('c_cap', 'p', c.width + '×' + c.height + ' ' + c.pixelFormat
+        + (c.averageColor ? ' · avg ' + c.averageColor : ''));
+  }}).catch(function (e) {{ set('c_cap', 'w', e.message); }});
 
   call('net.info', undefined, ['w_net','w_caps','w_proxy'], function (n) {{
     set('w_net', n.online ? 'p' : 'f',
