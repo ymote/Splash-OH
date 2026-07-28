@@ -83,6 +83,15 @@ h2{{font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:#5f5f7a;
 <div class=r><span class=k>fs.stat sandbox</span><span class="v m" id=f_stat>&#8230;</span></div>
 <div class=r><span class=k>fs.list sandbox</span><span class="v m" id=f_list>&#8230;</span></div>
 
+<h2>Network &mdash; libnet_connection</h2>
+<div class=r><span class=k>default route</span><span class="v m" id=w_net>&#8230;</span></div>
+<div class=r><span class=k>capabilities</span><span class="v m" id=w_caps>&#8230;</span></div>
+<div class=r><span class=k>system proxy</span><span class="v m" id=w_proxy>&#8230;</span></div>
+
+<h2>Persistent storage</h2>
+<div class=r><span class=k>prefs round trip</span><span class="v m" id=k_rt>&#8230;</span></div>
+<div class=r><span class=k>launches seen</span><span class="v m" id=k_runs>&#8230;</span></div>
+
 <h2>Network and VM</h2>
 <div class=r><span class=k>http.get</span><span class="v m" id=n_get>&#8230;</span></div>
 <div class=r><span class=k>splash.eval</span><span class="v m" id=n_vm>&#8230;</span></div>
@@ -106,7 +115,8 @@ devicePixelRatio.</div>
   if (!window.splash || !splash.available()) {{
     ['d_phone','d_model','d_os','d_api','d_patch','p_size','p_dens','p_rot',
      'b_cap','s_list','s_acc','s_light','s_vib',
-     'f_rss','f_stat','f_list','n_get','n_vm','n_echo','g_ssrf','g_unk']
+     'f_rss','f_stat','f_list','w_net','w_caps','w_proxy','k_rt','k_runs',
+     'n_get','n_vm','n_echo','g_ssrf','g_unk']
       .forEach(function (id) {{ set(id, 'f', 'no bridge'); }});
     return;
   }}
@@ -178,6 +188,31 @@ devicePixelRatio.</div>
   call('fs.list', SANDBOX, ['f_list'], function (l) {{
     set('f_list', 'p', l.entries.length + ' entries');
   }});
+
+  call('net.info', undefined, ['w_net','w_caps','w_proxy'], function (n) {{
+    set('w_net', n.online ? 'p' : 'f',
+        (n.online ? 'up' : 'down') + ' · ' + (n.bearers.join(', ') || '?')
+        + (n.metered === true ? ' · metered' : ''));
+    // "validated" is the interesting one: a link can be associated and still
+    // not carry traffic, which is what the phone looks like behind a dead proxy.
+    set('w_caps', n.capabilities.indexOf('validated') >= 0 ? 'p' : 'w',
+        n.capabilities.join(', ') || 'none');
+    set('w_proxy', n.proxy ? 'w' : 'p',
+        n.proxy ? n.proxy.host + ':' + n.proxy.port : 'none');
+  }});
+
+  // Written, read back, and counted across launches -- so the row proves the
+  // value survived the process rather than just this page.
+  splash.invoke('prefs.set', {{ key: 'probe', value: 'v1' }})
+    .then(function () {{ return splash.invoke('prefs.get', 'probe'); }})
+    .then(function (v) {{ set('k_rt', v === 'v1' ? 'p' : 'f', 'stored and read "' + v + '"'); }})
+    .catch(function (e) {{ set('k_rt', 'f', e.message); }});
+
+  splash.invoke('prefs.get', 'launches').then(function (v) {{
+    var n = (parseInt(v, 10) || 0) + 1;
+    return splash.invoke('prefs.set', {{ key: 'launches', value: String(n) }})
+      .then(function () {{ set('k_runs', 'p', n + (n === 1 ? ' (first run)' : '')); }});
+  }}).catch(function (e) {{ set('k_runs', 'f', e.message); }});
 
   call('http.get', 'https://api.open-meteo.com/v1/forecast?latitude=35.7&longitude=139.7'
        + '&current=temperature_2m&timezone=auto', ['n_get'], function (body) {{
