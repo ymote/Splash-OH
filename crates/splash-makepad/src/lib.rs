@@ -89,11 +89,16 @@ fn emit(node: &UiNode, out: &mut String, depth: usize) {
 fn widget_for(node: &UiNode) -> &'static str {
     let base = widget_name(node.kind);
     let a = &node.attrs;
-    if base == "View" && (a.bg.is_some() || a.radius.is_some() || a.border.is_some()) {
-        "RoundedView"
-    } else {
-        base
+    if base == "View" {
+        // A raised container casts a drop shadow (Material elevation).
+        if a.elevation.is_some() {
+            return "RoundedShadowView";
+        }
+        if a.bg.is_some() || a.radius.is_some() || a.border.is_some() {
+            return "RoundedView";
+        }
     }
+    base
 }
 
 fn emit_attrs(node: &UiNode, out: &mut String, depth: usize) {
@@ -155,8 +160,8 @@ fn emit_attrs(node: &UiNode, out: &mut String, depth: usize) {
     // bg / radius / border share one draw_bg block. A RoundedView defaults to a
     // transparent fill, so a border with no bg paints a clean outline (Material
     // "outlined" components); a border needs show_bg so the outline is painted.
-    if a.bg.is_some() || a.radius.is_some() || a.border.is_some() {
-        if a.bg.is_some() || a.border.is_some() {
+    if a.bg.is_some() || a.radius.is_some() || a.border.is_some() || a.elevation.is_some() {
+        if a.bg.is_some() || a.border.is_some() || a.elevation.is_some() {
             let _ = writeln!(out, "{ind}show_bg: true");
         }
         let mut parts = Vec::new();
@@ -171,6 +176,15 @@ fn emit_attrs(node: &UiNode, out: &mut String, depth: usize) {
         }
         if let Some(bc) = a.bordercolor {
             parts.push(format!("border_color: {}", hex_rgba(bc)));
+        }
+        if let Some(e) = a.elevation {
+            // Material elevation → a soft drop shadow scaled by the dp value
+            // (RoundedShadowView's shadow_* instances).
+            let radius = 3.0 + e * 2.0;
+            let dy = 1.0 + e * 0.6;
+            parts.push("shadow_color: #00000033".to_string());
+            parts.push(format!("shadow_radius: {radius}"));
+            parts.push(format!("shadow_offset: vec2(0.0, {dy})"));
         }
         // `draw_bg +:` merges onto the widget's draw shader (makepad convention).
         let _ = writeln!(out, "{ind}draw_bg +: {{ {} }}", parts.join(", "));

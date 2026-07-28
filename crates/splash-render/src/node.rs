@@ -108,6 +108,9 @@ pub struct Attrs {
     pub color: Option<u32>,
     pub bg: Option<u32>,
     pub radius: Option<f32>,
+    /// Material elevation (dp). Non-zero promotes a filled container to a
+    /// shadow-casting view and scales its drop shadow.
+    pub elevation: Option<f32>,
     pub pad: Option<f32>,
     pub spacing: Option<f32>,
     pub margin: Option<f32>,

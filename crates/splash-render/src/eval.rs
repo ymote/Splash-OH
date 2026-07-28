@@ -70,6 +70,7 @@ fn walk(vm: &mut ScriptVm, value: ScriptValue, depth: usize) -> Option<UiNode> {
         color: u32_prop(vm, value, id!(color)),
         bg: u32_prop(vm, value, id!(bg)),
         radius: f32_prop(vm, value, id!(radius)),
+        elevation: f32_prop(vm, value, id!(elevation)),
         pad: f32_prop(vm, value, id!(pad)),
         spacing: f32_prop(vm, value, id!(spacing)),
         margin: f32_prop(vm, value, id!(margin)),
