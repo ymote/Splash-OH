@@ -172,6 +172,10 @@ static STREAM_SLOT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32:
 static STREAMING: AtomicBool = AtomicBool::new(false);
 static STREAM_KIND: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
 static STREAM_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+/// Samples waiting for the worker to format and send. Bounded, because a
+/// stalled drainer must cost samples rather than memory.
+#[allow(clippy::type_complexity)]
+static PENDING: Mutex<Vec<(i32, Vec<f32>, u32)>> = Mutex::new(Vec::new());
 
 extern "C" fn on_event(event: *mut c_void, _user: *mut c_void) {
     if event.is_null() {
@@ -185,23 +189,27 @@ extern "C" fn on_event(event: *mut c_void, _user: *mut c_void) {
     let vals = unsafe { std::slice::from_raw_parts(data, len as usize) }.to_vec();
     let mut acc: i32 = 0;
     unsafe { OH_SensorEvent_GetAccuracy(event, &mut acc) };
-    // A stream pushes each sample straight out. This runs on the sensor
-    // service's thread, so the send must not block -- bridge::emit goes through
-    // a non-blocking threadsafe function for exactly that reason.
+    // A stream hands the sample to a worker rather than sending it here.
+    //
+    // audio.rs states the rule for callbacks on service threads -- no locking,
+    // no allocating -- and the first version of this broke it: formatting the
+    // payload allocated four times and bridge::emit takes a mutex, all on the
+    // sensor service's own thread. The sensor thread is not hard real-time the
+    // way the audio one is, so nothing audibly broke, but a rule worth writing
+    // down is worth not violating two commits later.
+    //
+    // Copying six floats into a bounded queue is the whole cost here; the
+    // worker does the formatting and the send.
     if STREAMING.load(Ordering::Relaxed) {
         let n = STREAM_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
-        let nums: Vec<String> = vals.iter().map(|v| format!("{v:.3}")).collect();
-        let kind = STREAM_KIND.load(Ordering::Relaxed);
-        crate::bridge::emit(
-            STREAM_SLOT.load(Ordering::Relaxed),
-            "sensor",
-            &format!(
-                "{{\"kind\":{},\"values\":[{}],\"n\":{}}}",
-                json_str(type_name(kind)),
-                nums.join(","),
-                n
-            ),
-        );
+        if let Ok(mut q) = PENDING.try_lock() {
+            // try_lock, not lock: if the drainer holds it, drop this sample
+            // rather than stall the sensor service. A dropped sample at 20 Hz
+            // is invisible; a blocked callback is not.
+            if q.len() < 256 {
+                q.push((STREAM_KIND.load(Ordering::Relaxed), vals, n));
+            }
+        }
         return;
     }
     if let Ok(mut s) = SAMPLE.lock() {
@@ -311,6 +319,27 @@ pub fn vibrate_cancel() -> i32 {
     unsafe { OH_Vibrator_Cancel() }
 }
 
+/// Format and send whatever the callback has queued.
+fn drain_pending(slot: u32) {
+    let batch: Vec<(i32, Vec<f32>, u32)> = match PENDING.lock() {
+        Ok(mut q) => q.drain(..).collect(),
+        Err(_) => return,
+    };
+    for (kind, vals, n) in batch {
+        let nums: Vec<String> = vals.iter().map(|v| format!("{v:.3}")).collect();
+        crate::bridge::emit(
+            slot,
+            "sensor",
+            &format!(
+                "{{\"kind\":{},\"values\":[{}],\"n\":{}}}",
+                json_str(type_name(kind)),
+                nums.join(","),
+                n
+            ),
+        );
+    }
+}
+
 /// Stream a sensor for `ms`, emitting every sample as a `sensor` event.
 ///
 /// The case `emit` exists for. An accelerometer at 20 Hz cannot travel through
@@ -349,9 +378,17 @@ pub fn stream(kind: i32, slot: u32, ms: u64) -> Result<String, String> {
                 format!("subscribe failed ({rc})")
             });
         }
-        std::thread::sleep(std::time::Duration::from_millis(ms));
+        // Drain on this thread, not the sensor's. Polled at 10 ms, which is
+        // half the 50 ms sampling interval, so a sample waits 10 ms at worst.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(ms);
+        while std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            drain_pending(slot);
+        }
         STREAMING.store(false, Ordering::SeqCst);
         unsafe { OH_Sensor_Unsubscribe(id, sub) };
+        // Anything the callback queued after the last poll.
+        drain_pending(slot);
 
         let sent = STREAM_COUNT.load(Ordering::SeqCst);
         Ok(format!(
