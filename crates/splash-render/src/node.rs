@@ -105,6 +105,9 @@ pub struct Attrs {
     pub fillh: Option<i32>,
     pub size: Option<f32>,
     pub weight: Option<i32>,
+    /// Render this text in the theme's icon font (Font Awesome) so a codepoint
+    /// like `\u{f002}` paints a monochrome Material-style icon, not a colour emoji.
+    pub icon: Option<i32>,
     pub color: Option<u32>,
     pub bg: Option<u32>,
     pub radius: Option<f32>,
@@ -112,6 +115,11 @@ pub struct Attrs {
     /// shadow-casting view and scales its drop shadow.
     pub elevation: Option<f32>,
     pub pad: Option<f32>,
+    /// Asymmetric padding: horizontal (`padx`) / vertical (`pady`), each
+    /// overriding `pad` on its axis — for M3 insets like a button's 24dp
+    /// horizontal / 6dp vertical padding that a uniform `pad` can't express.
+    pub padx: Option<f32>,
+    pub pady: Option<f32>,
     pub spacing: Option<f32>,
     pub margin: Option<f32>,
     pub border: Option<f32>,

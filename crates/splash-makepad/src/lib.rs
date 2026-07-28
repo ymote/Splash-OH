@@ -151,7 +151,17 @@ fn emit_attrs(node: &UiNode, out: &mut String, depth: usize) {
         }
         None => {}
     }
-    if let Some(p) = a.pad {
+    // Padding: asymmetric padx/pady (each overriding pad on its axis) emit a
+    // per-side object; otherwise a uniform pad. Enables M3's asymmetric insets
+    // (e.g. a button's 24dp horizontal / 6dp vertical padding).
+    if a.padx.is_some() || a.pady.is_some() {
+        let px = a.padx.or(a.pad).unwrap_or(0.0);
+        let py = a.pady.or(a.pad).unwrap_or(0.0);
+        let _ = writeln!(
+            out,
+            "{ind}padding: {{left: {px}, right: {px}, top: {py}, bottom: {py}}}"
+        );
+    } else if let Some(p) = a.pad {
         let _ = writeln!(out, "{ind}padding: {p}");
     }
     if let Some(sp) = a.spacing {
@@ -206,7 +216,23 @@ fn emit_attrs(node: &UiNode, out: &mut String, depth: usize) {
         );
     }
     if let Some(s) = a.size {
-        let _ = writeln!(out, "{ind}draw_text.text_style.font_size: {s}");
+        // icon selects the theme's Font-Awesome face (monochrome icons);
+        // else weight >= 500 selects the Medium (bold) face — M3's label / title /
+        // emphasis weight; else just set the size (Regular). Each swaps the whole
+        // text_style for the theme style at this size.
+        if a.icon == Some(1) {
+            let _ = writeln!(
+                out,
+                "{ind}draw_text.text_style: mod.theme.font_icons{{ font_size: {s} }}"
+            );
+        } else if a.weight.unwrap_or(400) >= 500 {
+            let _ = writeln!(
+                out,
+                "{ind}draw_text.text_style: mod.theme.font_bold{{ font_size: {s} }}"
+            );
+        } else {
+            let _ = writeln!(out, "{ind}draw_text.text_style.font_size: {s}");
+        }
     }
     if let Some(c) = a.color {
         let _ = writeln!(out, "{ind}draw_text.color: {}", hex_rgba(c));
@@ -261,7 +287,10 @@ mod tests {
                    {t:"text", text:"Hi", size: 20, color: argb(255,255,255,255), w:100, h:28}
                ]}"#,
         ));
-        assert!(ui.contains("RoundedView {"), "filled container must be a RoundedView:\n{ui}");
+        assert!(
+            ui.contains("RoundedView {"),
+            "filled container must be a RoundedView:\n{ui}"
+        );
         assert!(ui.contains("flow: Down"));
         assert!(ui.contains("padding: 12"));
         assert!(ui.contains("show_bg: true"));

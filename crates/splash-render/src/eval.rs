@@ -67,11 +67,14 @@ fn walk(vm: &mut ScriptVm, value: ScriptValue, depth: usize) -> Option<UiNode> {
         fillh: int_prop(vm, value, id!(fillh)),
         size: f32_prop(vm, value, id!(size)),
         weight: int_prop(vm, value, id!(weight)),
+        icon: int_prop(vm, value, id!(icon)),
         color: u32_prop(vm, value, id!(color)),
         bg: u32_prop(vm, value, id!(bg)),
         radius: f32_prop(vm, value, id!(radius)),
         elevation: f32_prop(vm, value, id!(elevation)),
         pad: f32_prop(vm, value, id!(pad)),
+        padx: f32_prop(vm, value, id!(padx)),
+        pady: f32_prop(vm, value, id!(pady)),
         spacing: f32_prop(vm, value, id!(spacing)),
         margin: f32_prop(vm, value, id!(margin)),
         border: f32_prop(vm, value, id!(border)),
@@ -94,7 +97,11 @@ fn walk(vm: &mut ScriptVm, value: ScriptValue, depth: usize) -> Option<UiNode> {
         }
     }
 
-    Some(UiNode { kind, attrs, children })
+    Some(UiNode {
+        kind,
+        attrs,
+        children,
+    })
 }
 
 // ---- VM value helpers ------------------------------------------------------
