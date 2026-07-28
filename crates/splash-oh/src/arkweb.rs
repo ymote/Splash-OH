@@ -30,14 +30,14 @@
 
 use std::ffi::CString;
 use std::os::raw::c_char;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 extern "C" {
     fn dlopen(file: *const c_char, mode: i32) -> *mut std::ffi::c_void;
     fn dlsym(handle: *mut std::ffi::c_void, name: *const c_char) -> *mut std::ffi::c_void;
 }
 
-type RunJs = unsafe extern "C" fn(*const c_char, *const c_char, *mut std::ffi::c_void);
+type RunJs = unsafe extern "C" fn(*const c_char, *const c_char, extern "C" fn(*const c_char));
 
 static RUN_JS: std::sync::OnceLock<Option<RunJs>> = std::sync::OnceLock::new();
 /// Logged once, so a device without the interface says so exactly one time
@@ -76,44 +76,117 @@ pub fn web_tag(slot: u32) -> String {
     format!("slot{slot}")
 }
 
-/// Has native evaluation been shown to actually reach a page?
+/// Slots whose tag has answered a probe, as a bitmask.
 ///
-/// It has not, on this device, and the distinction matters more than usual
-/// because `OH_NativeArkWeb_RunJavaScript` returns **void**. There is no
-/// success value to check, so an implementation that reports "sent" after
-/// calling it is really reporting "I called something" -- and that is exactly
-/// what happened here: the symbol resolved from libohweb.so, every reply took
-/// the native route, none of them arrived, and the whole card sat on ellipses
-/// because the fallback never fired.
-///
-/// The tag is the likely gap. ArkTS names the controller
-/// (`new webview.WebviewController('slot3')`), but a controller only binds to a
-/// webview once the component using it is created, and the native side may key
-/// on something set at component construction rather than on the controller.
-/// `OH_NativeArkWeb_SetJavaScriptProxyValidCallback` exists precisely so native
-/// code can learn when a tag becomes live, which suggests the binding is not
-/// immediate.
-///
-/// Until a probe proves a round trip, this stays off. A delivery path that
-/// silently drops everything is far worse than one that costs a language
-/// boundary, and there is no way to tell them apart from the return value.
-const NATIVE_DELIVERY_PROVEN: bool = false;
+/// `RunJavaScript` returns void, so "did it work" cannot be read from the call.
+/// It does take a callback, though, and the callback carries the evaluated
+/// result — so a page that is reachable will answer a trivial expression, and
+/// one that is not will simply never call back. That is the only reliable
+/// signal available, and it is what gates native delivery.
+static PROVEN: AtomicU64 = AtomicU64::new(0);
+/// Slots a probe has been fired at, so it is fired once rather than per reply.
+static PROBED: AtomicU64 = AtomicU64::new(0);
 
-/// Evaluate `js` in the page behind `slot`. Returns whether the caller may
-/// consider it delivered -- see [`NATIVE_DELIVERY_PROVEN`].
+fn bit(slot: u32) -> u64 {
+    1u64 << (slot % 64)
+}
+
+/// The probe's callback. Receives the evaluated result as a string.
+///
+/// It carries no user data and no tag, so it cannot say *which* slot answered.
+/// One probe is therefore in flight at a time and the slot is remembered
+/// alongside it — with several outstanding, an answer could not be attributed.
+extern "C" fn on_probe_result(result: *const c_char) {
+    let slot = PROBING.load(Ordering::SeqCst);
+    let text = if result.is_null() {
+        String::new()
+    } else {
+        unsafe { std::ffi::CStr::from_ptr(result) }
+            .to_string_lossy()
+            .into_owned()
+    };
+    PROVEN.fetch_or(bit(slot as u32), Ordering::SeqCst);
+    crate::log(&format!(
+        "arkweb: slot {slot} answered a native probe with {text:?} — delivering natively"
+    ));
+}
+
+static PROBING: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// How many probes to fire before concluding the tag will never resolve.
+///
+/// Retried rather than fired once, because the first attempt happens about a
+/// second after start and a controller only binds to a webview when the
+/// component using it is created — a single early probe cannot distinguish
+/// "not yet" from "never".
+const MAX_PROBES: u32 = 24;
+static PROBE_ATTEMPTS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+static LAST_PROBE: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
+
+/// Ask a slot whether it is reachable natively.
+fn probe(slot: u32) {
+    // Spaced in time, not just counted. The first attempt at this burned all
+    // 24 tries inside 10 ms, because replies arrive in a burst at startup --
+    // which tested one instant 24 times rather than testing "later" at all.
+    {
+        let mut last = match LAST_PROBE.lock() {
+            Ok(l) => l,
+            Err(_) => return,
+        };
+        let now = std::time::Instant::now();
+        if let Some(t) = *last {
+            if now.duration_since(t) < std::time::Duration::from_millis(900) {
+                return;
+            }
+        }
+        *last = Some(now);
+    }
+    let n = PROBE_ATTEMPTS.fetch_add(1, Ordering::SeqCst);
+    if n >= MAX_PROBES {
+        if n == MAX_PROBES {
+            crate::log(&format!(
+                "arkweb: {MAX_PROBES} probes unanswered; the controller webTag does not \
+                 resolve natively on this build. Staying on the ArkTS path."
+            ));
+        }
+        return;
+    }
+    let _ = PROBED.fetch_or(bit(slot), Ordering::SeqCst);
+    let Some(f) = run_js_fn() else { return };
+    let (Ok(tag), Ok(code)) = (CString::new(web_tag(slot)), CString::new("1+1")) else {
+        return;
+    };
+    PROBING.store(slot, Ordering::SeqCst);
+    crate::log(&format!("arkweb: probing slot {slot} natively"));
+    unsafe { f(tag.as_ptr(), code.as_ptr(), on_probe_result) };
+}
+
+/// Evaluate `js` in the page behind `slot`.
+///
+/// Returns whether the caller may consider it delivered. Native delivery is
+/// used only for a slot that has answered a probe: `RunJavaScript` returns void,
+/// so an implementation that assumes success reports "I called something"
+/// rather than "it arrived" — which is exactly how an earlier version of this
+/// silently dropped every reply and left the whole card on ellipses.
 pub fn run_js(slot: u32, js: &str) -> bool {
-    if !NATIVE_DELIVERY_PROVEN {
+    if run_js_fn().is_none() {
         if !WARNED.swap(true, Ordering::Relaxed) {
-            crate::log("arkweb: native eval available but unproven; using the ArkTS path");
+            crate::log("arkweb: no native RunJavaScript; using the ArkTS path");
         }
         return false;
     }
-    let Some(f) = run_js_fn() else {
+    if PROVEN.load(Ordering::SeqCst) & bit(slot) == 0 {
+        // Not yet shown reachable. Start the probe and let this reply go the
+        // ArkTS way; the next one benefits if the probe answers.
+        probe(slot);
         return false;
-    };
+    }
     let (Ok(tag), Ok(code)) = (CString::new(web_tag(slot)), CString::new(js)) else {
         return false;
     };
-    unsafe { f(tag.as_ptr(), code.as_ptr(), std::ptr::null_mut()) };
+    unsafe { run_js_fn().unwrap()(tag.as_ptr(), code.as_ptr(), noop_callback) };
     true
 }
+
+/// Delivery does not want the result, but the parameter is not optional.
+extern "C" fn noop_callback(_result: *const c_char) {}
