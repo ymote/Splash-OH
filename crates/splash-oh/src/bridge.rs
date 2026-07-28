@@ -56,6 +56,19 @@ pub struct Reply {
 
 static REPLIES: Mutex<VecDeque<Reply>> = Mutex::new(VecDeque::new());
 
+/// Slots whose page has reported its script running. ArkTS drains this to know
+/// which loads actually took, rather than inferring it from signals that cannot
+/// tell a blank surface from a rendered one.
+static PAINTED: Mutex<Vec<u32>> = Mutex::new(Vec::new());
+
+/// Slots that have reported ready since the last call.
+pub fn painted_drain() -> Vec<String> {
+    match PAINTED.lock() {
+        Ok(mut v) => v.drain(..).map(|s| s.to_string()).collect(),
+        Err(_) => Vec::new(),
+    }
+}
+
 fn reply(slot: u32, call_id: String, payload: String) {
     if let Ok(mut q) = REPLIES.lock() {
         // A page that stops draining should not grow this without bound.
@@ -123,6 +136,17 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args: String) {
     }
 
     match tool.as_str() {
+        // A page reporting that its script is running. See SHIM: this is the
+        // only signal that a generated page actually rendered, because
+        // loadData succeeding and onPageEnd firing both happen when it did not.
+        "slot.ready" => {
+            if let Ok(mut v) = PAINTED.lock() {
+                if !v.contains(&slot) {
+                    v.push(slot);
+                }
+            }
+        }
+
         // Round-trip check, so a page can prove the bridge is live.
         "echo" => reply(slot, call_id, ok(json_str(&args))),
 
@@ -374,7 +398,27 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args: String) {
             } else {
                 "file"
             };
-            park_pick(slot, call_id, mode);
+            park_arkts(slot, call_id, "pick", mode);
+        }
+
+        // The system clipboard. No NDK exists for the pasteboard, so this
+        // takes the same Rust -> ArkTS -> Rust road the picker does.
+        //
+        // Reading someone's clipboard is a real capability -- it may hold a
+        // password a moment after they copied one -- which is exactly why it is
+        // behind the trust gate and reachable only from app-generated pages.
+        "clipboard.read" => park_arkts(slot, call_id, "clipboard.read", ""),
+
+        "clipboard.write" => {
+            let text = if args.starts_with('{') {
+                serde_json::from_str::<serde_json::Value>(&args)
+                    .ok()
+                    .and_then(|v| v.get("text").and_then(|x| x.as_str()).map(String::from))
+                    .unwrap_or_default()
+            } else {
+                args.trim_matches('"').to_string()
+            };
+            park_arkts(slot, call_id, "clipboard.write", &text);
         }
 
         // The Splash half of the bridge: a page evaluates DSL and gets JSON
@@ -473,20 +517,25 @@ fn check_https_public(url: &str) -> Result<String, String> {
 }
 
 // ---------------------------------------------------------------------------
-// The picker channel: Rust -> ArkTS -> Rust.
+// The ArkTS channel: Rust -> ArkTS -> Rust.
 //
-// Every other tool answers on a worker and queues the reply. This one cannot:
-// the picker is an ArkTS API needing a UIAbilityContext, so Rust has to ask the
-// ArkTS side to do the work and wait to be told the answer. The call is parked
-// with its (slot, call_id) so the eventual reply reaches the right promise in
-// the right page.
+// Every other tool answers on a worker and queues the reply. Some cannot: the
+// file picker needs a UIAbilityContext and the pasteboard has no NDK at all, so
+// Rust has to ask the ArkTS side to do the work and wait to be told the answer.
+// The call is parked with its (slot, call_id) so the eventual reply reaches the
+// right promise in the right page.
+//
+// Generalised from what began as a picker-only queue. A second tool needing the
+// same round trip made the shape obvious: the channel carries an *operation
+// name* and an argument string, and ArkTS switches on the name. Adding a third
+// is now an ArkTS case rather than a parallel set of statics.
 //
 // Request ids are strings on the wire for the same reason call ids are: they
 // cross into JS, where a u64 past 2^53 would come back rounded.
 // ---------------------------------------------------------------------------
 
-/// Requests ArkTS has not yet picked up, as (req_id, mode).
-static PICK_QUEUE: Mutex<Vec<(u64, String)>> = Mutex::new(Vec::new());
+/// Requests ArkTS has not yet picked up, as (req_id, op, args).
+static PICK_QUEUE: Mutex<Vec<(u64, String, String)>> = Mutex::new(Vec::new());
 /// Requests ArkTS is working on, as (req_id, slot, call_id). Kept separate from
 /// the queue because the queue is emptied on drain and this must outlive it —
 /// the user is looking at a picker UI in between, which can take as long as it
@@ -494,7 +543,7 @@ static PICK_QUEUE: Mutex<Vec<(u64, String)>> = Mutex::new(Vec::new());
 static PICK_INFLIGHT: Mutex<Vec<(u64, u32, String)>> = Mutex::new(Vec::new());
 static PICK_SEQ: Mutex<u64> = Mutex::new(0);
 
-fn park_pick(slot: u32, call_id: String, mode: &str) {
+fn park_arkts(slot: u32, call_id: String, op: &str, args: &str) {
     let id = match PICK_SEQ.lock() {
         Ok(mut n) => {
             *n += 1;
@@ -518,23 +567,31 @@ fn park_pick(slot: u32, call_id: String, mode: &str) {
         Err(_) => None,
     };
     if let Some((_, s, c)) = evicted {
-        reply(s, c, err("picker request dropped: too many still open"));
+        reply(
+            s,
+            c,
+            err("request dropped: too many ArkTS calls still open"),
+        );
     }
     if let Ok(mut q) = PICK_QUEUE.lock() {
-        q.push((id, mode.to_string()));
+        q.push((id, op.to_string(), args.to_string()));
     }
 }
 
-/// Picker requests waiting for ArkTS, as `reqId|mode`.
+/// Work waiting for ArkTS, as `reqId|op|args`. Args is last because it may
+/// itself contain a separator.
 pub fn pick_drain() -> Vec<String> {
     match PICK_QUEUE.lock() {
-        Ok(mut q) => q.drain(..).map(|(id, m)| format!("{id}|{m}")).collect(),
+        Ok(mut q) => q
+            .drain(..)
+            .map(|(id, op, a)| format!("{id}|{op}|{a}"))
+            .collect(),
         Err(_) => Vec::new(),
     }
 }
 
-/// ArkTS reporting what the picker returned. `payload` is a JSON array of
-/// `{uri, path, name}` on success, or a message on failure.
+/// ArkTS reporting an outcome. `payload` is the tool's JSON result on success,
+/// or a message on failure.
 pub fn pick_resolve(req_id: &str, success: bool, payload: String) {
     let id: u64 = match req_id.parse() {
         Ok(v) => v,
@@ -546,7 +603,7 @@ pub fn pick_resolve(req_id: &str, success: bool, payload: String) {
             .map(|ix| q.remove(ix))
     });
     let Some((_, slot, call_id)) = found else {
-        crate::log(&format!("bridge: pick {id} resolved with nothing waiting"));
+        crate::log(&format!("bridge: arkts {id} resolved with nothing waiting"));
         return;
     };
     if success {
@@ -802,5 +859,16 @@ pub const SHIM: &str = r#"<script>
       return !!(window.splash_native && window.splash_native.invoke);
     }
   };
+  // Tell the host this page is really running.
+  //
+  // ArkTS otherwise has to infer it, and both available signals lie: loadData
+  // returns without throwing when it has silently rendered nothing, and
+  // onPageEnd also fires for the blank origin the slot starts on, so a failed
+  // load looks exactly like a successful one. Script executing is the only
+  // witness that cannot be wrong about it -- if this line runs, the page is
+  // there. Fire and forget; nothing waits on the reply.
+  if (window.splash_native && window.splash_native.invoke) {
+    window.splash_native.invoke('ready', 'slot.ready', '');
+  }
 })();
 </script>"#;

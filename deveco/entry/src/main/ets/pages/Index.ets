@@ -2,6 +2,7 @@ import { NodeContent, FrameNode } from '@kit.ArkUI';
 import { systemDateTime } from '@kit.BasicServicesKit';
 import { webview } from '@kit.ArkWeb';
 import { picker, fileUri } from '@kit.CoreFileKit';
+import { pasteboard } from '@kit.BasicServicesKit';
 import { window } from '@kit.ArkUI';
 import splash from 'libsplash_oh.so';
 import { WeChatArkTs, LoadGenerator, RouteKind } from './WeChatArkTs';
@@ -129,6 +130,16 @@ struct Index {
   /** What each controller was last told to load, so a rebuild that did not
    *  change the URL does not reload the page out from under the user. */
   private loaded: Map<string, string> = new Map();
+  /** What each slot has actually finished rendering, set from onPageEnd.
+   *
+   *  Separate from `loaded` because they are different facts and conflating
+   *  them is a bug this had: loadData returning without throwing does not mean
+   *  the page painted -- the comments in loadSlot say so about baseUrl and mime
+   *  -- yet `loaded` was set on the call returning, which disarmed the retry
+   *  loop. A slot that silently failed to paint then stayed white forever. */
+  private confirmed: Map<string, string> = new Map();
+  /** Ticks a slot has been loaded-but-not-confirmed, so a stuck one retries. */
+  private waiting: Map<string, number> = new Map();
 
   /** One bridge object per slot, kept out of @State for the same reason the
    *  controllers are: a proxy-wrapped object handed to javaScriptProxy is
@@ -193,12 +204,26 @@ struct Index {
   private pumpPicks(): void {
     const reqs: Array<string> = splash.pickDrain() as Array<string>;
     for (let i = 0; i < reqs.length; i++) {
-      const bar = reqs[i].indexOf('|');
-      if (bar < 0) {
+      // reqId|op|args — args last because it may itself contain a separator.
+      const a = reqs[i].indexOf('|');
+      const b = reqs[i].indexOf('|', a + 1);
+      if (a < 0 || b < 0) {
         continue;
       }
-      const reqId = reqs[i].substring(0, bar);
-      const folder = reqs[i].substring(bar + 1) === 'folder';
+      const reqId = reqs[i].substring(0, a);
+      const op = reqs[i].substring(a + 1, b);
+      const args = reqs[i].substring(b + 1);
+
+      if (op === 'clipboard.read') {
+        this.clipboardRead(reqId);
+        continue;
+      }
+      if (op === 'clipboard.write') {
+        this.clipboardWrite(reqId, args);
+        continue;
+      }
+
+      const folder = args === 'folder';
       if (this.mainWindow === undefined) {
         splash.pickResolve(reqId, false, 'window not ready');
         continue;
@@ -237,6 +262,69 @@ struct Index {
         });
       } catch (e) {
         splash.pickResolve(reqId, false, 'picker unavailable: ' + JSON.stringify(e));
+      }
+    }
+  }
+
+  /**
+   * The system clipboard. There is no pasteboard NDK, so this takes the same
+   * Rust -> ArkTS -> Rust road the picker does.
+   *
+   * getPrimaryText() returns '' both for an empty clipboard and for one holding
+   * something that is not text (an image, a URI), so the MIME type is reported
+   * alongside rather than letting a page read those two as the same thing.
+   */
+  private clipboardRead(reqId: string): void {
+    try {
+      pasteboard.getSystemPasteboard().getData().then((data: pasteboard.PasteData) => {
+        // Built by hand rather than JSON.stringify of an object literal.
+        // ArkTS is not TypeScript: a literal mixing string and number values
+        // stringified to something the page read back as undefined, with no
+        // error on either side. Two JSON.stringify calls on the individual
+        // strings do the escaping, and the shape is then unambiguous.
+        const text: string = data.getPrimaryText();
+        const mime: string = data.getPrimaryMimeType();
+        splash.pickResolve(reqId, true,
+          '{"text":' + JSON.stringify(text === undefined ? '' : text)
+          + ',"mimeType":' + JSON.stringify(mime === undefined ? '' : mime)
+          + ',"records":' + data.getRecordCount() + '}');
+      }).catch((e: Error) => {
+        splash.pickResolve(reqId, false, 'clipboard: ' + e.message);
+      });
+    } catch (e) {
+      splash.pickResolve(reqId, false, 'clipboard unavailable: ' + JSON.stringify(e));
+    }
+  }
+
+  private clipboardWrite(reqId: string, text: string): void {
+    try {
+      const data = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, text);
+      pasteboard.getSystemPasteboard().setData(data).then(() => {
+        splash.pickResolve(reqId, true, '{"wrote":' + text.length + '}');
+      }).catch((e: Error) => {
+        splash.pickResolve(reqId, false, 'clipboard: ' + e.message);
+      });
+    } catch (e) {
+      splash.pickResolve(reqId, false, 'clipboard unavailable: ' + JSON.stringify(e));
+    }
+  }
+
+  /**
+   * Mark slots whose page reported its script running.
+   *
+   * The shim pings `slot.ready` as soon as it executes. That is the only signal
+   * that cannot be wrong: loadData returns without throwing when it has
+   * silently rendered nothing, and onPageEnd fires for the blank origin the
+   * slot starts on, so both of those look identical whether the page is there
+   * or the surface is white.
+   */
+  private pumpPainted(): void {
+    const ids: Array<string> = splash.webSlotsPainted() as Array<string>;
+    for (let i = 0; i < ids.length; i++) {
+      const key: string | undefined = this.loaded.get(ids[i]);
+      if (key !== undefined) {
+        this.confirmed.set(ids[i], key);
+        this.waiting.delete(ids[i]);
       }
     }
   }
@@ -285,9 +373,24 @@ struct Index {
   private flushPending(): void {
     for (let i = 0; i < this.webSlots.length; i++) {
       const parts: Array<string> = this.webSlots[i].split('|');
-      if (parts[1] === 'html') {
-        this.loadSlot(parts[0], parts[1], parts[6]);
+      if (parts[1] !== 'html') {
+        continue;
       }
+      const id: string = parts[0];
+      const want: string | undefined = this.loaded.get(id);
+      if (want !== undefined && this.confirmed.get(id) !== want) {
+        // Issued but never painted. Give it a second, then forget the load so
+        // the line below re-issues it. Two seconds of retrying beats a surface
+        // that is white for the life of the page.
+        const n: number = (this.waiting.get(id) ?? 0) + 1;
+        this.waiting.set(id, n);
+        if (n > 8) {
+          this.loaded.delete(id);
+          this.waiting.delete(id);
+          console.info('web slot ' + id + ' never painted; reloading');
+        }
+      }
+      this.loadSlot(id, parts[1], parts[6]);
     }
   }
 
@@ -319,6 +422,7 @@ struct Index {
         this.controllerFor(id).loadUrl(url);
       }
       this.loaded.set(id, key);
+      this.waiting.set(id, 0);
     } catch (e) {
       console.error('web slot ' + id + ' load failed: ' + JSON.stringify(e));
     }
@@ -353,6 +457,7 @@ struct Index {
         this.syncWebSlots();
         this.pumpBridge();
         this.pumpPicks();
+        this.pumpPainted();
       }, 250);
       return;
     }
