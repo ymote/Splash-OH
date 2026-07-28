@@ -89,6 +89,7 @@ h2{{font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:#5f5f7a;
 <div class=r><span class=k>accelerometer</span><span class="v m" id=s_acc>&#8230;</span></div>
 <div class=r><span class=k>ambient light</span><span class="v m" id=s_light>&#8230;</span></div>
 <div class=r><span class=k>vibrate (tap me)</span><span class="v m" id=s_vib>tap &#8594;</span></div>
+<div class=r><span class=k>sensor.stream (Rust&#8594;page)</span><span class="v m" id=s_str>tap &#8594;</span></div>
 
 <h2>Filesystem</h2>
 <div class=r><span class=k>fs.read /proc/self/status</span><span class="v m" id=f_rss>&#8230;</span></div>
@@ -171,7 +172,7 @@ devicePixelRatio.</div>
   if (!window.splash || !splash.available()) {{
     ['d_phone','d_model','d_os','d_api','d_patch','d_tz','d_notif',
      'p_size','p_dens','p_rot',
-     'b_cap','s_list','s_acc','s_light','s_vib',
+     'b_cap','s_list','s_acc','s_light','s_vib','s_str',
      'f_rss','f_stat','f_list','c_cap','w_net','w_caps','w_proxy','k_hks','k_db','k_bt','k_ble','a_tone','a_lvl','a_loop','x_surf','x_cam','x_vid','i_cams','i_pick','i_info','i_thumb','l_on','l_fix','l_city','r_cell','r_wifi','x_abc','x_file','cb_w','cb_r','k_rt','k_runs',
      'n_get','n_vm','n_lim','n_echo','g_ssrf','g_unk']
       .forEach(function (id) {{ set(id, 'f', 'no bridge'); }});
@@ -237,6 +238,33 @@ devicePixelRatio.</div>
   call('sensor.read', 'ambient light', ['s_light'], function (r) {{
     set('s_light', 'p', r.values[0].toFixed(1) + ' lux');
   }});
+
+  // The first consumer of the event direction.
+  //
+  // Everything else on this card is request/reply: the page asks, Rust answers.
+  // Here Rust sends without being asked, 20 times a second, and the page just
+  // listens. Polling this would mean sixty round trips for three seconds of
+  // data with every answer already stale by the time it landed.
+  var streamed = 0, lastZ = 0;
+  splash.on('sensor', function (s) {{
+    streamed++;
+    lastZ = s.values[2];
+    set('s_str', 'w', streamed + ' events · z ' + lastZ.toFixed(2));
+  }});
+
+  document.getElementById('s_str').parentNode.onclick = function () {{
+    streamed = 0;
+    set('s_str', 'w', 'streaming 3s\u2026');
+    splash.invoke('sensor.stream', {{ kind: 'accelerometer', ms: 3000 }})
+      .then(function (r) {{
+        // Rust counts what it sent; the page counts what arrived. Equal means
+        // nothing was dropped between the sensor thread and the page.
+        set('s_str', streamed === r.events ? 'p' : 'w',
+            streamed + '/' + r.events + ' events · ' + r.hz.toFixed(1) + ' Hz'
+            + (streamed === r.events ? ' · none dropped' : ' · MISMATCH'));
+      }})
+      .catch(function (e) {{ set('s_str', 'f', e.message); }});
+  }};
 
   // The one capability with a side effect you can feel rather than read.
   document.getElementById('s_vib').parentNode.onclick = function () {{

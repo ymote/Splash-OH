@@ -285,6 +285,97 @@ impl Args {
     }
 }
 
+// --- Typed arguments -------------------------------------------------------
+//
+// One struct per tool that takes more than a bare string. `rename_all` because
+// the page writes camelCase and Rust writes snake_case, and `default` so an
+// omitted field is the documented default rather than a parse failure -- a page
+// asking for a thumbnail without naming a quality wants the default, not an
+// error.
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ThumbArgs {
+    path: String,
+    #[serde(default = "d_edge")]
+    max_edge: u32,
+    #[serde(default = "d_quality")]
+    quality: u32,
+}
+fn d_edge() -> u32 {
+    320
+}
+fn d_quality() -> u32 {
+    80
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SensorArgs {
+    #[serde(default = "d_kind")]
+    kind: String,
+    #[serde(default = "d_timeout")]
+    timeout_ms: u64,
+    #[serde(default = "d_stream_ms")]
+    ms: u64,
+}
+fn d_kind() -> String {
+    "accelerometer".into()
+}
+fn d_timeout() -> u64 {
+    1500
+}
+fn d_stream_ms() -> u64 {
+    3000
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LocationArgs {
+    #[serde(default = "d_loc_timeout")]
+    timeout_ms: u64,
+    #[serde(default = "d_scene")]
+    scene: String,
+}
+fn d_loc_timeout() -> u64 {
+    8000
+}
+fn d_scene() -> String {
+    "daily".into()
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ToneArgs {
+    #[serde(default = "d_hz")]
+    hz: u32,
+    #[serde(default = "d_tone_ms")]
+    ms: u64,
+}
+fn d_hz() -> u32 {
+    440
+}
+fn d_tone_ms() -> u64 {
+    400
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FetchArgs {
+    url: String,
+    #[serde(default = "d_name")]
+    name: String,
+}
+fn d_name() -> String {
+    "download.bin".into()
+}
+
+#[derive(serde::Deserialize)]
+struct PrefsSetArgs {
+    key: String,
+    value: String,
+}
+
 /// Handle a call from a page. Returns immediately; the answer arrives via
 /// [`drain`].
 ///
@@ -367,24 +458,21 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args_raw: String) {
         // Args: a bare kind ("accelerometer"), or {"kind": "...", "timeoutMs": n}.
         "sensor.read" => {
             std::thread::spawn(move || {
-                let (name, timeout) = if args.raw().starts_with('{') {
-                    let v: serde_json::Value = serde_json::from_str(args.raw()).unwrap_or_default();
-                    (
-                        v.get("kind")
-                            .and_then(|x| x.as_str())
-                            .unwrap_or("accelerometer")
-                            .to_string(),
-                        v.get("timeoutMs").and_then(|x| x.as_u64()).unwrap_or(1500),
-                    )
-                } else {
-                    (args.text(), 1500)
-                };
-                let payload = match crate::sensor::type_from_name(&name) {
-                    Some(k) => match crate::sensor::sample(k, timeout.min(5000)) {
+                // A bare string is still accepted -- `invoke('sensor.read',
+                // 'accelerometer')` reads better than an object for the common
+                // case -- so it is widened into the struct rather than parsed
+                // twice.
+                let a: SensorArgs = args.parse().unwrap_or_else(|_| SensorArgs {
+                    kind: args.text(),
+                    timeout_ms: d_timeout(),
+                    ms: d_stream_ms(),
+                });
+                let payload = match crate::sensor::type_from_name(&a.kind) {
+                    Some(k) => match crate::sensor::sample(k, a.timeout_ms.min(5000)) {
                         Ok(j) => ok(j),
                         Err(e) => err(&e),
                     },
-                    None => err(&format!("unknown sensor: {name}")),
+                    None => err(&format!("unknown sensor: {}", a.kind)),
                 };
                 reply(slot, call_id, payload);
             });
@@ -442,18 +530,17 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args_raw: String) {
         // Args: {"path": "...", "maxEdge": n, "quality": n}
         "image.thumbnail" => {
             std::thread::spawn(move || {
-                let v: serde_json::Value = serde_json::from_str(args.raw()).unwrap_or_default();
-                let path = v
-                    .get("path")
-                    .and_then(|x| x.as_str())
-                    .map(String::from)
-                    .unwrap_or_else(|| args.text());
-                let edge = v.get("maxEdge").and_then(|x| x.as_u64()).unwrap_or(320) as u32;
-                let q = v.get("quality").and_then(|x| x.as_u64()).unwrap_or(80) as u32;
+                let a: ThumbArgs = match args.parse() {
+                    Ok(a) => a,
+                    Err(e) => {
+                        reply(slot, call_id, err(&e));
+                        return;
+                    }
+                };
                 reply(
                     slot,
                     call_id,
-                    match crate::image::thumbnail(&path, edge, q) {
+                    match crate::image::thumbnail(&a.path, a.max_edge, a.quality) {
                         Ok(j) => ok(j),
                         Err(e) => err(&e),
                     },
@@ -531,13 +618,14 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args_raw: String) {
         // Args: {"hz": n, "ms": n}
         "audio.tone" => {
             std::thread::spawn(move || {
-                let v: serde_json::Value = serde_json::from_str(args.raw()).unwrap_or_default();
-                let hz = v.get("hz").and_then(|x| x.as_u64()).unwrap_or(440) as u32;
-                let ms = v.get("ms").and_then(|x| x.as_u64()).unwrap_or(400);
+                let a: ToneArgs = args.parse().unwrap_or(ToneArgs {
+                    hz: d_hz(),
+                    ms: d_tone_ms(),
+                });
                 reply(
                     slot,
                     call_id,
-                    match crate::audio::tone(hz, ms) {
+                    match crate::audio::tone(a.hz, a.ms) {
                         Ok(j) => ok(j),
                         Err(e) => err(&e),
                     },
@@ -750,21 +838,14 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args_raw: String) {
         // Args: {} or {"timeoutMs": n}.
         "location.get" => {
             std::thread::spawn(move || {
-                let v: serde_json::Value = serde_json::from_str(args.raw()).unwrap_or_default();
-                let timeout = v
-                    .get("timeoutMs")
-                    .and_then(|x| x.as_u64())
-                    .unwrap_or(8000)
-                    .min(30_000);
-                let scene = v
-                    .get("scene")
-                    .and_then(|x| x.as_str())
-                    .unwrap_or("daily")
-                    .to_string();
+                let a: LocationArgs = args.parse().unwrap_or(LocationArgs {
+                    timeout_ms: d_loc_timeout(),
+                    scene: d_scene(),
+                });
                 reply(
                     slot,
                     call_id,
-                    match crate::location::get(timeout, &scene) {
+                    match crate::location::get(a.timeout_ms.min(30_000), &a.scene) {
                         Ok(j) => ok(j),
                         Err(e) => err(&e),
                     },
@@ -882,13 +963,17 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args_raw: String) {
 
         // Args: {"key": "...", "value": "..."}
         "prefs.set" => {
-            let v: serde_json::Value = serde_json::from_str(args.raw()).unwrap_or_default();
-            let k = v.get("key").and_then(|x| x.as_str()).unwrap_or("");
-            let val = v.get("value").and_then(|x| x.as_str()).unwrap_or("");
+            let a: PrefsSetArgs = match args.parse() {
+                Ok(a) => a,
+                Err(e) => {
+                    reply(slot, call_id, err(&e));
+                    return;
+                }
+            };
             reply(
                 slot,
                 call_id,
-                match crate::prefs::set(k, val) {
+                match crate::prefs::set(&a.key, &a.value) {
                     Ok(j) => ok(j),
                     Err(e) => err(&e),
                 },
@@ -903,6 +988,31 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args_raw: String) {
                 Err(e) => err(&e),
             },
         ),
+
+        // Stream a sensor as events. The reason `emit` exists: an
+        // accelerometer at 20 Hz cannot travel through request/reply -- a page
+        // would have to ask sixty times for three seconds of data, and every
+        // answer would already be stale. Rust sends; the page listens with
+        // `splash.on('sensor', ...)`.
+        //
+        // Args: {"kind": "accelerometer", "ms": 3000}
+        "sensor.stream" => {
+            std::thread::spawn(move || {
+                let a: SensorArgs = args.parse().unwrap_or_else(|_| SensorArgs {
+                    kind: args.text(),
+                    timeout_ms: d_timeout(),
+                    ms: d_stream_ms(),
+                });
+                let payload = match crate::sensor::type_from_name(&a.kind) {
+                    Some(k) => match crate::sensor::stream(k, slot, a.ms) {
+                        Ok(j) => ok(j),
+                        Err(e) => err(&e),
+                    },
+                    None => err(&format!("unknown sensor: {}", a.kind)),
+                };
+                reply(slot, call_id, payload);
+            });
+        }
 
         // Haptics. A page in a browser has no route to the motor at all.
         "vibrate" => {
