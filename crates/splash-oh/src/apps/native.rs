@@ -94,6 +94,13 @@ h2{{font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:#5f5f7a;
 <div class=r><span class=k>capabilities</span><span class="v m" id=w_caps>&#8230;</span></div>
 <div class=r><span class=k>system proxy</span><span class="v m" id=w_proxy>&#8230;</span></div>
 
+<h2>Camera and image codecs</h2>
+<div class=r><span class=k>camera.list</span><span class="v m" id=i_cams>&#8230;</span></div>
+<div class=r><span class=k>pick an image &#8594;</span><span class="v m" id=i_pick>tap &#8594;</span></div>
+<div class=r><span class=k>image.info</span><span class="v m" id=i_info>&#8212;</span></div>
+<div class=r><span class=k>image.thumbnail</span><span class="v m" id=i_thumb>&#8212;</span></div>
+<div id=i_prev></div>
+
 <h2>Location &mdash; liblocation_ndk</h2>
 <div class=r><span class=k>system switch</span><span class="v m" id=l_on>&#8230;</span></div>
 <div class=r><span class=k>fix (tap to allow)</span><span class="v m" id=l_fix>&#8230;</span></div>
@@ -139,7 +146,7 @@ devicePixelRatio.</div>
     ['d_phone','d_model','d_os','d_api','d_patch','d_tz','d_notif',
      'p_size','p_dens','p_rot',
      'b_cap','s_list','s_acc','s_light','s_vib',
-     'f_rss','f_stat','f_list','c_cap','w_net','w_caps','w_proxy','l_on','l_fix','l_city','r_cell','r_wifi','x_abc','x_file','cb_w','cb_r','k_rt','k_runs',
+     'f_rss','f_stat','f_list','c_cap','w_net','w_caps','w_proxy','i_cams','i_pick','i_info','i_thumb','l_on','l_fix','l_city','r_cell','r_wifi','x_abc','x_file','cb_w','cb_r','k_rt','k_runs',
      'n_get','n_vm','n_echo','g_ssrf','g_unk']
       .forEach(function (id) {{ set(id, 'f', 'no bridge'); }});
     return;
@@ -238,6 +245,42 @@ devicePixelRatio.</div>
     set('w_proxy', n.proxy ? 'w' : 'p',
         n.proxy ? n.proxy.host + ':' + n.proxy.port : 'none');
   }});
+
+  call('camera.list', undefined, ['i_cams'], function (cs) {{
+    var back = cs.filter(function (c) {{ return c.position === 'back'; }}).length;
+    var front = cs.filter(function (c) {{ return c.position === 'front'; }}).length;
+    set('i_cams', 'p', cs.length + ' cameras · ' + back + ' back, ' + front + ' front');
+  }});
+
+  // The whole point of the codec work, in one gesture: pick a photo, learn
+  // what it is from its header, then decode it small enough to actually show.
+  // A phone photo is megabytes and every reply here crosses as one JSON string
+  // evaluated into the page -- so the full image is the one thing this channel
+  // cannot carry, and decoding at a reduced size is what makes it possible.
+  document.getElementById('i_pick').parentNode.onclick = function () {{
+    set('i_pick', 'w', 'picking\u2026');
+    splash.invoke('fs.pick', {{ mode: 'file' }}).then(function (sel) {{
+      if (!sel || !sel.length) {{ set('i_pick', 'w', 'nothing picked'); return; }}
+      var path = sel[0].path;
+      set('i_pick', 'p', sel[0].name);
+      return splash.invoke('image.info', {{ path: path }}).then(function (info) {{
+        set('i_info', 'p', info.width + '×' + info.height + ' · '
+            + info.megapixels.toFixed(1) + ' MP · ' + Math.round(info.fileBytes / 1024) + ' KB'
+            + (info.hdr ? ' · HDR' : ''));
+        return splash.invoke('image.thumbnail', {{ path: path, maxEdge: 320, quality: 80 }});
+      }}).then(function (t) {{
+        var ratio = t.jpegBytes / Math.max(1, t.sourceWidth * t.sourceHeight * 3);
+        set('i_thumb', 'p', t.width + '×' + t.height + ' · '
+            + Math.round(t.jpegBytes / 1024) + ' KB · 1/'
+            + Math.round(1 / Math.max(ratio, 1e-9)) + ' of raw');
+        document.getElementById('i_prev').innerHTML =
+          '<div style="padding:10px 14px"><img src="' + t.dataUri
+          + '" style="max-width:100%;border-radius:10px"></div>';
+      }});
+    }}).catch(function (e) {{
+      set('i_pick', 'f', e.message);
+    }});
+  }};
 
   call('location.enabled', undefined, ['l_on'], function (l) {{
     set('l_on', l.enabled ? 'p' : 'w', l.enabled ? 'on' : 'off in system settings');
