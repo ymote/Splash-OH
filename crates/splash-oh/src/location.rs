@@ -31,6 +31,18 @@ use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
+/// All thirteen fields, because this is returned **by value**.
+///
+/// An earlier version declared the first eight and stopped. That is not a
+/// missing-feature bug, it is memory corruption: on AArch64 a struct this large
+/// comes back through the indirect result convention -- the caller passes a
+/// hidden pointer to a buffer and the callee writes into it. Declaring 64 bytes
+/// where the callee writes 104 means every call scribbles 40 bytes past the end
+/// of the caller's buffer.
+///
+/// It never fired only because the location callback never ran: the device
+/// cannot see enough satellites indoors, so GetBasicInfo was never reached. A
+/// fix arriving would have corrupted the stack of whichever thread took it.
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
 struct BasicInfo {
@@ -40,8 +52,15 @@ struct BasicInfo {
     accuracy: f64,
     speed: f64,
     direction: f64,
-    time_stamp: i64,
+    time_for_fix: i64,
     time_since_boot: i64,
+    altitude_accuracy: f64,
+    speed_accuracy: f64,
+    direction_accuracy: f64,
+    uncertainty_of_time_since_boot: i64,
+    /// `Location_SourceType`, a C enum and therefore int32. The struct carries
+    /// four bytes of tail padding after it, which `repr(C)` reproduces.
+    location_source_type: i32,
 }
 
 extern "C" {
@@ -59,6 +78,17 @@ extern "C" {
         user: *mut c_void,
     );
     fn OH_LocationInfo_GetBasicInfo(info: *mut c_void) -> BasicInfo;
+}
+
+/// `Location_SourceType` from the header.
+fn source_name(t: i32) -> &'static str {
+    match t {
+        1 => "gnss",
+        2 => "network",
+        3 => "indoor",
+        4 => "rtk",
+        _ => "unknown",
+    }
 }
 
 fn code_message(rc: i32) -> String {
@@ -158,10 +188,24 @@ pub fn get(timeout_ms: u64, scene: &str) -> Result<String, String> {
             .ok()
             .and_then(|mut f| f.take())
             .ok_or("fix vanished")?;
+        // The extra fields are reported now that they are actually read --
+        // an accuracy figure alongside a position is the difference between
+        // "somewhere near here" and a number a caller can reason about.
         Ok(format!(
             "{{\"latitude\":{:.6},\"longitude\":{:.6},\"altitude\":{:.1},\
-             \"accuracy\":{:.1},\"speed\":{:.2},\"direction\":{:.1},\"timestamp\":{}}}",
-            b.latitude, b.longitude, b.altitude, b.accuracy, b.speed, b.direction, b.time_stamp
+             \"accuracy\":{:.1},\"altitudeAccuracy\":{:.1},\"speed\":{:.2},\
+             \"speedAccuracy\":{:.2},\"direction\":{:.1},\"timestamp\":{},\
+             \"source\":{}}}",
+            b.latitude,
+            b.longitude,
+            b.altitude,
+            b.accuracy,
+            b.altitude_accuracy,
+            b.speed,
+            b.speed_accuracy,
+            b.direction,
+            b.time_for_fix,
+            json_str(source_name(b.location_source_type))
         ))
     })();
 
