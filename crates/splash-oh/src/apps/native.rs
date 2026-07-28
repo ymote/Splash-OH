@@ -103,6 +103,11 @@ h2{{font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:#5f5f7a;
 <div class=r><span class=k>capabilities</span><span class="v m" id=w_caps>&#8230;</span></div>
 <div class=r><span class=k>system proxy</span><span class="v m" id=w_proxy>&#8230;</span></div>
 
+<h2>Audio &mdash; libohaudio</h2>
+<div class=r><span class=k>audio.tone (tap)</span><span class="v m" id=a_tone>tap &#8594;</span></div>
+<div class=r><span class=k>audio.level</span><span class="v m" id=a_lvl>&#8230;</span></div>
+<div class=r><span class=k>loopback (tone &#8594; mic)</span><span class="v m" id=a_loop>&#8212;</span></div>
+
 <h2>Native surface &mdash; ARKUI_NODE_XCOMPONENT</h2>
 <div class=r><span class=k>surface (no ArkTS)</span><span class="v m" id=x_surf>&#8230;</span></div>
 <div class=r><span class=k>camera preview (tap)</span><span class="v m" id=x_cam>tap &#8594;</span></div>
@@ -160,7 +165,7 @@ devicePixelRatio.</div>
     ['d_phone','d_model','d_os','d_api','d_patch','d_tz','d_notif',
      'p_size','p_dens','p_rot',
      'b_cap','s_list','s_acc','s_light','s_vib',
-     'f_rss','f_stat','f_list','c_cap','w_net','w_caps','w_proxy','x_surf','x_cam','i_cams','i_pick','i_info','i_thumb','l_on','l_fix','l_city','r_cell','r_wifi','x_abc','x_file','cb_w','cb_r','k_rt','k_runs',
+     'f_rss','f_stat','f_list','c_cap','w_net','w_caps','w_proxy','a_tone','a_lvl','a_loop','x_surf','x_cam','i_cams','i_pick','i_info','i_thumb','l_on','l_fix','l_city','r_cell','r_wifi','x_abc','x_file','cb_w','cb_r','k_rt','k_runs',
      'n_get','n_vm','n_lim','n_echo','g_ssrf','g_unk']
       .forEach(function (id) {{ set(id, 'f', 'no bridge'); }});
     return;
@@ -259,6 +264,72 @@ devicePixelRatio.</div>
     set('w_proxy', n.proxy ? 'w' : 'p',
         n.proxy ? n.proxy.host + ':' + n.proxy.port : 'none');
   }});
+
+  // Playback needs no permission, so it runs on a tap without any dance.
+  // The number that matters is `frames`: a stream can start cleanly and never
+  // be asked for samples, which is silent, and only the frame count tells the
+  // two apart.
+  document.getElementById('a_tone').parentNode.onclick = function () {{
+    set('a_tone', 'w', 'playing\u2026');
+    splash.invoke('audio.tone', {{ hz: 440, ms: 500 }})
+      .then(function (t) {{
+        set('a_tone', t.frames > 0 ? 'p' : 'f',
+            t.frames > 0
+              ? t.frames.toLocaleString() + ' frames · ' + t.seconds.toFixed(2) + 's @ 440 Hz'
+              : 'stream started but consumed 0 frames');
+      }})
+      .catch(function (e) {{ set('a_tone', 'f', e.message); }});
+  }};
+
+  // Capture is gated, so ask first -- same shape as the camera, and for the
+  // same reason: the failure code does not reliably say "permission".
+  function measure(id, then) {{
+    set(id, 'w', 'listening\u2026');
+    return splash.invoke('audio.level', {{ ms: 700 }})
+      .then(function (l) {{
+        set(id, l.rmsDb > -90 ? 'p' : 'w',
+            'rms ' + l.rmsDb.toFixed(0) + ' dB · peak ' + l.peakDb.toFixed(0)
+            + ' dB · ' + l.note);
+        if (then) {{ then(l); }}
+        return l;
+      }});
+  }}
+
+  splash.invoke('permission.request', ['ohos.permission.MICROPHONE'])
+    .then(function (r) {{
+      if (!r.granted.length) {{ set('a_lvl', 'w', 'microphone refused'); return; }}
+      return measure('a_lvl').then(function (quiet) {{
+        // The real test: play the tone WHILE listening. If the level rises,
+        // both directions are genuinely moving audio -- which neither row can
+        // establish on its own, since a silent room and a dead mic look alike.
+        set('a_loop', 'w', 'tone + mic\u2026');
+        splash.invoke('audio.tone', {{ hz: 880, ms: 1200 }});
+        return new Promise(function (res) {{ setTimeout(res, 250); }})
+          .then(function () {{
+            return splash.invoke('audio.level', {{ ms: 600 }});
+          }})
+          .then(function (loud) {{
+            // This does NOT prove acoustic loopback, and the measurements say
+            // why: one run showed -11.2 dB during playback and the next +4.5,
+            // so the sign is not reproducible. Echo cancellation is the likely
+            // cause -- a capture stream running alongside a render stream gets
+            // the speaker's own output subtracted, which is the entire purpose
+            // of AEC -- with ambient level moving underneath it. So the row
+            // reports the delta instead of scoring it.
+            //
+            // What it does establish: two measurements taken seconds apart
+            // differ by 11 dB, so the microphone is delivering varying data
+            // rather than a constant. A dead mic reads the same number twice.
+            var d = loud.rmsDb - quiet.rmsDb;
+            var moved = Math.abs(d) > 3;
+            set('a_loop', moved ? 'p' : 'w',
+                (d > 0 ? '+' : '') + d.toFixed(1) + ' dB ('
+                + quiet.rmsDb.toFixed(0) + ' \u2192 ' + loud.rmsDb.toFixed(0) + ') · '
+                + (moved ? 'mic is live' : 'level did not move'));
+          }});
+      }});
+    }})
+    .catch(function (e) {{ set('a_lvl', 'f', e.message); }});
 
   // The point of this row: a Web needs an ArkTS overlay because there is no
   // ARKUI_NODE_WEB, but a render surface does not -- XComponent is a real node

@@ -419,6 +419,45 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args: String) {
             });
         }
 
+        // Play a tone. Reports the frames the audio service actually consumed:
+        // a stream that starts and is never asked for samples is silent, and
+        // only the frame count separates that from real playback.
+        //
+        // Args: {"hz": n, "ms": n}
+        "audio.tone" => {
+            std::thread::spawn(move || {
+                let v: serde_json::Value = serde_json::from_str(&args).unwrap_or_default();
+                let hz = v.get("hz").and_then(|x| x.as_u64()).unwrap_or(440) as u32;
+                let ms = v.get("ms").and_then(|x| x.as_u64()).unwrap_or(400);
+                reply(
+                    slot,
+                    call_id,
+                    match crate::audio::tone(hz, ms) {
+                        Ok(j) => ok(j),
+                        Err(e) => err(&e),
+                    },
+                );
+            });
+        }
+
+        // Measure the microphone. Level rather than samples: the useful
+        // question is whether anything is arriving, and shipping raw PCM to a
+        // page would be both large and a much bigger capability.
+        "audio.level" => {
+            std::thread::spawn(move || {
+                let v: serde_json::Value = serde_json::from_str(&args).unwrap_or_default();
+                let ms = v.get("ms").and_then(|x| x.as_u64()).unwrap_or(700);
+                reply(
+                    slot,
+                    call_id,
+                    match crate::audio::record_level(ms) {
+                        Ok(j) => ok(j),
+                        Err(e) => err(&e),
+                    },
+                );
+            });
+        }
+
         // Whether the system location switch is on. Deliberately separate
         // from whether this app holds the permission: a page told "no
         // location" deserves to know which of the two it is, since only one of
