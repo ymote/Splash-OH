@@ -179,6 +179,53 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args: String) {
             });
         }
 
+        // One path's metadata. Smaller than `fs.list` and much smaller than
+        // reading contents, and it answers the question a picked file raises:
+        // the grant clearly resolves the path, but can Rust actually *use* it?
+        // A size matching what the picker displayed says yes.
+        "fs.stat" => {
+            std::thread::spawn(move || {
+                let path = args.trim_matches('"').to_string();
+                reply(
+                    slot,
+                    call_id,
+                    match std::fs::metadata(&path) {
+                        Ok(m) => ok(format!(
+                            "{{\"path\":{},\"dir\":{},\"size\":{},\"readonly\":{}}}",
+                            json_str(&path),
+                            m.is_dir(),
+                            m.len(),
+                            m.permissions().readonly()
+                        )),
+                        Err(e) => err(&format!("{e}")),
+                    },
+                );
+            });
+        }
+
+        // The system folder/file picker.
+        //
+        // This one cannot be answered in Rust at all. `fs.list` showed why:
+        // user storage is `absent` from the app's mount namespace, not merely
+        // denied, so no permission makes /storage/media/... appear. The only
+        // route to a user's Documents or Downloads is the system picker, which
+        // is ArkTS-only and needs a UIAbilityContext.
+        //
+        // So the call is parked rather than answered. ArkTS drains it, shows
+        // the picker, and calls back with URIs -- which makes this the first
+        // tool whose answer travels Rust -> ArkTS -> Rust, the opposite of
+        // every other one here.
+        //
+        // Args: {"mode":"folder"|"file"} — bare "folder" also works.
+        "fs.pick" => {
+            let mode = if args.contains("folder") {
+                "folder"
+            } else {
+                "file"
+            };
+            park_pick(slot, call_id, mode);
+        }
+
         // The Splash half of the bridge: a page evaluates DSL and gets JSON
         // back. This is what makes it a JS <-> Rust/Splash bridge rather than
         // a JS -> Rust one -- the same language that describes the native tree
@@ -272,6 +319,79 @@ fn check_https_public(url: &str) -> Result<String, String> {
         return Err(format!("host not on the allowlist: {host}"));
     }
     Ok(host)
+}
+
+// ---------------------------------------------------------------------------
+// The picker channel: Rust -> ArkTS -> Rust.
+//
+// Every other tool answers on a worker and queues the reply. This one cannot:
+// the picker is an ArkTS API needing a UIAbilityContext, so Rust has to ask the
+// ArkTS side to do the work and wait to be told the answer. The call is parked
+// with its (slot, call_id) so the eventual reply reaches the right promise in
+// the right page.
+//
+// Request ids are strings on the wire for the same reason call ids are: they
+// cross into JS, where a u64 past 2^53 would come back rounded.
+// ---------------------------------------------------------------------------
+
+/// Requests ArkTS has not yet picked up, as (req_id, mode).
+static PICK_QUEUE: Mutex<Vec<(u64, String)>> = Mutex::new(Vec::new());
+/// Requests ArkTS is working on, as (req_id, slot, call_id). Kept separate from
+/// the queue because the queue is emptied on drain and this must outlive it —
+/// the user is looking at a picker UI in between, which can take as long as it
+/// takes.
+static PICK_INFLIGHT: Mutex<Vec<(u64, u32, String)>> = Mutex::new(Vec::new());
+static PICK_SEQ: Mutex<u64> = Mutex::new(0);
+
+fn park_pick(slot: u32, call_id: String, mode: &str) {
+    let id = match PICK_SEQ.lock() {
+        Ok(mut n) => {
+            *n += 1;
+            *n
+        }
+        Err(_) => return,
+    };
+    if let Ok(mut q) = PICK_INFLIGHT.lock() {
+        // A user who dismisses pickers forever should not grow this.
+        if q.len() > 16 {
+            q.remove(0);
+        }
+        q.push((id, slot, call_id));
+    }
+    if let Ok(mut q) = PICK_QUEUE.lock() {
+        q.push((id, mode.to_string()));
+    }
+}
+
+/// Picker requests waiting for ArkTS, as `reqId|mode`.
+pub fn pick_drain() -> Vec<String> {
+    match PICK_QUEUE.lock() {
+        Ok(mut q) => q.drain(..).map(|(id, m)| format!("{id}|{m}")).collect(),
+        Err(_) => Vec::new(),
+    }
+}
+
+/// ArkTS reporting what the picker returned. `payload` is a JSON array of
+/// `{uri, path, name}` on success, or a message on failure.
+pub fn pick_resolve(req_id: &str, success: bool, payload: String) {
+    let id: u64 = match req_id.parse() {
+        Ok(v) => v,
+        Err(_) => return,
+    };
+    let found = PICK_INFLIGHT.lock().ok().and_then(|mut q| {
+        q.iter()
+            .position(|(i, _, _)| *i == id)
+            .map(|ix| q.remove(ix))
+    });
+    let Some((_, slot, call_id)) = found else {
+        crate::log(&format!("bridge: pick {id} resolved with nothing waiting"));
+        return;
+    };
+    if success {
+        reply(slot, call_id, ok(payload));
+    } else {
+        reply(slot, call_id, err(&payload));
+    }
 }
 
 /// How many entries one listing may carry. `/system/lib64` alone runs past

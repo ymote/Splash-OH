@@ -1,6 +1,8 @@
 import { NodeContent, FrameNode } from '@kit.ArkUI';
 import { systemDateTime } from '@kit.BasicServicesKit';
 import { webview } from '@kit.ArkWeb';
+import { picker, fileUri } from '@kit.CoreFileKit';
+import { window } from '@kit.ArkUI';
 import splash from 'libsplash_oh.so';
 import { WeChatArkTs, LoadGenerator, RouteKind } from './WeChatArkTs';
 import { Taobao, TikTok, Wonderous } from './AppsArkTs';
@@ -133,6 +135,11 @@ struct Index {
    *  inert. */
   private bridges: Map<string, SplashNativeBridge> = new Map();
 
+  /** The app's own window, needed to launch the system picker over it.
+   *  Resolved once at startup; a pick before it lands is reported rather
+   *  than silently doing nothing. */
+  private mainWindow: window.Window | undefined = undefined;
+
   private bridgeFor(id: string): SplashNativeBridge {
     let b = this.bridges.get(id);
     if (b === undefined) {
@@ -167,6 +174,69 @@ struct Index {
           + JSON.stringify(callId) + ',' + payload + ')');
       } catch (e) {
         console.error('bridge reply to slot ' + slot + ' failed: ' + JSON.stringify(e));
+      }
+    }
+  }
+
+  /**
+   * Show the system picker for whatever a page asked for, and tell Rust.
+   *
+   * The only tool that runs Rust -> ArkTS -> Rust. `fs.list` established that
+   * user storage is *absent* from the app's mount namespace rather than merely
+   * denied, so no permission makes /storage/media/... appear by path; the
+   * picker is the only route to a user's own directories, and it is ArkTS-only
+   * because it needs a UIAbilityContext.
+   *
+   * The picker rejects when the user backs out, which is a normal outcome and
+   * is reported as a failed call rather than left to hang the page's promise.
+   */
+  private pumpPicks(): void {
+    const reqs: Array<string> = splash.pickDrain() as Array<string>;
+    for (let i = 0; i < reqs.length; i++) {
+      const bar = reqs[i].indexOf('|');
+      if (bar < 0) {
+        continue;
+      }
+      const reqId = reqs[i].substring(0, bar);
+      const folder = reqs[i].substring(bar + 1) === 'folder';
+      if (this.mainWindow === undefined) {
+        splash.pickResolve(reqId, false, 'window not ready');
+        continue;
+      }
+      try {
+        const opts = new picker.DocumentSelectOptions();
+        // 1 = DocumentSelectMode.FOLDER, 0 = FILE.
+        opts.selectMode = folder ? 1 : 0;
+        opts.maxSelectNumber = 1;
+        // Constructed with an explicit window, not just the context.
+        //
+        // The context-only constructor launched the picker's UIExtension and
+        // then resolved with an empty array straight away. The log said why:
+        //
+        //   filePicker/AceOverlay: Can not get overlayManager
+        //   RSSurfaceRenderNode ... FilePickerUIExtAbility ... on tree: 0
+        //
+        // The extension's surface never reached the render tree, because the
+        // picker could not find an ArkUI overlay to mount itself into from the
+        // context alone. Handing it the window resolves that, and the SDK
+        // documents this constructor for exactly the case where the app owns
+        // the window it wants the picker over.
+        const p = new picker.DocumentViewPicker(getContext(this), this.mainWindow);
+        p.select(opts).then((uris: Array<string>) => {
+          // Hand back the URI and the path it maps to. Whether Rust's std::fs
+          // can then read that path is the open question this exists to
+          // answer, so give the page both and let it try.
+          const out: Array<Record<string, string>> = [];
+          for (let k = 0; k < uris.length; k++) {
+            const fu = new fileUri.FileUri(uris[k]);
+            out.push({ 'uri': uris[k], 'path': fu.path, 'name': fu.name });
+          }
+          splash.pickResolve(reqId, true, JSON.stringify(out));
+        }).catch((e: Error) => {
+          splash.pickResolve(reqId, false, 'picker: ' + e.message);
+        });
+      } catch (e) {
+        splash.pickResolve(reqId, false, 'picker unavailable: ' + JSON.stringify(e));
       }
     }
   }
@@ -263,6 +333,11 @@ struct Index {
       splash.dslSelfTest();
       splash.appRender(START_APP);
       this.syncWebSlots();
+      window.getLastWindow(getContext(this)).then((w: window.Window) => {
+        this.mainWindow = w;
+      }).catch((e: Error) => {
+        console.error('no window for the picker: ' + e.message);
+      });
       // A tap inside the native tree cannot call back into ArkTS, so Rust
       // rebuilds on its own and this polls for the geometry it declared.
       setInterval(() => {
@@ -277,6 +352,7 @@ struct Index {
         }
         this.syncWebSlots();
         this.pumpBridge();
+        this.pumpPicks();
       }, 250);
       return;
     }
