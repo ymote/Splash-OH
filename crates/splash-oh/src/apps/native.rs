@@ -138,6 +138,7 @@ h2{{font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:#5f5f7a;
 <h2>Network and VM</h2>
 <div class=r><span class=k>http.get</span><span class="v m" id=n_get>&#8230;</span></div>
 <div class=r><span class=k>splash.eval</span><span class="v m" id=n_vm>&#8230;</span></div>
+<div class=r><span class=k>VM limits (oversize)</span><span class="v m" id=n_lim>&#8230;</span></div>
 <div class=r><span class=k>echo</span><span class="v m" id=n_echo>&#8230;</span></div>
 
 <h2>Capability gate</h2>
@@ -160,7 +161,7 @@ devicePixelRatio.</div>
      'p_size','p_dens','p_rot',
      'b_cap','s_list','s_acc','s_light','s_vib',
      'f_rss','f_stat','f_list','c_cap','w_net','w_caps','w_proxy','x_surf','x_cam','i_cams','i_pick','i_info','i_thumb','l_on','l_fix','l_city','r_cell','r_wifi','x_abc','x_file','cb_w','cb_r','k_rt','k_runs',
-     'n_get','n_vm','n_echo','g_ssrf','g_unk']
+     'n_get','n_vm','n_lim','n_echo','g_ssrf','g_unk']
       .forEach(function (id) {{ set(id, 'f', 'no bridge'); }});
     return;
   }}
@@ -463,6 +464,30 @@ devicePixelRatio.</div>
        ['n_vm'], function (r) {{
     set('n_vm', r === 55 ? 'p' : 'f', 'sum 1..10 = ' + r);
   }});
+
+  // Prove the limits are MINE, not splash-core's defaults.
+  //
+  // A 120 KB script sits between the two: the default max_source_bytes is
+  // 256 KB, so it would sail through an unconfigured runtime, and this bridge
+  // sets 64 KB, so it must be rejected here. A rejection is therefore evidence
+  // the configured limits took effect -- which a runaway loop could never show,
+  // since a stopped loop looks the same under either budget.
+  //
+  // It also has to fail FAST. Reading 120 KB and refusing costs nothing; the
+  // timing is there so a slow rejection would be visible as one.
+  var t1 = Date.now();
+  var pad = new Array(4000).join('let x = 1\n');   // ~40 KB
+  var huge = pad + pad + pad;                       // ~120 KB
+  splash.invoke('splash.eval', {{ source: huge, input: {{}} }})
+    .then(function () {{ set('n_lim', 'f', 'OVERSIZE SCRIPT ACCEPTED'); }})
+    .catch(function (e) {{
+      var ms = Date.now() - t1;
+      var m = String(e.message || '');
+      var capped = /too large|source/i.test(m);
+      set('n_lim', capped ? 'p' : 'w',
+          (capped ? 'capped at 64 KB in ' + ms + ' ms' : 'rejected in ' + ms + ' ms')
+          + (capped ? ' (default is 256 KB)' : ' · ' + m.slice(0, 30)));
+    }});
 
   call('echo', 'round-trip', ['n_echo'], function (r) {{
     set('n_echo', r === 'round-trip' ? 'p' : 'f', r);
