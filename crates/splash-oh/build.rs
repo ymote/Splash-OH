@@ -60,4 +60,6 @@ fn main() {
     println!("cargo:rustc-link-lib=dylib=net_connection");
     // Screen capture returns an OH_PixelmapNative, whose accessors live here.
     println!("cargo:rustc-link-lib=dylib=pixelmap");
+    println!("cargo:rustc-link-lib=dylib=time_service_ndk");
+    println!("cargo:rustc-link-lib=dylib=ohnotification");
 }

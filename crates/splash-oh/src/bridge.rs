@@ -138,6 +138,14 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args: String) {
 
         "device.battery" => reply(slot, call_id, ok(crate::device::battery())),
 
+        // The zone is the point: Intl in a page reports what the webview
+        // was configured with, not necessarily what the user set.
+        "device.time" => reply(slot, call_id, ok(crate::device::time())),
+
+        // Whether posting would be seen. Read-only -- the native kit
+        // exposes this one call, so a page can ask and cannot post.
+        "device.notifications" => reply(slot, call_id, ok(crate::device::notifications_enabled())),
+
         // What the phone can actually sense. Enumeration needs no permission,
         // so this works even where reading an individual sensor would not.
         "sensor.list" => reply(
