@@ -67,4 +67,9 @@ fn main() {
     println!("cargo:rustc-link-lib=dylib=wifi_ndk");
     println!("cargo:rustc-link-lib=dylib=ohcrypto");
     println!("cargo:rustc-link-lib=dylib=location_ndk");
+    // NOTE: the image and camera kits are deliberately NOT linked here. They
+    // are opened with dlopen at runtime instead -- see src/image.rs. Linking
+    // them made the app die during launch on this device, before any of our
+    // code ran, because a DT_NEEDED the loader cannot satisfy is fatal to the
+    // whole library and takes every other capability down with it.
 }

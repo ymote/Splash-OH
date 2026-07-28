@@ -229,6 +229,74 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args: String) {
             });
         }
 
+        // What an image is, from its header alone. Cheap: learning that a
+        // 12 MP HEIF was picked costs a header read, and a page often needs
+        // only that.
+        "image.info" => {
+            std::thread::spawn(move || {
+                let v: serde_json::Value = serde_json::from_str(&args).unwrap_or_default();
+                let path = v
+                    .get("path")
+                    .and_then(|x| x.as_str())
+                    .map(String::from)
+                    .unwrap_or_else(|| args.trim_matches('"').to_string());
+                reply(
+                    slot,
+                    call_id,
+                    match crate::image::info(&path) {
+                        Ok(j) => ok(j),
+                        Err(e) => err(&e),
+                    },
+                );
+            });
+        }
+
+        // Decode small, re-encode as JPEG, return a data: URI.
+        //
+        // This is what makes fs.pick worth having on a picture. A phone photo
+        // is several megabytes and everything here crosses as one JSON string
+        // that is then evaluated into the page -- a full-size image is the one
+        // payload this channel genuinely cannot carry. Decoding at a reduced
+        // size means the full bitmap is never materialised at all.
+        //
+        // Args: {"path": "...", "maxEdge": n, "quality": n}
+        "image.thumbnail" => {
+            std::thread::spawn(move || {
+                let v: serde_json::Value = serde_json::from_str(&args).unwrap_or_default();
+                let path = v
+                    .get("path")
+                    .and_then(|x| x.as_str())
+                    .map(String::from)
+                    .unwrap_or_else(|| args.trim_matches('"').to_string());
+                let edge = v.get("maxEdge").and_then(|x| x.as_u64()).unwrap_or(320) as u32;
+                let q = v.get("quality").and_then(|x| x.as_u64()).unwrap_or(80) as u32;
+                reply(
+                    slot,
+                    call_id,
+                    match crate::image::thumbnail(&path, edge, q) {
+                        Ok(j) => ok(j),
+                        Err(e) => err(&e),
+                    },
+                );
+            });
+        }
+
+        // What cameras exist. Enumeration only -- capture is a session pipeline
+        // needing ohos.permission.CAMERA, and knowing what the hardware is is
+        // worth having before anything asks to use it.
+        "camera.list" => {
+            std::thread::spawn(move || {
+                reply(
+                    slot,
+                    call_id,
+                    match crate::image::cameras() {
+                        Ok(j) => ok(j),
+                        Err(e) => err(&e),
+                    },
+                );
+            });
+        }
+
         // Whether the system location switch is on. Deliberately separate
         // from whether this app holds the permission: a page told "no
         // location" deserves to know which of the two it is, since only one of
