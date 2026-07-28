@@ -1,40 +1,41 @@
-//! Splash-OH — render a UI tree to OpenHarmony **native ArkUI widgets** from
-//! Rust, with no ArkTS in the loop.
+//! The JS ↔ Rust bridge, and the native capabilities behind it.
 //!
-//! ArkTS's entire role is to hand over one `NodeContent` slot at startup. After
-//! `mount()` returns, every widget in the app was created, configured, laid out
-//! and event-wired by this library. There are no per-widget and no per-frame
-//! ArkTS calls.
+//! This crate is the one ArkTS loads. It owns the napi surface, the web slots,
+//! the capability gate and the 45 tools a page can call — and it depends on
+//! `splash-oh-native` for the widget tree those pages sit in.
 //!
-//! For what that is actually worth, measured on device, see `bench.rs` — the
-//! answer is smaller than this repo originally claimed (~2.5× on construction,
-//! not ~45×) and the real argument is about contention rather than raw speed.
+//! # Why the split runs this way
+//!
+//! The dependency is one-directional and that is the whole reason it was worth
+//! separating. Nothing in `splash-oh-native` mentions the bridge, a web slot,
+//! an XComponent or ArkWeb. Every card here, by contrast, builds real ArkUI
+//! chrome out of that crate's widgets — the browser's tab strip, the file
+//! card's roots, the capability dashboard's header are native nodes with a web
+//! surface positioned into the hole they leave.
+//!
+//! So: `splash-oh-native` renders; this crate exposes the phone to a page.
+//! One `.so` still comes out, because ArkTS loads exactly one.
 
-pub mod app;
+pub use splash_oh_native::{app, arkui, bench, catalog, dsl, log, mem, net};
+
 pub mod apps;
-pub mod arkui;
 pub mod arkweb;
 pub mod audio;
-pub mod bench;
 pub mod bridge;
 pub mod capture;
-pub mod catalog;
 pub mod device;
-pub mod dsl;
 pub mod image;
 pub mod location;
-pub mod mem;
-pub mod net;
 pub mod netinfo;
 pub mod prefs;
 pub mod radio;
 pub mod secure;
 pub mod sensor;
 pub mod webslot;
-pub mod wechat;
 pub mod xcomp;
 
-use arkui::NodeContentHandle;
+use splash_oh_native::arkui::NodeContentHandle;
+use splash_oh_native::wechat;
 use napi_derive_ohos::napi;
 use napi_ohos::threadsafe_function::{
     ErrorStrategy, ThreadsafeFunction, ThreadsafeFunctionCallMode,
@@ -56,6 +57,16 @@ extern "C" {
 /// This is the ONLY ArkTS -> native entry point in the app.
 #[napi(js_name = "mount")]
 pub fn mount(env: Env, content: JsObject) -> napi_ohos::Result<()> {
+    // Tell the renderer how to route a tap. It deliberately does not know:
+    // splash-oh-native has no idea what an app is, and wiring this here is what
+    // keeps the dependency pointing one way.
+    app::set_router(|target| {
+        if apps::handle(target) {
+            apps::build().0
+        } else {
+            None
+        }
+    });
     if let Err(e) = arkui::init() {
         log(&format!("splash-oh: {e}"));
         return Ok(());
@@ -74,33 +85,6 @@ pub fn mount(env: Env, content: JsObject) -> napi_ohos::Result<()> {
     Ok(())
 }
 
-/// hilog, so this is debuggable on device without stdout (an OHOS app has none).
-pub(crate) fn log(msg: &str) {
-    #[link(name = "hilog_ndk.z")]
-    extern "C" {
-        fn OH_LOG_Print(
-            log_type: i32,
-            level: i32,
-            domain: u32,
-            tag: *const std::os::raw::c_char,
-            fmt: *const std::os::raw::c_char,
-            ...
-        ) -> i32;
-    }
-    if let Ok(c) = std::ffi::CString::new(msg) {
-        unsafe {
-            // `%{public}s` — a bare %s is redacted as <private> by hilog.
-            OH_LOG_Print(
-                0,
-                4,
-                0xAF01,
-                c"SplashOH".as_ptr(),
-                c"%{public}s".as_ptr(),
-                c.as_ptr(),
-            );
-        }
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Benchmark plumbing.
@@ -190,7 +174,7 @@ pub fn wechat_render() -> Vec<f64> {
     // DEMO: the ArkTS entry page (Index.ets) hardwires this call as its mount
     // path. Show the LLM-generated weather card (native ArkUI, evaluated from
     // the Splash DSL in assets/weather.splash) instead of the WeChat benchmark.
-    let node = crate::dsl::build_weather();
+    let node = splash_oh_native::dsl::build_weather();
     app::set_root(node);
     vec![0.0, 0.0]
 }
@@ -341,7 +325,7 @@ pub fn web_slot_html(id: u32) -> String {
 /// shell and the Web is laid out beneath it.
 #[napi(js_name = "youtubeRender")]
 pub fn youtube_render() {
-    let node = crate::dsl::build_youtube();
+    let node = splash_oh_native::dsl::build_youtube();
     app::set_root(node);
 }
 
@@ -355,7 +339,7 @@ pub fn wechat_keep_all() -> u32 {
 /// Keyed as "<app>.<what>"; each entry is pipe-separated fields.
 #[napi(js_name = "appData")]
 pub fn app_data(key: String) -> Vec<String> {
-    use apps::{taobao, tiktok, wonderous};
+    use splash_oh_native::{taobao, tiktok, wonderous};
     match key.as_str() {
         "taobao.products" => taobao::PRODUCTS
             .iter()

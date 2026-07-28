@@ -10,8 +10,9 @@
 //! body is a hole the ArkTS overlay fills. Tapping a tab changes which URL the
 //! hole loads, which is the part that was not previously possible.
 
-use super::ui::*;
-use crate::arkui::Node;
+use crate::webslot::{web, web_html};
+use splash_oh_native::ui::*;
+use splash_oh_native::arkui::Node;
 
 const CHROME: u32 = 0xFFF7F7F7;
 const TEXT: u32 = 0xFF1A1A1A;

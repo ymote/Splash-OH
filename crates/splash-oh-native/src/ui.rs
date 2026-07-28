@@ -122,29 +122,6 @@ pub fn scroll(h: f32) -> Option<Node> {
     )
 }
 
-/// A web surface at an absolute page position.
-///
-/// Emits a transparent placeholder so the native layout reserves the space,
-/// and records the geometry for ArkTS to put a real `Web` component there.
-/// Absolute coordinates rather than flow-relative ones because the ArkTS
-/// overlay is positioned against the page, not against this node's parent --
-/// and because the DSL sizes everything explicitly anyway, so they are known.
-pub fn web(url: &str, x: f32, y: f32, w: f32, h: f32) -> Option<Node> {
-    crate::webslot::declare(url, x, y, w, h);
-    // Fully transparent: the Web component draws here, not this node.
-    col(w, h, 0x00000000)
-}
-
-/// A web surface showing markup the app generated, rather than a URL.
-///
-/// The bridge shim is prepended, so every generated page can call
-/// `splash.invoke(tool, args)` without having to carry the plumbing itself.
-pub fn web_html(html: String, x: f32, y: f32, w: f32, h: f32) -> Option<Node> {
-    let with_shim = format!("{}{}", crate::bridge::SHIM, html);
-    crate::webslot::declare_html(with_shim, x, y, w, h);
-    col(w, h, 0x00000000)
-}
-
 pub fn spacer(w: f32, h: f32) -> Option<Node> {
     col(w, h, 0)
 }

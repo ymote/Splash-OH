@@ -20,13 +20,13 @@
 pub mod browser;
 pub mod files;
 pub mod native;
-pub mod taobao;
-pub mod tiktok;
-pub mod ui;
-pub mod weather_web;
-pub mod wonderous;
 
-use crate::arkui::Node;
+
+
+pub mod weather_web;
+
+
+use splash_oh_native::arkui::Node;
 use std::cell::RefCell;
 use std::time::Instant;
 
@@ -145,53 +145,53 @@ pub fn handle(target: i32) -> bool {
         // Each app owns a range of ids, so one handler can serve all of them.
         match nav.app {
             App::Taobao => match target {
-                taobao::BACK => {
+                splash_oh_native::taobao::BACK => {
                     let was = nav.pushed;
                     nav.pushed = false;
                     was
                 }
-                t if (taobao::TAB_BASE..taobao::TAB_BASE + 5).contains(&t) => {
-                    nav.tab = (t - taobao::TAB_BASE) as usize;
+                t if (splash_oh_native::taobao::TAB_BASE..splash_oh_native::taobao::TAB_BASE + 5).contains(&t) => {
+                    nav.tab = (t - splash_oh_native::taobao::TAB_BASE) as usize;
                     nav.pushed = false;
                     true
                 }
-                t if t >= taobao::ITEM_BASE => {
-                    nav.sub = (t - taobao::ITEM_BASE) as usize;
+                t if t >= splash_oh_native::taobao::ITEM_BASE => {
+                    nav.sub = (t - splash_oh_native::taobao::ITEM_BASE) as usize;
                     nav.pushed = true;
                     true
                 }
                 _ => false,
             },
             App::TikTok => match target {
-                tiktok::BACK => {
+                splash_oh_native::tiktok::BACK => {
                     let was = nav.pushed;
                     nav.pushed = false;
                     was
                 }
-                t if (tiktok::TAB_BASE..tiktok::TAB_BASE + 2).contains(&t) => {
-                    nav.tab = (t - tiktok::TAB_BASE) as usize;
+                t if (splash_oh_native::tiktok::TAB_BASE..splash_oh_native::tiktok::TAB_BASE + 2).contains(&t) => {
+                    nav.tab = (t - splash_oh_native::tiktok::TAB_BASE) as usize;
                     true
                 }
                 // The comment action opens the sheet; the others are no-ops
                 // visually, exactly as in the reference app.
-                t if t == tiktok::REEL_BASE + 2 => {
+                t if t == splash_oh_native::tiktok::REEL_BASE + 2 => {
                     nav.pushed = true;
                     true
                 }
                 _ => false,
             },
             App::Wonderous => match target {
-                wonderous::BACK => {
+                splash_oh_native::wonderous::BACK => {
                     let was = nav.sub != 0;
                     nav.sub = 0;
                     was
                 }
-                t if (wonderous::TAB_BASE..wonderous::TAB_BASE + 4).contains(&t) => {
-                    nav.tab = (t - wonderous::TAB_BASE) as usize;
+                t if (splash_oh_native::wonderous::TAB_BASE..splash_oh_native::wonderous::TAB_BASE + 4).contains(&t) => {
+                    nav.tab = (t - splash_oh_native::wonderous::TAB_BASE) as usize;
                     true
                 }
-                t if t >= wonderous::ART_BASE => {
-                    nav.sub = (t - wonderous::ART_BASE) as usize % wonderous::WONDERS.len();
+                t if t >= splash_oh_native::wonderous::ART_BASE => {
+                    nav.sub = (t - splash_oh_native::wonderous::ART_BASE) as usize % splash_oh_native::wonderous::WONDERS.len();
                     true
                 }
                 _ => false,
@@ -229,7 +229,7 @@ pub fn handle(target: i32) -> bool {
             },
             // No navigation: one page, every tool live on it.
             App::Native => false,
-            App::WeChat => crate::wechat::handle(target),
+            App::WeChat => splash_oh_native::wechat::handle(target),
         }
     })
 }
@@ -237,28 +237,28 @@ pub fn handle(target: i32) -> bool {
 /// Build the current app's current screen. Returns (root, nodes, µs).
 pub fn build() -> (Option<Node>, usize, f64) {
     // Whichever thread renders is a thread that must not block on the network.
-    crate::net::mark_ui_thread();
+    splash_oh_native::net::mark_ui_thread();
     let (app, tab, sub, pushed, feed) = NAV.with(|n| {
         let n = n.borrow();
         (n.app, n.tab, n.sub, n.pushed, n.feed)
     });
     if app == App::WeChat {
         // WeChat predates this module and keeps its own builder and counter.
-        return crate::wechat::build();
+        return splash_oh_native::wechat::build();
     }
-    ui::reset_count();
+    splash_oh_native::ui::reset_count();
     crate::webslot::reset();
     let t0 = Instant::now();
     let node = match app {
-        App::Taobao => taobao::build(tab, if pushed { Some(sub) } else { None }),
+        App::Taobao => splash_oh_native::taobao::build(tab, if pushed { Some(sub) } else { None }),
         App::TikTok => {
             if feed {
-                tiktok::build_feed()
+                splash_oh_native::tiktok::build_feed()
             } else {
-                tiktok::build(tab, sub, pushed)
+                splash_oh_native::tiktok::build(tab, sub, pushed)
             }
         }
-        App::Wonderous => wonderous::build(tab, sub % wonderous::WONDERS.len()),
+        App::Wonderous => splash_oh_native::wonderous::build(tab, sub % splash_oh_native::wonderous::WONDERS.len()),
         App::Browser => browser::build(tab),
         App::WeatherWeb => weather_web::build(tab),
         App::Files => files::build(tab),
@@ -266,7 +266,7 @@ pub fn build() -> (Option<Node>, usize, f64) {
         App::WeChat => unreachable!(),
     };
     let us = t0.elapsed().as_nanos() as f64 / 1000.0;
-    (node, ui::count(), us)
+    (node, splash_oh_native::ui::count(), us)
 }
 
 /// Build one named route without mounting it, for timing.
@@ -274,25 +274,25 @@ pub fn build() -> (Option<Node>, usize, f64) {
 pub fn build_route(app: App, tab: usize, route: &str) -> (usize, f64) {
     if app == App::WeChat {
         let r = match route {
-            "chat" => crate::wechat::Route::Chat(1),
-            "moments" => crate::wechat::Route::Moments,
-            _ => crate::wechat::Route::Root,
+            "chat" => splash_oh_native::wechat::Route::Chat(1),
+            "moments" => splash_oh_native::wechat::Route::Moments,
+            _ => splash_oh_native::wechat::Route::Root,
         };
-        return crate::wechat::build_timed(tab, r);
+        return splash_oh_native::wechat::build_timed(tab, r);
     }
-    ui::reset_count();
+    splash_oh_native::ui::reset_count();
     let t0 = Instant::now();
     let node = match app {
-        App::Taobao => taobao::build(tab, if route == "detail" { Some(0) } else { None }),
+        App::Taobao => splash_oh_native::taobao::build(tab, if route == "detail" { Some(0) } else { None }),
         App::TikTok => match route {
-            "sheet" => tiktok::build(tab, 0, true),
-            "feed" => tiktok::build_feed(),
+            "sheet" => splash_oh_native::tiktok::build(tab, 0, true),
+            "feed" => splash_oh_native::tiktok::build_feed(),
             r => {
                 let idx = r
                     .strip_prefix("reel")
                     .and_then(|s| s.parse().ok())
                     .unwrap_or(0);
-                tiktok::build(tab, idx, false)
+                splash_oh_native::tiktok::build(tab, idx, false)
             }
         },
         App::Wonderous => {
@@ -300,7 +300,7 @@ pub fn build_route(app: App, tab: usize, route: &str) -> (usize, f64) {
                 .strip_prefix('w')
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(0usize);
-            wonderous::build(tab, w % wonderous::WONDERS.len())
+            splash_oh_native::wonderous::build(tab, w % splash_oh_native::wonderous::WONDERS.len())
         }
         App::Browser => browser::build(tab),
         App::WeatherWeb => weather_web::build(tab),
@@ -309,7 +309,7 @@ pub fn build_route(app: App, tab: usize, route: &str) -> (usize, f64) {
         App::WeChat => unreachable!(),
     };
     let us = t0.elapsed().as_nanos() as f64 / 1000.0;
-    let n = ui::count();
+    let n = splash_oh_native::ui::count();
     drop(node);
     (n, us)
 }
@@ -374,10 +374,10 @@ fn set_route(app: App, tab: usize, route: &str) {
     });
     if app == App::WeChat {
         let r = match route {
-            "chat" => crate::wechat::Route::Chat(1),
-            "moments" => crate::wechat::Route::Moments,
-            _ => crate::wechat::Route::Root,
+            "chat" => splash_oh_native::wechat::Route::Chat(1),
+            "moments" => splash_oh_native::wechat::Route::Moments,
+            _ => splash_oh_native::wechat::Route::Root,
         };
-        crate::wechat::set_route(tab, r);
+        splash_oh_native::wechat::set_route(tab, r);
     }
 }
