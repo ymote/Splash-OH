@@ -13,6 +13,7 @@
 pub mod app;
 pub mod apps;
 pub mod arkui;
+pub mod arkweb;
 pub mod audio;
 pub mod bench;
 pub mod bridge;
@@ -266,6 +267,43 @@ pub fn pick_drain() -> Vec<String> {
 #[napi(js_name = "pickResolve")]
 pub fn pick_resolve(req_id: String, success: bool, payload: String) {
     bridge::pick_resolve(&req_id, success, payload);
+}
+
+/// Pushes bridge traffic into ArkTS the moment it exists.
+///
+/// Everything used to reach a page through a 250 ms poll, which put up to a
+/// quarter second on every call regardless of how long the work took, and made
+/// Rust -> page communication impossible: a page could only ever be told
+/// something as the answer to a question it had asked.
+///
+/// A threadsafe function removes both limits at once. It is callable from any
+/// worker, so a reply goes out when the work finishes, and an event can be sent
+/// with no call outstanding at all.
+static PUSH: OnceLock<ThreadsafeFunction<String, ErrorStrategy::Fatal>> = OnceLock::new();
+
+/// Hand Rust the callback it delivers on. Called once at startup.
+#[napi(js_name = "setPush")]
+pub fn set_push(cb: JsFunction) -> napi_ohos::Result<()> {
+    let tsfn: ThreadsafeFunction<String, ErrorStrategy::Fatal> =
+        cb.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
+    let _ = PUSH.set(tsfn);
+    bridge::set_pusher(push_line);
+    Ok(())
+}
+
+/// The function `bridge` calls to deliver one line. Separate from PUSH so the
+/// bridge module does not need the napi types.
+fn push_line(line: String) -> bool {
+    match PUSH.get() {
+        Some(tsfn) => {
+            // NonBlocking: a worker delivering a reply must not wait on the JS
+            // thread's queue. Dropping under extreme pressure is better than
+            // stalling the thread that produced the value.
+            tsfn.call(line, ThreadsafeFunctionCallMode::NonBlocking);
+            true
+        }
+        None => false,
+    }
 }
 
 /// Slots whose page has reported its script running, as ids.

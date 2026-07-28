@@ -71,6 +71,62 @@ pub struct Reply {
 
 static REPLIES: Mutex<VecDeque<Reply>> = Mutex::new(VecDeque::new());
 
+/// Set once by `lib::set_push`. Returns false if ArkTS has not registered yet,
+/// in which case the caller falls back to the queue.
+type Pusher = fn(String) -> bool;
+static PUSHER: Mutex<Option<Pusher>> = Mutex::new(None);
+
+pub fn set_pusher(f: Pusher) {
+    if let Ok(mut p) = PUSHER.lock() {
+        *p = Some(f);
+    }
+    crate::log("bridge: push channel registered; replies no longer wait for a poll");
+}
+
+/// Three routes, tried best-first.
+///
+/// 1. Native `OH_NativeArkWeb_RunJavaScript` — Rust evaluates into the page
+///    itself, so ArkTS is not on the path of a bridge call at all.
+/// 2. The threadsafe-function push into ArkTS, which still beats polling.
+/// 3. The queue, drained by the 250 ms poll, for traffic produced before
+///    either channel was up.
+fn deliver(slot: u32, id: &str, payload: &str) -> bool {
+    let js = if let Some(event) = id.strip_prefix('@') {
+        format!(
+            "window.splash&&window.splash._event&&window.splash._event({},{payload})",
+            json_str(event)
+        )
+    } else {
+        format!(
+            "window.splash&&window.splash._resolve&&window.splash._resolve({},{payload})",
+            json_str(id)
+        )
+    };
+    if crate::arkweb::run_js(slot, &js) {
+        return true;
+    }
+    let f = PUSHER.lock().ok().and_then(|p| *p);
+    match f {
+        Some(f) => f(format!("{slot}|{id}|{payload}")),
+        None => false,
+    }
+}
+
+/// Send an event to a page with no call outstanding.
+///
+/// The direction that did not previously exist. Everything a page learned had
+/// to be the answer to a question it asked, so a sensor stream or a download
+/// progress tick had to be polled by the page. `payload` must be valid JSON.
+pub fn emit(slot: u32, event: &str, payload: &str) {
+    // The call-id field carries `@name`, which is how the ArkTS side tells an
+    // event from a reply without a second channel.
+    if !deliver(slot, &format!("@{event}"), payload) {
+        crate::log(&format!(
+            "bridge: dropped {event} for slot {slot}, no push channel"
+        ));
+    }
+}
+
 /// Calls that have been dispatched and not yet answered, as
 /// (slot, call_id, deadline). Without this a wedged worker leaves a promise
 /// pending for the life of the page, with nothing on the JS side able to
@@ -115,12 +171,15 @@ fn expire_stale() {
         crate::log(&format!("bridge: call {call_id} on slot {slot} timed out"));
         // Straight onto the queue: reply() would re-enter the tracking that
         // just removed this entry.
-        if let Ok(mut q) = REPLIES.lock() {
-            q.push_back(Reply {
-                slot,
-                call_id,
-                payload: err("timed out waiting for the native side"),
-            });
+        let payload = err("timed out waiting for the native side");
+        if !deliver(slot, &call_id, &payload) {
+            if let Ok(mut q) = REPLIES.lock() {
+                q.push_back(Reply {
+                    slot,
+                    call_id,
+                    payload,
+                });
+            }
         }
     }
 }
@@ -140,6 +199,11 @@ pub fn painted_drain() -> Vec<String> {
 
 fn reply(slot: u32, call_id: String, payload: String) {
     untrack(slot, &call_id);
+    // Straight out if the channel is up. The queue remains for anything
+    // produced before ArkTS registered, which the poll still drains.
+    if deliver(slot, &call_id, &payload) {
+        return;
+    }
     if let Ok(mut q) = REPLIES.lock() {
         // A page that stops draining should not grow this without bound.
         if q.len() > 256 {
@@ -181,12 +245,53 @@ pub fn json_str(s: &str) -> String {
     out
 }
 
+/// The arguments of one call, with a typed accessor.
+///
+/// Every tool used to parse its own shape by hand, and the shape was not even
+/// consistent: the shim passed a string argument through raw and stringified
+/// everything else, so `args` was sometimes JSON and sometimes not. That
+/// produced two bugs in this file's history -- a `JSON.parse` on an
+/// already-decoded string, and an ArkTS object literal that stringified to
+/// something the page read back as undefined.
+///
+/// The shim now stringifies unconditionally, so `args` is always valid JSON and
+/// a tool can ask for the type it wants:
+///
+/// ```ignore
+/// #[derive(Deserialize)]
+/// struct Thumb { path: String, #[serde(default)] max_edge: Option<u32> }
+/// let a: Thumb = args.parse()?;
+/// ```
+pub struct Args(String);
+
+impl Args {
+    /// Deserialize into `T`, naming the tool and the failure rather than
+    /// falling back to a default that hides the mistake.
+    pub fn parse<T: serde::de::DeserializeOwned>(&self) -> Result<T, String> {
+        serde_json::from_str(&self.0).map_err(|e| format!("bad arguments: {e}"))
+    }
+
+    /// The raw JSON, for the few tools that genuinely want it.
+    pub fn raw(&self) -> &str {
+        &self.0
+    }
+
+    /// A single string argument. `invoke('echo', 'hi')` now arrives as `"hi"`,
+    /// so this is a parse rather than the quote-trimming every tool used to do
+    /// by hand -- and it is correct for a string containing a quote, which the
+    /// trimming was not.
+    pub fn text(&self) -> String {
+        self.parse::<String>().unwrap_or_else(|_| self.0.clone())
+    }
+}
+
 /// Handle a call from a page. Returns immediately; the answer arrives via
 /// [`drain`].
 ///
 /// Anything that can block runs on a worker. The caller here is ArkTS's JS
 /// thread, and blocking it is what `net::mark_ui_thread` exists to catch.
-pub fn invoke(slot: u32, call_id: String, tool: String, args: String) {
+pub fn invoke(slot: u32, call_id: String, tool: String, args_raw: String) {
+    let args = Args(args_raw);
     // Tracked before dispatch, so a tool that never replies is still answered.
     // slot.ready is fire-and-forget by design and has no promise waiting.
     if tool != "slot.ready" {
@@ -223,7 +328,7 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args: String) {
         }
 
         // Round-trip check, so a page can prove the bridge is live.
-        "echo" => reply(slot, call_id, ok(json_str(&args))),
+        "echo" => reply(slot, call_id, ok(json_str(&args.text()))),
 
         // Real device facts from libdeviceinfo_ndk, not a hardcoded string.
         // A page in a browser gets a user-agent; a page here can ask what the
@@ -262,8 +367,8 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args: String) {
         // Args: a bare kind ("accelerometer"), or {"kind": "...", "timeoutMs": n}.
         "sensor.read" => {
             std::thread::spawn(move || {
-                let (name, timeout) = if args.starts_with('{') {
-                    let v: serde_json::Value = serde_json::from_str(&args).unwrap_or_default();
+                let (name, timeout) = if args.raw().starts_with('{') {
+                    let v: serde_json::Value = serde_json::from_str(args.raw()).unwrap_or_default();
                     (
                         v.get("kind")
                             .and_then(|x| x.as_str())
@@ -272,7 +377,7 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args: String) {
                         v.get("timeoutMs").and_then(|x| x.as_u64()).unwrap_or(1500),
                     )
                 } else {
-                    (args.trim_matches('"').to_string(), 1500)
+                    (args.text(), 1500)
                 };
                 let payload = match crate::sensor::type_from_name(&name) {
                     Some(k) => match crate::sensor::sample(k, timeout.min(5000)) {
@@ -309,12 +414,12 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args: String) {
         // only that.
         "image.info" => {
             std::thread::spawn(move || {
-                let v: serde_json::Value = serde_json::from_str(&args).unwrap_or_default();
+                let v: serde_json::Value = serde_json::from_str(args.raw()).unwrap_or_default();
                 let path = v
                     .get("path")
                     .and_then(|x| x.as_str())
                     .map(String::from)
-                    .unwrap_or_else(|| args.trim_matches('"').to_string());
+                    .unwrap_or_else(|| args.text());
                 reply(
                     slot,
                     call_id,
@@ -337,12 +442,12 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args: String) {
         // Args: {"path": "...", "maxEdge": n, "quality": n}
         "image.thumbnail" => {
             std::thread::spawn(move || {
-                let v: serde_json::Value = serde_json::from_str(&args).unwrap_or_default();
+                let v: serde_json::Value = serde_json::from_str(args.raw()).unwrap_or_default();
                 let path = v
                     .get("path")
                     .and_then(|x| x.as_str())
                     .map(String::from)
-                    .unwrap_or_else(|| args.trim_matches('"').to_string());
+                    .unwrap_or_else(|| args.text());
                 let edge = v.get("maxEdge").and_then(|x| x.as_u64()).unwrap_or(320) as u32;
                 let q = v.get("quality").and_then(|x| x.as_u64()).unwrap_or(80) as u32;
                 reply(
@@ -370,7 +475,7 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args: String) {
         // page, so a page cannot aim the camera at someone else's surface.
         "camera.preview" => {
             std::thread::spawn(move || {
-                let v: serde_json::Value = serde_json::from_str(&args).unwrap_or_default();
+                let v: serde_json::Value = serde_json::from_str(args.raw()).unwrap_or_default();
                 let front = v.get("front").and_then(|x| x.as_bool()).unwrap_or(false);
                 let st = crate::xcomp::surface_state();
                 let payload = if !st.created || st.surface_id == 0 {
@@ -426,7 +531,7 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args: String) {
         // Args: {"hz": n, "ms": n}
         "audio.tone" => {
             std::thread::spawn(move || {
-                let v: serde_json::Value = serde_json::from_str(&args).unwrap_or_default();
+                let v: serde_json::Value = serde_json::from_str(args.raw()).unwrap_or_default();
                 let hz = v.get("hz").and_then(|x| x.as_u64()).unwrap_or(440) as u32;
                 let ms = v.get("ms").and_then(|x| x.as_u64()).unwrap_or(400);
                 reply(
@@ -445,7 +550,7 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args: String) {
         // page would be both large and a much bigger capability.
         "audio.level" => {
             std::thread::spawn(move || {
-                let v: serde_json::Value = serde_json::from_str(&args).unwrap_or_default();
+                let v: serde_json::Value = serde_json::from_str(args.raw()).unwrap_or_default();
                 let ms = v.get("ms").and_then(|x| x.as_u64()).unwrap_or(700);
                 reply(
                     slot,
@@ -466,10 +571,11 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args: String) {
         // learn it.
         "keystore.roundtrip" => {
             std::thread::spawn(move || {
-                let alias = if args.trim_matches('"').is_empty() {
+                let t = args.text();
+                let alias = if t.is_empty() {
                     "splash-demo-key".to_string()
                 } else {
-                    args.trim_matches('"').chars().take(64).collect()
+                    t.chars().take(64).collect()
                 };
                 reply(
                     slot,
@@ -521,7 +627,7 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args: String) {
         // Args: {"url": "https://...", "name": "clip.mp4"}
         "net.fetchToFile" => {
             std::thread::spawn(move || {
-                let v: serde_json::Value = serde_json::from_str(&args).unwrap_or_default();
+                let v: serde_json::Value = serde_json::from_str(args.raw()).unwrap_or_default();
                 let url = v
                     .get("url")
                     .and_then(|x| x.as_str())
@@ -591,12 +697,12 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args: String) {
         // names, which is wider than http.get's allowlist permits.
         "video.play" => {
             std::thread::spawn(move || {
-                let v: serde_json::Value = serde_json::from_str(&args).unwrap_or_default();
+                let v: serde_json::Value = serde_json::from_str(args.raw()).unwrap_or_default();
                 let path = v
                     .get("path")
                     .and_then(|x| x.as_str())
                     .map(String::from)
-                    .unwrap_or_else(|| args.trim_matches('"').to_string());
+                    .unwrap_or_else(|| args.text());
                 reply(
                     slot,
                     call_id,
@@ -644,7 +750,7 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args: String) {
         // Args: {} or {"timeoutMs": n}.
         "location.get" => {
             std::thread::spawn(move || {
-                let v: serde_json::Value = serde_json::from_str(&args).unwrap_or_default();
+                let v: serde_json::Value = serde_json::from_str(args.raw()).unwrap_or_default();
                 let timeout = v
                     .get("timeoutMs")
                     .and_then(|x| x.as_u64())
@@ -671,7 +777,7 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args: String) {
         //
         // Args: {"lat": n, "lon": n}
         "location.nearestCity" => {
-            let v: serde_json::Value = serde_json::from_str(&args).unwrap_or_default();
+            let v: serde_json::Value = serde_json::from_str(args.raw()).unwrap_or_default();
             let lat = v.get("lat").and_then(|x| x.as_f64()).unwrap_or(0.0);
             let lon = v.get("lon").and_then(|x| x.as_f64()).unwrap_or(0.0);
             let i = crate::location::nearest_city(lat, lon);
@@ -698,10 +804,10 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args: String) {
         //
         // Args: a JSON array of permission names.
         "permission.request" => {
-            let list = if args.trim_start().starts_with('[') {
-                args.clone()
+            let list = if args.raw().trim_start().starts_with('[') {
+                args.raw().to_string()
             } else {
-                format!("[{}]", json_str(args.trim_matches('"')))
+                format!("[{}]", json_str(&args.text()))
             };
             park_arkts(slot, call_id, "permission.request", &list);
         }
@@ -738,7 +844,7 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args: String) {
         // crossing the bridge at all.
         "crypto.sha256" => {
             std::thread::spawn(move || {
-                let v: serde_json::Value = serde_json::from_str(&args).unwrap_or_default();
+                let v: serde_json::Value = serde_json::from_str(args.raw()).unwrap_or_default();
                 let payload = if let Some(p) = v.get("path").and_then(|x| x.as_str()) {
                     crate::radio::sha256_file(p)
                 } else {
@@ -746,7 +852,7 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args: String) {
                         .get("text")
                         .and_then(|x| x.as_str())
                         .map(String::from)
-                        .unwrap_or_else(|| args.trim_matches('"').to_string());
+                        .unwrap_or_else(|| args.text());
                     crate::radio::sha256(t.as_bytes())
                 };
                 reply(
@@ -770,13 +876,13 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args: String) {
         // localStorage: the slot is re-created whenever the DSL rebuilds, and
         // generated pages arrive under a synthetic baseUrl, so the origin the
         // storage was scoped to is not reliably the same one next time.
-        "prefs.get" => reply(slot, call_id, ok(crate::prefs::get(args.trim_matches('"')))),
+        "prefs.get" => reply(slot, call_id, ok(crate::prefs::get(&args.text()))),
 
         "prefs.keys" => reply(slot, call_id, ok(crate::prefs::keys())),
 
         // Args: {"key": "...", "value": "..."}
         "prefs.set" => {
-            let v: serde_json::Value = serde_json::from_str(&args).unwrap_or_default();
+            let v: serde_json::Value = serde_json::from_str(args.raw()).unwrap_or_default();
             let k = v.get("key").and_then(|x| x.as_str()).unwrap_or("");
             let val = v.get("value").and_then(|x| x.as_str()).unwrap_or("");
             reply(
@@ -792,7 +898,7 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args: String) {
         "prefs.remove" => reply(
             slot,
             call_id,
-            match crate::prefs::remove(args.trim_matches('"')) {
+            match crate::prefs::remove(&args.text()) {
                 Ok(j) => ok(j),
                 Err(e) => err(&e),
             },
@@ -801,11 +907,11 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args: String) {
         // Haptics. A page in a browser has no route to the motor at all.
         "vibrate" => {
             let ms = args
-                .trim_matches('"')
+                .text()
                 .parse::<i32>()
                 .ok()
                 .or_else(|| {
-                    serde_json::from_str::<serde_json::Value>(&args)
+                    serde_json::from_str::<serde_json::Value>(args.raw())
                         .ok()
                         .and_then(|v| v.get("ms").and_then(|x| x.as_i64()).map(|n| n as i32))
                 })
@@ -821,7 +927,7 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args: String) {
         }
 
         "log" => {
-            crate::log(&format!("page: {args}"));
+            crate::log(&format!("page: {}", args.text()));
             reply(slot, call_id, ok("true".into()));
         }
 
@@ -829,7 +935,7 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args: String) {
         // its own connection. One network path, one place to see failures.
         "http.get" => {
             std::thread::spawn(move || {
-                let url = args.trim_matches('"').to_string();
+                let url = args.text();
                 if let Err(e) = check_https_public(&url) {
                     reply(slot, call_id, err(&e));
                     return;
@@ -858,10 +964,10 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args: String) {
         "fs.list" => {
             std::thread::spawn(move || {
                 let path = args
-                    .strip_prefix('{')
-                    .and_then(|_| serde_json::from_str::<serde_json::Value>(&args).ok())
+                    .parse::<serde_json::Value>()
+                    .ok()
                     .and_then(|v| v.get("path").and_then(|p| p.as_str()).map(String::from))
-                    .unwrap_or_else(|| args.trim_matches('"').to_string());
+                    .unwrap_or_else(|| args.text());
                 reply(slot, call_id, list_dir(&path));
             });
         }
@@ -872,7 +978,7 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args: String) {
         // A size matching what the picker displayed says yes.
         "fs.stat" => {
             std::thread::spawn(move || {
-                let path = args.trim_matches('"').to_string();
+                let path = args.text();
                 reply(
                     slot,
                     call_id,
@@ -904,7 +1010,7 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args: String) {
         // Args: a bare path, or {"path": "...", "max": <bytes>}.
         "fs.read" => {
             std::thread::spawn(move || {
-                let (path, max) = read_args(&args);
+                let (path, max) = read_args(args.raw());
                 reply(slot, call_id, read_file(&path, max));
             });
         }
@@ -924,7 +1030,7 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args: String) {
         //
         // Args: {"mode":"folder"|"file"} — bare "folder" also works.
         "fs.pick" => {
-            let mode = if args.contains("folder") {
+            let mode = if args.raw().contains("folder") {
                 "folder"
             } else {
                 "file"
@@ -941,13 +1047,13 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args: String) {
         "clipboard.read" => park_arkts(slot, call_id, "clipboard.read", ""),
 
         "clipboard.write" => {
-            let text = if args.starts_with('{') {
-                serde_json::from_str::<serde_json::Value>(&args)
+            let text = if args.raw().starts_with('{') {
+                serde_json::from_str::<serde_json::Value>(args.raw())
                     .ok()
                     .and_then(|v| v.get("text").and_then(|x| x.as_str()).map(String::from))
                     .unwrap_or_default()
             } else {
-                args.trim_matches('"').to_string()
+                args.text()
             };
             park_arkts(slot, call_id, "clipboard.write", &text);
         }
@@ -962,7 +1068,7 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args: String) {
         // `input` is injected as a global the script can read.
         "splash.eval" => {
             std::thread::spawn(move || {
-                let parsed: serde_json::Value = match serde_json::from_str(&args) {
+                let parsed: serde_json::Value = match serde_json::from_str(args.raw()) {
                     Ok(v) => v,
                     Err(e) => {
                         reply(slot, call_id, err(&format!("bad args: {e}")));
@@ -1176,7 +1282,12 @@ fn read_args(args: &str) -> (String, u64) {
             return (p.to_string(), m);
         }
     }
-    (args.trim_matches('"').to_string(), READ_MAX)
+    // A bare path now arrives as a JSON string, so parse rather than trim --
+    // correct for a path containing a quote, which trimming was not.
+    (
+        serde_json::from_str::<String>(args).unwrap_or_else(|_| args.to_string()),
+        READ_MAX,
+    )
 }
 
 /// One file's contents, as UTF-8 text when it is text and base64 when it is not.
@@ -1422,12 +1533,9 @@ pub const SHIM: &str = r#"<script>
 (function(){
   var n = 0, pending = {};
   window.splash = {
-    // NOTE ON ARGS: a string is passed through RAW, anything else is
-    // stringified. So `invoke('echo', 'hi')` sends `hi`, not `"hi"` -- the
-    // args a tool receives are not always valid JSON, and each tool handles
-    // its own shape (http.get trims stray quotes, splash.eval parses). Tools
-    // returning a string therefore return it decoded; JSON.parse on the way
-    // out is a mistake, and was one.
+    // ARGS ARE ALWAYS JSON. Whatever is passed is stringified, so a tool
+    // always receives valid JSON and can deserialize into a type instead of
+    // guessing. Results come back already decoded, as before.
     invoke: function (tool, args) {
       return new Promise(function (res, rej) {
         // Ids are strings: they are u64 in Rust and JS numbers are f64, so
@@ -1439,9 +1547,27 @@ pub const SHIM: &str = r#"<script>
           rej(new Error('splash_native bridge not present'));
           return;
         }
+        // Always stringified. It used to pass a string through raw, which
+        // meant `args` was JSON for some calls and not others, and every tool
+        // had to guess -- see Args in bridge.rs for the two bugs that caused.
         window.splash_native.invoke(id, tool,
-          typeof args === 'string' ? args : JSON.stringify(args === undefined ? null : args));
+          JSON.stringify(args === undefined ? null : args));
       });
+    },
+    // Subscribe to events Rust sends with no call outstanding. The direction
+    // that did not exist before: a page can now be told things.
+    on: function (name, cb) {
+      (this._l[name] = this._l[name] || []).push(cb);
+      return this;
+    },
+    off: function (name) { delete this._l[name]; return this; },
+    _l: {},
+    _event: function (name, payload) {
+      var fns = this._l[name];
+      if (!fns) { return; }
+      for (var i = 0; i < fns.length; i++) {
+        try { fns[i](payload); } catch (e) { /* one bad listener must not stop the rest */ }
+      }
     },
     _resolve: function (id, payload) {
       var p = pending[String(id)];
