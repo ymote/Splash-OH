@@ -69,9 +69,96 @@ impl Args {
     }
 }
 
-/// What a tool does. Returns the JSON payload of a successful reply, or a
-/// message explaining the refusal.
-pub type ToolFn = fn(&Args) -> Result<String, String>;
+/// How a tool answers.
+///
+/// Handed to the tool rather than returned by it, so a tool that has to wait --
+/// a network call, a file picker, anything that parks -- can move this to
+/// another thread and answer whenever the answer arrives. A tool that already
+/// knows just calls `ok` and returns.
+///
+/// The page is holding a promise on the other end of this, so **it must be
+/// answered**. Dropping one without answering used to be a page that waits
+/// forever; now `Drop` answers with an error, which is a bad outcome the caller
+/// can see rather than a hang they cannot.
+pub struct Responder {
+    slot: u32,
+    call_id: String,
+    answered: bool,
+}
+
+impl Responder {
+    pub fn new(slot: u32, call_id: String) -> Self {
+        Responder {
+            slot,
+            call_id,
+            answered: false,
+        }
+    }
+
+    /// Answer with a JSON payload.
+    pub fn ok(mut self, json: impl Into<String>) {
+        self.answered = true;
+        send(
+            self.slot,
+            std::mem::take(&mut self.call_id),
+            Ok(json.into()),
+        );
+    }
+
+    /// Answer with a failure. The page's promise rejects.
+    pub fn err(mut self, msg: impl Into<String>) {
+        self.answered = true;
+        send(
+            self.slot,
+            std::mem::take(&mut self.call_id),
+            Err(msg.into()),
+        );
+    }
+
+    /// Which surface asked, for a tool that cares.
+    pub fn slot(&self) -> u32 {
+        self.slot
+    }
+}
+
+impl Drop for Responder {
+    fn drop(&mut self) {
+        if !self.answered {
+            send(
+                self.slot,
+                std::mem::take(&mut self.call_id),
+                Err("the tool did not answer".into()),
+            );
+        }
+    }
+}
+
+/// How an answer gets back to the page.
+///
+/// Installed by the bridge at startup, because the reply channel needs napi and
+/// this crate cannot have napi -- a plugin has to be able to depend on it from
+/// a host build.
+pub type ReplyFn = fn(u32, String, Result<String, String>);
+static REPLY: Mutex<Option<ReplyFn>> = Mutex::new(None);
+
+pub fn set_reply(f: ReplyFn) {
+    if let Ok(mut g) = REPLY.lock() {
+        *g = Some(f);
+    }
+}
+
+fn send(slot: u32, call_id: String, result: Result<String, String>) {
+    let f = REPLY.lock().ok().and_then(|g| *g);
+    match f {
+        Some(f) => f(slot, call_id, result),
+        // Only reachable if a tool answers before mount installed the channel,
+        // which would be a wiring mistake rather than a runtime condition.
+        None => eprintln!("splash-oh-core: no reply channel; dropped answer for {call_id}"),
+    }
+}
+
+/// What a tool does. It receives its arguments and the means to answer.
+pub type ToolFn = fn(&Args, Responder);
 
 pub struct Tool {
     pub name: &'static str,
@@ -135,15 +222,42 @@ pub fn with_registry_mut<R>(f: impl FnOnce(&mut Registry) -> R) -> R {
     f(g.get_or_insert_with(Registry::default))
 }
 
-/// Look a tool up and call it. `None` if no plugin claims the name, which is
-/// what tells the bridge to fall through to its own dispatch.
-pub fn dispatch(name: &str, args: &Args) -> Option<Result<String, String>> {
-    let g = REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
-    let call = g.as_ref()?.get(name)?.call;
+/// Does a plugin claim this name?
+///
+/// Asked *before* a `Responder` exists, and that ordering is the whole point. A
+/// Responder answers with an error when dropped unanswered, so building one
+/// speculatively and letting it fall out of scope on a miss rejects the call --
+/// which is what happened when this took a Responder and returned a bool: every
+/// built-in tool started failing with "the tool did not answer", because the
+/// guard fired before the bridge's own dispatch got a turn.
+pub fn claims(name: &str) -> bool {
+    REGISTRY
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .is_some_and(|r| r.get(name).is_some())
+}
+
+/// Call a plugin's tool. Only sound after [`claims`] has said yes.
+///
+/// Returning says nothing about whether the tool has answered — that is what
+/// `Responder` is for. A deferred tool has taken it to another thread by now.
+pub fn dispatch(name: &str, args: &Args, responder: Responder) {
+    let call = {
+        let g = REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+        match g.as_ref().and_then(|r| r.get(name)) {
+            Some(t) => t.call,
+            None => {
+                // Only reachable if the registry changed between claims() and
+                // here. Answering beats dropping: the page gets a reason.
+                responder.err(format!("no tool named {name:?}"));
+                return;
+            }
+        }
+    };
     // Called with the lock released: a tool is arbitrary code and may well
     // invoke something that wants the registry again.
-    drop(g);
-    Some(call(args))
+    call(args, responder);
 }
 
 /// Registered tool names, for `plugin.list`.
@@ -164,17 +278,16 @@ pub fn registered() -> Vec<&'static str> {
 /// `if` is a rule nobody has watched work, so this runs it.
 pub fn self_test() -> String {
     let mut r = Registry::default();
-    let first = r.add("selftest.tool", "first", |_| Ok("1".into()));
-    let dup = r.add("selftest.tool", "second, should be refused", |_| {
-        Ok("2".into())
+    let first = r.add("selftest.tool", "first", |_, resp| resp.ok("1"));
+    let dup = r.add("selftest.tool", "second, should be refused", |_, resp| {
+        resp.ok("2")
     });
-    let other = r.add("selftest.other", "a different name", |_| Ok("3".into()));
+    let other = r.add("selftest.other", "a different name", |_, resp| resp.ok("3"));
 
-    let called = r
-        .get("selftest.tool")
-        .map(|t| (t.call)(&Args::new("null".into())))
-        .and_then(|v| v.ok())
-        .unwrap_or_default();
+    // Which function a name resolves to, without calling it: a Responder needs
+    // a live reply channel and this runs before one is guaranteed.
+    let first_wins = r.get("selftest.tool").map(|t| t.summary) == Some("first");
+    let called = if first_wins { "1" } else { "" };
 
     let ok = first && !dup && other && r.len() == 2 && called == "1";
     format!(

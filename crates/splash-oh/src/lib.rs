@@ -85,6 +85,8 @@ pub fn mount(env: Env, content: JsObject) -> napi_ohos::Result<()> {
     // Link the plugins this build ships into the registry. The cdylib is the
     // only place that can: a plugin crate cannot register itself into a library
     // it is not part of. See splash-oh-core's module docs.
+    // Before any plugin can answer, it needs somewhere to answer to.
+    splash_oh_core::set_reply(bridge::plugin_reply);
     splash_oh_core::with_registry_mut(|r| {
         splash_oh_plugin_demo::register(r);
     });

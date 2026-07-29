@@ -197,6 +197,17 @@ pub fn painted_drain() -> Vec<String> {
     }
 }
 
+/// The reply channel handed to `splash-oh-core` at startup.
+///
+/// A plugin answers through a `Responder`, which knows nothing about napi or
+/// the push channel — it only knows this function pointer, installed here.
+pub fn plugin_reply(slot: u32, call_id: String, result: Result<String, String>) {
+    match result {
+        Ok(payload) => reply(slot, call_id, ok(payload)),
+        Err(why) => reply(slot, call_id, err(&why)),
+    }
+}
+
 fn reply(slot: u32, call_id: String, payload: String) {
     untrack(slot, &call_id);
     // Straight out if the channel is up. The queue remains for anything
@@ -391,11 +402,12 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args_raw: String) {
     // but `Registry::add` refuses a duplicate, so the only way to reach here
     // with a clash is for a plugin to have claimed a name before the bridge
     // knew about it, and honouring the plugin is the useful answer then.
-    if let Some(result) = splash_oh_core::dispatch(&tool, &args) {
-        match result {
-            Ok(payload) => reply(slot, call_id, ok(payload)),
-            Err(why) => reply(slot, call_id, err(&why)),
-        }
+    if splash_oh_core::claims(&tool) {
+        splash_oh_core::dispatch(
+            &tool,
+            &args,
+            splash_oh_core::Responder::new(slot, call_id.clone()),
+        );
         return;
     }
 
