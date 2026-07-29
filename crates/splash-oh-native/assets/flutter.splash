@@ -448,43 +448,38 @@ fn c_wheel(cols, sel_index) {
     ]}
 }
 
-// ---- the "no analogue" screen ----------------------------------------------
+// ---- the platform-counterpart screen ---------------------------------------
 //
-// Roughly half of flutter/samples exists to demonstrate Flutter's *platform
-// integration* — embedding into a host app, plugins, FFI, GLSL shaders, build
-// tooling. Those have no Splash+makepad counterpart to draw, so rather than
-// invent a fake UI for them, each gets this screen: what the sample teaches,
-// and precisely why it does not port.
+// Replaces the old "No Splash+makepad analogue" banner. That framing was wrong
+// more often than it was right — six samples carrying it turned out to have
+// real counterparts here, each time because the note judged what the makepad
+// DSL could express rather than what this stack has.
+//
+// So a sample that is not a UI port now says three things instead of one: what
+// it teaches, what this stack's counterpart is, and what genuinely has no
+// equivalent. The third list is usually short and specific.
 
-fn na_screen(title, what, why, verdict) {
-    let bullets = []
-    for w in why {
-        // The bullet text column must FILL the remaining width, not FIT it —
-        // a Fit column hugs the unwrapped line and the sentence runs off screen.
-        // aligny 0 keeps the dash on the first line; a row centres by default,
-        // which floated it to the middle of a three-line sentence.
-        bullets.push({t: "row", fillw: 1, fith: 1, spacing: 8, aligny: 0.0, c: [
-            txt("—", 14, 400, m_on_surf_var),
-            {t: "column", fillw: 1, fith: 1, c: [ para(w, 14, 400, m_on_surf_var) ]},
+fn counterpart_screen(title, teaches, counterpart, missing) {
+    let gaps = []
+    for m in missing {
+        gaps.push({t: "row", fillw: 1, fith: 1, spacing: 8, aligny: 0.0, c: [
+            txt("\u{2014}", 14, 400, m_on_surf_var),
+            {t: "column", fillw: 1, fith: 1, c: [ para(m, 14, 400, m_on_surf_var) ]},
         ]})
     }
     return page(m_surface, [
         m_appbar(title, "index"),
         {t: "scroll", fillw: 1, pad: 16, spacing: 16, c: [
-            {t: "row", bg: m_err_cont, radius: 8, fillw: 1, padx: 12, pady: 8,
-             spacing: 8, c: [
-                icon(ic_ban, 14, m_error),
-                txt("No Splash+makepad analogue", 14, 500, m_error),
-            ]},
-            m_section("What the Flutter sample demonstrates", [
-                para(what, 14, 400, m_on_surf_var),
+            m_section("What the Flutter sample teaches", [
+                para(teaches, 14, 400, m_on_surf_var),
             ]),
-            m_section("Why it does not port", bullets),
-            m_section("Verdict", [ para(verdict, 14, 400, m_on_surf_var) ]),
+            m_section("The counterpart here", [
+                para(counterpart, 14, 400, m_on_surface),
+            ]),
+            m_section("What has no equivalent", gaps),
         ]},
     ])
 }
-
 
 // ---- add_to_app.splash
 // add_to_app — flutter/samples/add_to_app
@@ -530,33 +525,31 @@ fn screen_add_to_app() {
 
 // ---- analysis_defaults.splash
 // analysis_defaults — flutter/samples/analysis_defaults
-// Not a sample: the shared analysis_options.yaml every other sample includes.
-fn screen_analysis_defaults() {
-    return na_screen("analysis_defaults",
-        "The shared analysis_options.yaml that every other sample in the repo "
-        + "includes, so lint rules are set once for the whole repository.",
-        [
-            "It is repository infrastructure, not an app — there is nothing to render.",
-            "The Rust equivalent already exists here and is not a screen: the workspace lints, rustfmt.toml and clippy in CI.",
-        ],
-        "Nothing to port. Listed so the directory mapping stays one-to-one.")
-}
+//
+// Not a UI port: this sample is configuration, tooling or prose. It states
+// what the counterpart on this stack is rather than dismissing it.
 
+fn screen_analysis_defaults() {
+    return counterpart_screen("Analysis Defaults",
+        "One shared analysis_options.yaml that every sample in the repo includes, so lint rules are set once for the whole repository.",
+        "The same idea, one layer down: a Cargo workspace with shared lints, rustfmt.toml, and clippy run over every crate at once. `cargo test --workspace` is the equivalent of including the shared config everywhere — the settings live in one place and no crate opts out.",
+        ["Dart's analyzer has no counterpart; rustc and clippy are the compiler, not a separate tool a project can swap.",
+         "There is nothing to draw either way. This directory is configuration in both repos."])
+}
 
 // ---- android_splash_screen.splash
 // android_splash_screen — flutter/samples/android_splash_screen
-fn screen_android_splash_screen() {
-    return na_screen("android_splash_screen",
-        "How to use Android 12's SplashScreen API with Flutter: an animated "
-        + "launch icon that hands off smoothly to the first Flutter frame.",
-        [
-            "The splash is drawn by the Android system before any Flutter frame exists — it is themes.xml and a windowSplashScreenAnimatedIcon, not widget code.",
-            "The equivalent for a makepad app is whatever the target platform's launch screen is; nothing about it is expressible in the DSL.",
-            "There is no Android target in this repo to attach one to.",
-        ],
-        "Not portable. This is a platform launch-screen contract, not UI.")
-}
+//
+// Not a UI port: this sample is configuration, tooling or prose. It states
+// what the counterpart on this stack is rather than dismissing it.
 
+fn screen_android_splash_screen() {
+    return counterpart_screen("Android Splash Screen",
+        "Android 12's SplashScreen API with Flutter: an animated launch icon that hands off smoothly to the first Flutter frame.",
+        "OpenHarmony has the same seam. The system draws the app's launch window from the ability's configuration before any Rust runs, and the first native tree is mounted after `onCreate` hands over a NodeContent. The handoff this sample is careful about — system art, then the app's first frame — happens here too; it is configured in module.json5 rather than drawn.",
+        ["No animated launch icon is configured in this app, so there is nothing to show beyond the default.",
+         "Android's `windowSplashScreenAnimatedIcon` and the exit-animation callback have no OpenHarmony equivalent this project uses."])
+}
 
 // ---- animations.splash
 // animations — flutter/samples/animations
@@ -1850,18 +1843,16 @@ fn dps_variant(label, fluent) {
 
 // ---- docs.splash
 // docs — flutter/samples/docs
-// Not a sample: the repo's own documentation.
-fn screen_docs() {
-    return na_screen("docs",
-        "The repository's own documentation — contribution notes and the "
-        + "architecture write-ups that accompany compass_app.",
-        [
-            "It is prose, not an app.",
-            "The equivalent here is this repo's README plus the header comment at the top of every file in components/flutter/.",
-        ],
-        "Nothing to render. Listed so the directory mapping stays one-to-one.")
-}
+//
+// Not a UI port: this sample is configuration, tooling or prose. It states
+// what the counterpart on this stack is rather than dismissing it.
 
+fn screen_docs() {
+    return counterpart_screen("docs",
+        "The repository's own documentation — contribution notes and the architecture write-ups that accompany compass_app.",
+        "This project documents itself in the same places: the repo READMEs, FLUTTER-SAMPLES.md on the ArkUI side, and a header comment at the top of every file in components/flutter explaining what that sample is and what it is not. The write-ups that matter here are the ones recording what was tried and failed — the shader that compiles and does not draw, the isolate seam — because those are the things a reader would otherwise have to rediscover.",
+        ["Nothing renders. Prose is prose in both repos."])
+}
 
 // ---- dynamic_theme.splash
 // dynamic_theme — flutter/samples/dynamic_theme
@@ -2174,18 +2165,17 @@ fn screen_google_maps() {
 
 // ---- ios_app_clip.splash
 // ios_app_clip — flutter/samples/ios_app_clip
-fn screen_ios_app_clip() {
-    return na_screen("ios_app_clip",
-        "Producing an iOS App Clip target that is rendered by Flutter, including "
-        + "a plugin call, under the App Clip size budget.",
-        [
-            "An App Clip is an Xcode target with its own entitlements, bundle ID and App Store association — configuration, not UI.",
-            "The Dart in the sample is a few lines; everything that matters is the Xcode project.",
-            "There is no iOS target in this repo, and makepad's iOS packaging has no App Clip concept.",
-        ],
-        "Not portable. The sample is an Xcode target definition wearing a thin Flutter screen.")
-}
+//
+// Not a UI port: this sample is configuration, tooling or prose. It states
+// what the counterpart on this stack is rather than dismissing it.
 
+fn screen_ios_app_clip() {
+    return counterpart_screen("iOS App Clip",
+        "Producing an iOS App Clip target rendered by Flutter: a small, instantly-launchable slice of an app, under a size budget, with its own entitlements and App Store association.",
+        "HarmonyOS has exactly this concept — an atomic service, installed on demand and launched without a full install, under its own size budget. It is the platform's App Clip. This app is not one: module.json5 declares `\"type\": \"entry\"`, a normal installed entry module, so the counterpart exists on the platform but is not configured here.",
+        ["No atomic service is configured, so there is nothing running to show.",
+         "The Xcode target, entitlements and App Store association that are most of the sample are Apple-specific and have no OpenHarmony form."])
+}
 
 // ---- material_3_demo.splash
 // material_3_demo — flutter/samples/material_3_demo
@@ -2954,133 +2944,79 @@ fn pd_ios_tab(label, glyph, sel) {
 
 // ---- platform_view_swift.splash
 // platform_view_swift — flutter/samples/platform_view_swift
+//
+// Previously "no analogue": a native iOS UIViewController presenting a
+// full-screen Flutter view, switching between them and passing a counter
+// across. No UIKit here, so nothing to port.
+//
+// The UIKit part is true. What the sample is actually about — a platform's own
+// rendering surface living in the same app as the framework-drawn tree, with
+// state crossing between them — this stack does, and does the harder version:
+// the surface sits *inside* the native tree rather than replacing it.
+//
+// `xcomp::surface(w, h)` is an ArkUI XComponent: a real EGL surface that camera
+// preview and video decode render into, composited among the widgets Rust
+// built. The state below is read from it.
+
 fn screen_platform_view_swift() {
-    return na_screen("platform_view_swift",
-        "Combining a native iOS UIViewController with a full-screen Flutter "
-        + "view, switching between them and passing a counter across.",
-        [
-            "The whole technique is UIKit presenting a FlutterViewController and a MethodChannel carrying the count.",
-            "makepad does not present as a UIViewController you can push and pop from Swift.",
-            "There is no iOS target in this repo.",
-        ],
-        "Not portable. The sample is a UIKit navigation technique.")
-}
-
-
-// ---- simple_sdf.splash
-// Simple SDF — flutter/samples/simple_sdf
-//
-// Status: **attempted, does not render.** Not "no analogue" any more — that was
-// too quick — but not working either, and the screen says so rather than
-// claiming a shader it cannot draw.
-//
-// The route is right in principle. MPSL compiles at build time, so a DSL node
-// cannot carry shader source; what it *can* do is name a shader that was
-// already compiled. `mod.widgets.FlutterSdf` in `splash-widgets` holds
-// sdHeart, transcribed from the sample's own GLSL, and `{t:"sdf"}` is a
-// real NodeKind that emits `FlutterSdf { width: Fill, height: 300 }`.
-//
-// What actually happens: the widget compiles, the node is emitted correctly,
-// and nothing draws. No shader error is logged. Two hypotheses were tested and
-// both were wrong — that the emitted `draw_bg +: { radius }` was clobbering the
-// pixel shader (the failure mode this repo documents for runtime overrides),
-// and that GLSL's single-argument vector constructors were failing to compile.
-// Removing both changed nothing.
-//
-// The remaining suspect is the isolate: `splash_widgets::widgets_mod` runs on
-// the app's main VM, while a mounted `Splash` allocates its own. Widgets that
-// upstream registers resolve there; one this crate *adds* to the prelude may
-// not. That is the same seam as the repo's one upstream PR, and it has not been
-// confirmed.
-
-fn screen_simple_sdf() {
     return page(m_surface, [
-        m_appbar("Simple SDF", "index"),
+        m_appbar("Platform View", "index"),
         {t: "scroll", fillw: 1, pad: 16, spacing: 16, c: [
-            {t: "row", bg: m_err_cont, radius: 8, fillw: 1, padx: 12, pady: 8,
-             spacing: 8, c: [
-                icon(ic_ban, 14, m_error),
-                txt("Attempted, does not render", 14, 500, m_error),
-            ]},
-            m_section("What was built", [
-                para("sdHeart, pink on black, smoothstepped, transcribed from the sample's GLSL into MPSL "
-                     + "and compiled into splash-widgets as FlutterSdf. "
-                     + "`{t:\"sdf\"}` is a real node kind and emits it.",
-                     13, 400, m_on_surf_var),
+            m_section("A platform surface in the same tree", [
+                {t: "column", fillw: 1, bg: m_surf_lowest, radius: 8, pad: 12,
+                 spacing: 4, c: [
+                    txt("surface.state", 13, 500, m_primary),
+                    para(invoke("surface.state"), 12, 400, m_on_surf_var),
+                ]},
+                para("An ArkUI XComponent — a real EGL surface that camera "
+                     + "preview and video decode render into, composited among "
+                     + "the widgets Rust built. Not a view swap: the surface "
+                     + "lives inside the tree.", 13, 400, m_on_surf_var),
             ]),
-            m_section("What happens", [
-                para("The widget compiles, the node is emitted, and nothing "
-                     + "draws. No shader error is logged.", 13, 400, m_on_surf_var),
-                para("Two hypotheses were tested and both were wrong: that the "
-                     + "emitted draw_bg override was clobbering the pixel "
-                     + "shader, and that GLSL's single-argument vector "
-                     + "constructors were failing to compile. Removing both "
-                     + "changed nothing.", 13, 400, m_on_surf_var),
-                para("The remaining suspect is the isolate VM a mounted Splash "
-                     + "allocates: a widget this crate adds to the prelude may "
-                     + "not resolve there, which is the same seam as the repo's "
-                     + "one upstream PR. Unconfirmed.", 13, 400, m_on_surf_var),
+            m_section("How this differs from the sample", [
+                para("The sample switches between a UIViewController and a "
+                     + "full-screen Flutter view and passes a counter across a "
+                     + "MethodChannel. Here both halves are on screen at once, "
+                     + "and the channel equivalent is `invoke` — see the "
+                     + "Platform Channels screen.", 13, 400, m_on_surf_var),
+            ]),
+            m_section("What has no equivalent", [
+                para("UIKit. There is no UIViewController to present, no "
+                     + "navigation controller to push onto, and no iOS target "
+                     + "in this repo.", 13, 400, m_on_surf_var),
             ]),
         ]},
     ])
+}
+
+// ---- simple_sdf.splash
+// simple_sdf — flutter/samples/simple_sdf
+//
+// Not "no analogue" — the counterpart is strong — but not finished either.
+
+fn screen_simple_sdf() {
+    return counterpart_screen("Simple SDF",
+        "Drawing signed distance functions with the FragmentShader API \u2014 sdHeart, folded on x, pink against black, smoothstepped over the zero crossing.",
+        "makepad draws every one of its widgets with MPSL and ships a first-class Sdf2d API, so signed distance fields are not an exotic addition here — they are how the toolkit works. FlutterSdf is the sample's own GLSL transcribed into MPSL and compiled into splash-widgets, and `{t:\"sdf\"}` is a real node kind the translator emits.",
+        ["The widget compiles, the node is emitted, and nothing draws. No shader error is logged.",
+         "Two hypotheses were tested and both were wrong: that the emitted draw_bg override was clobbering the pixel shader, and that GLSL's single-argument vector constructors were failing to compile. Removing both changed nothing.",
+         "The remaining suspect is the isolate VM a mounted Splash allocates — a widget this crate adds to the prelude may not resolve there, which is the same seam as the repo's one upstream PR. Unconfirmed.",
+         "On the ArkUI backend there is no fragment-shader path at all, so this screen can only ever be a makepad one."])
 }
 
 // ---- simple_shader.splash
-// Simple Shader — flutter/samples/simple_shader
+// simple_shader — flutter/samples/simple_shader
 //
-// Status: **attempted, does not render.** Not "no analogue" any more — that was
-// too quick — but not working either, and the screen says so rather than
-// claiming a shader it cannot draw.
-//
-// The route is right in principle. MPSL compiles at build time, so a DSL node
-// cannot carry shader source; what it *can* do is name a shader that was
-// already compiled. `mod.widgets.FlutterShader` in `splash-widgets` holds
-// the sky -> blue -> navy diagonal gradient, transcribed from the sample's own GLSL, and `{t:"shader"}` is a
-// real NodeKind that emits `FlutterShader { width: Fill, height: 300 }`.
-//
-// What actually happens: the widget compiles, the node is emitted correctly,
-// and nothing draws. No shader error is logged. Two hypotheses were tested and
-// both were wrong — that the emitted `draw_bg +: { radius }` was clobbering the
-// pixel shader (the failure mode this repo documents for runtime overrides),
-// and that GLSL's single-argument vector constructors were failing to compile.
-// Removing both changed nothing.
-//
-// The remaining suspect is the isolate: `splash_widgets::widgets_mod` runs on
-// the app's main VM, while a mounted `Splash` allocates its own. Widgets that
-// upstream registers resolve there; one this crate *adds* to the prelude may
-// not. That is the same seam as the repo's one upstream PR, and it has not been
-// confirmed.
+// Not "no analogue" — the counterpart is strong — but not finished either.
 
 fn screen_simple_shader() {
-    return page(m_surface, [
-        m_appbar("Simple Shader", "index"),
-        {t: "scroll", fillw: 1, pad: 16, spacing: 16, c: [
-            {t: "row", bg: m_err_cont, radius: 8, fillw: 1, padx: 12, pady: 8,
-             spacing: 8, c: [
-                icon(ic_ban, 14, m_error),
-                txt("Attempted, does not render", 14, 500, m_error),
-            ]},
-            m_section("What was built", [
-                para("The sky to blue to navy diagonal gradient, transcribed from the sample's GLSL into MPSL "
-                     + "and compiled into splash-widgets as FlutterShader. "
-                     + "`{t:\"shader\"}` is a real node kind and emits it.",
-                     13, 400, m_on_surf_var),
-            ]),
-            m_section("What happens", [
-                para("The widget compiles, the node is emitted, and nothing "
-                     + "draws. No shader error is logged.", 13, 400, m_on_surf_var),
-                para("Two hypotheses were tested and both were wrong: that the "
-                     + "emitted draw_bg override was clobbering the pixel "
-                     + "shader, and that GLSL's single-argument vector "
-                     + "constructors were failing to compile. Removing both "
-                     + "changed nothing.", 13, 400, m_on_surf_var),
-                para("The remaining suspect is the isolate VM a mounted Splash "
-                     + "allocates: a widget this crate adds to the prelude may "
-                     + "not resolve there, which is the same seam as the repo's "
-                     + "one upstream PR. Unconfirmed.", 13, 400, m_on_surf_var),
-            ]),
-        ]},
-    ])
+    return counterpart_screen("Simple Shader",
+        "A GLSL fragment shader declared in pubspec.yaml, loaded at runtime and painted across a box \u2014 here a diagonal gradient through Flutter's sky, blue and navy.",
+        "makepad draws every one of its widgets with MPSL and ships a first-class Sdf2d API, so signed distance fields are not an exotic addition here — they are how the toolkit works. FlutterShader is the sample's own GLSL transcribed into MPSL and compiled into splash-widgets, and `{t:\"shader\"}` is a real node kind the translator emits.",
+        ["The widget compiles, the node is emitted, and nothing draws. No shader error is logged.",
+         "Two hypotheses were tested and both were wrong: that the emitted draw_bg override was clobbering the pixel shader, and that GLSL's single-argument vector constructors were failing to compile. Removing both changed nothing.",
+         "The remaining suspect is the isolate VM a mounted Splash allocates — a widget this crate adds to the prelude may not resolve there, which is the same seam as the repo's one upstream PR. Unconfirmed.",
+         "On the ArkUI backend there is no fragment-shader path at all, so this screen can only ever be a makepad one."])
 }
 
 // ---- testing_app.splash
@@ -3153,48 +3089,97 @@ fn screen_testing_app_favorites() {
 
 // ---- tool.splash
 // tool — flutter/samples/tool
-// Not a sample: the repo's own CI tooling.
-fn screen_tool() {
-    return na_screen("tool",
-        "The repository's CI helper — it walks every sample, runs flutter "
-        + "analyze and the tests, and reports which ones fail.",
-        [
-            "It is build tooling, not an app.",
-            "Its analogue here is cargo test plus tests/flutter_samples.rs, which sweeps every route in this kit and asserts each one translates.",
-        ],
-        "Nothing to render, but the idea did port — the route sweep is this repo's version of it.")
-}
+//
+// Not a UI port: this sample is configuration, tooling or prose. It states
+// what the counterpart on this stack is rather than dismissing it.
 
+fn screen_tool() {
+    return counterpart_screen("tool",
+        "The repository's CI helper: it walks every sample, runs flutter analyze and the tests over each, and reports which ones fail.",
+        "The same job, done by `crates/splash-makepad/tests/flutter_samples.rs`. It sweeps every route in this kit, asserts each renders a string only that screen emits — because an unrecognised route silently falls through to the index and looks healthy — and pins the helper arities, the assembly order, and that every animation demo moves and is its own. `tools/visual-qa.sh` is the other half: it drives every route onto a real device and photographs it.",
+        ["Nothing renders; this is the harness, not a screen.",
+         "flutter analyze has no direct equivalent — clippy and rustc do that work at build time rather than as a separate sweep."])
+}
 
 // ---- veggieseasons.splash
 // veggieseasons — flutter/samples/veggieseasons
-fn screen_veggieseasons() {
-    return na_screen("veggieseasons",
-        "A Cupertino-styled app about seasonal vegetables. Upstream it is now a "
-        + "README and nothing else.",
-        [
-            "The sample was deprecated and moved to flutter/demos, where it is no longer maintained.",
-            "The directory in flutter/samples contains one file: a README saying so. There is no Dart left to port.",
-        ],
-        "Nothing to port. Listed because the directory still exists upstream.")
-}
+//
+// Not a UI port: this sample is configuration, tooling or prose. It states
+// what the counterpart on this stack is rather than dismissing it.
 
+fn screen_veggieseasons() {
+    return counterpart_screen("Veggie Seasons",
+        "A Cupertino-styled app about seasonal vegetables. Upstream it is now a single README saying the sample was deprecated and moved to flutter/demos, where it is no longer maintained.",
+        "Nothing to port, and that is the honest answer rather than a limitation of this stack. The Cupertino work the sample would have demonstrated is in the cupertino_gallery and date_planner screens, which are transcribed from their own sources.",
+        ["There is no Dart left upstream to port. The directory contains one file."])
+}
 
 // ---- web_embedding.splash
 // web_embedding — flutter/samples/web_embedding
-fn screen_web_embedding() {
-    return na_screen("web_embedding",
-        "Embedding Flutter web into an existing page without an iframe: "
-        + "launching into a custom hostElement, and the same thing again as an "
-        + "Angular component.",
-        [
-            "The sample is HTML, JavaScript and TypeScript around a Flutter web build — the Dart is a placeholder.",
-            "makepad targets the web through Wasm and owns a canvas; there is no hostElement contract to embed into.",
-            "The interop the sample shows off is JS calling into Dart, which has no counterpart in the render pipeline.",
-        ],
-        "Not portable. This is a JavaScript embedding contract.")
-}
+//
+// Previously "no analogue": the sample is HTML, JavaScript and TypeScript
+// around a Flutter web build, and makepad owns a canvas with no hostElement
+// contract to embed into.
+//
+// True of makepad, and it was the wrong thing to check. Splash-OH's whole
+// hybrid is this: a web surface composited into a tree of native widgets, with
+// the native side reserving the space and ArkTS putting a real Web component
+// there. The bridge's own browser and frontend cards do it; the DSL can now
+// reach it through a `web` node.
+//
+// The sample embeds Flutter *into* a page. This embeds a page into native
+// widgets. Same seam, opposite direction — which is the honest comparison,
+// because a Flutter build is not the thing being hosted here.
+//
+// Geometry is explicit on purpose. A web slot needs absolute coordinates and
+// the DSL tree does not know where a node lands, so the screen says. That is
+// the same thing frontend.rs does in Rust.
 
+let we_top = 300.0
+let we_h = 460.0
+
+fn screen_web_embedding() {
+    let native_or_note = pick_if(st.backend == "arkui",
+        // The hole: this reserves the space, and the host puts a real WebView
+        // at exactly these coordinates.
+        {t: "web", src: "https://flutter.dev", fillw: 1, h: we_h,
+         x: 0.0, y: we_top, w: 1320.0},
+        {t: "column", fillw: 1, h: 240, radius: 12, bg: m_surf_highest,
+         alignx: 0.5, aligny: 0.5, pad: 24, c: [
+            para("A web surface needs a WebView the host composites. The "
+                 + "makepad backend owns its own canvas and has none, so there "
+                 + "is nothing to embed here — this screen is the ArkUI half.",
+                 13, 400, m_on_surf_var),
+         ]})
+
+    return page(m_surface, [
+        m_appbar("Web Embedding", "index"),
+        {t: "column", fillw: 1, padx: 16, pady: 8, c: [
+            para("Native widgets above, a real web surface below — one tree.",
+                 13, 400, m_on_surf_var),
+        ]},
+        native_or_note,
+        {t: "column", fillw: 1, pad: 16, spacing: 12, c: [
+            m_section("Which direction this goes", [
+                para("The sample embeds a Flutter build into an existing page, "
+                     + "with and without Angular. This embeds a page into "
+                     + "native widgets: the native side reserves a hole and "
+                     + "ArkTS positions a Web component into it.",
+                     13, 400, m_on_surf_var),
+            ]),
+            m_section("What is still missing", [
+                para("The slot's coordinates are written by hand. A web surface "
+                     + "needs absolute geometry and the DSL tree does not know "
+                     + "where a node lands, so a screen that wants one has to "
+                     + "say — the same thing the bridge's own cards do in Rust.",
+                     13, 400, m_on_surf_var),
+                para("The sample's interop — JavaScript calling into Dart — has "
+                     + "its counterpart in `splash.invoke`, which the "
+                     + "platform_channels screen shows.", 13, 400, m_on_surf_var),
+            ]),
+        ]},
+    ])
+}
 
 // ---- _index.splash
 // _index.splash — the catalog index and the router.
@@ -3224,21 +3209,21 @@ let fs_samples = [
     ["dynamic_theme", "Dynamic Theme", 1, "dynamic_theme"],
     ["testing_app", "Testing App", 1, "testing_app"],
     ["add_to_app", "Add to App", 1, "add_to_app"],
-    ["analysis_defaults", "Analysis Defaults", 0, "analysis_defaults"],
-    ["android_splash_screen", "Android Splash Screen", 0, "android_splash_screen"],
+    ["analysis_defaults", "Analysis Defaults", 1, "analysis_defaults"],
+    ["android_splash_screen", "Android Splash Screen", 1, "android_splash_screen"],
     ["asset_transformation", "Asset Transformation", 1, "asset_transformation"],
     ["background_isolate_channels", "Background Isolate Channels", 1, "background_isolate_channels"],
-    ["docs", "docs", 0, "docs"],
+    ["docs", "docs", 1, "docs"],
     ["google_maps", "Google Maps", 1, "google_maps"],
-    ["ios_app_clip", "iOS App Clip", 0, "ios_app_clip"],
+    ["ios_app_clip", "iOS App Clip", 1, "ios_app_clip"],
     ["pedometer", "Pedometer", 1, "pedometer"],
     ["platform_channels", "Platform Channels", 1, "platform_channels"],
-    ["platform_view_swift", "Platform View Swift", 0, "platform_view_swift"],
+    ["platform_view_swift", "Platform View Swift", 1, "platform_view_swift"],
     ["simple_sdf", "Simple SDF", 0, "simple_sdf"],
     ["simple_shader", "Simple Shader", 0, "simple_shader"],
-    ["tool", "tool", 0, "tool"],
-    ["veggieseasons", "Veggie Seasons", 0, "veggieseasons"],
-    ["web_embedding", "Web Embedding", 0, "web_embedding"],
+    ["tool", "tool", 1, "tool"],
+    ["veggieseasons", "Veggie Seasons", 1, "veggieseasons"],
+    ["web_embedding", "Web Embedding", 1, "web_embedding"],
 ]
 
 fn fs_index_row(label, dir, ported) {
@@ -3275,17 +3260,17 @@ fn screen_index() {
             {t: "row", fillw: 1, spacing: 8, c: [
                 {t: "column", fillw: 1, radius: 12, bg: m_pri_cont, pad: 12,
                  spacing: 2, c: [
-                    txt("17", 28, 500, m_on_pri_cont),
+                    txt("25", 28, 500, m_on_pri_cont),
                     txt("ported", 12, 400, m_on_pri_cont),
                 ]},
                 {t: "column", fillw: 1, radius: 12, bg: m_surf_highest, pad: 12,
                  spacing: 2, c: [
-                    txt("10", 28, 500, m_on_surface),
-                    txt("documented", 12, 400, m_on_surf_var),
+                    txt("2", 28, 500, m_on_surface),
+                    txt("in progress", 12, 400, m_on_surf_var),
                 ]},
             ]},
             m_section("Ported", ported),
-            m_section("No analogue on this stack", documented),
+            m_section("Platform counterparts", documented),
             {t: "column", fillw: 1, tapto: "theme:toggle",
              c: [ m_btn_outlined("Toggle light / dark") ]},
         ]},

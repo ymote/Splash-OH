@@ -101,6 +101,14 @@ pub fn mount(env: Env, content: JsObject) -> napi_ohos::Result<()> {
     // calling the platform and getting a typed answer back is exactly what a
     // MethodChannel is, and the bridge already carries ~45 of these for web
     // pages. This exposes the same registry to the Splash DSL.
+    // A `web` node in the DSL reserves space and asks for a real WebView there.
+    splash_oh_native::set_web_declare(|src, x, y, w, h| {
+        if let Some(path) = src.strip_prefix("app:") {
+            webslot::declare_app(path, x, y, w, h)
+        } else {
+            webslot::declare(src, x, y, w, h)
+        }
+    });
     splash_oh_native::set_host_invoke(|tool| match tool {
         "device.info" => device::info(0),
         "device.display" => device::display(),
@@ -147,6 +155,9 @@ pub fn mount(env: Env, content: JsObject) -> napi_ohos::Result<()> {
         }
         // add_to_app: facts about this very embed.
         "embed.nodes" => format!("{}", splash_oh_native::ui::last_total()),
+        // platform_view_swift: a real native rendering surface composited into
+        // the same tree, which is what that sample is about.
+        "surface.state" => xcomp::state(),
         "embed.shape" => "ArkTS hands over one NodeContent at startup; every \
 node after that is created, configured, laid out and event-wired from Rust"
             .to_string(),

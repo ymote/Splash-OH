@@ -345,6 +345,18 @@ fn walk(vm: &mut ScriptVm, value: ScriptValue, depth: usize, parent: &str) -> Op
         "textarea" => ty::textarea(),
         "datepicker" => ty::datepicker(),
         "image" => ty::image(),
+        // A web surface: reserve the space here, and tell the host to put a
+        // real WebView at these coordinates. Same mechanism the bridge's own
+        // cards use; this reaches it from the DSL.
+        "web" => {
+            let src = string_prop(vm, value, id!(src)).unwrap_or_default();
+            let x = num_prop(vm, value, id!(x)).unwrap_or(0.0) as f32;
+            let y = num_prop(vm, value, id!(y)).unwrap_or(0.0) as f32;
+            let w = num_prop(vm, value, id!(w)).unwrap_or(0.0) as f32;
+            let h = num_prop(vm, value, id!(h)).unwrap_or(0.0) as f32;
+            crate::web_declare(&src, x, y, w, h);
+            ty::column()
+        }
         other => {
             crate::log(&format!("dsl: unknown node type {other:?}"));
             return None;

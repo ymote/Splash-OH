@@ -86,3 +86,25 @@ pub fn host_invoke(tool: &str) -> String {
         None => "unavailable".to_string(),
     }
 }
+
+/// Declare a web surface: source, x, y, w, h -> slot id.
+///
+/// The renderer cannot own this — WebViews live in ArkTS and the slot registry
+/// is the bridge's — so it is another hook the bridge installs at mount.
+pub type WebDeclare = fn(&str, f32, f32, f32, f32) -> u32;
+
+static WEB_DECLARE: std::sync::Mutex<Option<WebDeclare>> = std::sync::Mutex::new(None);
+
+pub fn set_web_declare(f: WebDeclare) {
+    if let Ok(mut w) = WEB_DECLARE.lock() {
+        *w = Some(f);
+    }
+}
+
+/// Reserve a web surface. Returns 0 when no host is installed.
+pub fn web_declare(src: &str, x: f32, y: f32, w: f32, h: f32) -> u32 {
+    match WEB_DECLARE.lock().ok().and_then(|w| *w) {
+        Some(f) => f(src, x, y, w, h),
+        None => 0,
+    }
+}
