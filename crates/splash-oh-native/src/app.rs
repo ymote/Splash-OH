@@ -88,6 +88,20 @@ pub fn init(slot: NodeContentHandle) {
 
 /// ArkUI event thread → here. Only the target id matters.
 extern "C" fn on_event(target_id: i32, _event_type: i32) {
+    // Checked FIRST, ahead of the router hand-off below.
+    //
+    // The flutter kit names its targets with route strings, interned during the
+    // walk into ids at or above FLUTTER_NAV_BASE. Those ids belong to no other
+    // app, so claiming them here is unambiguous — and it has to happen before
+    // the `WECHAT_ACTIVE` branch, which returns unconditionally once a bridge
+    // app is mounted. `catalogScreen` sets that flag, so every tap in the kit
+    // was being handed to a router that knows nothing about route strings and
+    // then dropped. Nothing was clickable.
+    if let Some(route) = crate::dsl::flutter_route(target_id) {
+        set_screen(route);
+        return;
+    }
+
     // Whichever ported app owns the surface handles the id and rebuilds.
     //
     // This used to call `wechat::handle` + `wechat::build` directly, from
@@ -128,6 +142,29 @@ extern "C" fn on_event(target_id: i32, _event_type: i32) {
         // widgets are real, so ArkUI already handled the visual state itself.
         _ => {}
     }
+}
+
+/// The route currently mounted.
+pub fn current_screen() -> String {
+    APP.with(|a| {
+        a.borrow()
+            .as_ref()
+            .map(|app| app.screen.clone())
+            .unwrap_or_default()
+    })
+}
+
+/// Record the current route without rebuilding.
+///
+/// `catalogScreen` builds and mounts its own tree, so it never went through
+/// `set_screen` and `app.screen` stayed empty — which made `is_animating()`
+/// always false and the animation tick a permanent no-op.
+pub fn set_screen_quiet(s: String) {
+    APP.with(|a| {
+        if let Some(app) = a.borrow_mut().as_mut() {
+            app.screen = s;
+        }
+    });
 }
 
 fn set_screen(s: String) {
@@ -199,6 +236,18 @@ pub fn detach_root() {
     });
 }
 
+/// Whether the current screen is one that moves.
+///
+/// Re-mounting rebuilds the whole native tree, so it is only worth doing on a
+/// timer for screens that animate. Everything else is static and costs nothing.
+pub fn is_animating() -> bool {
+    APP.with(|a| {
+        a.borrow()
+            .as_ref()
+            .is_some_and(|app| app.screen.starts_with("animations/"))
+    })
+}
+
 /// Re-evaluate the DSL for the current screen and swap the tree in.
 pub fn rebuild() {
     let (slot, screen) = APP.with(|a| {
@@ -208,10 +257,12 @@ pub fn rebuild() {
     });
     let bench = crate::bench::report();
 
-    // DEMO: mount the LLM-generated weather card instead of the catalog. The
-    // weather DSL is self-contained (data inlined), so screen/bench are unused.
-    let _ = (&screen, &bench);
-    let Some(new_root) = crate::dsl::build_weather() else {
+    // Mount the flutter/samples kit — the same `.splash` the makepad backend
+    // renders, walked into ArkUI here. `screen` carries the route; empty means
+    // the index. `bench` is unused by this kit.
+    let _ = &bench;
+    let route = if screen.is_empty() { "index" } else { &screen };
+    let Some(new_root) = crate::dsl::build_flutter(route, false) else {
         crate::log("app: DSL build failed");
         return;
     };
