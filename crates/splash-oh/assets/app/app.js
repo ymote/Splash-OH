@@ -63,3 +63,41 @@ setInterval(function () {
     el.className = 'note';
   }
 }, 250);
+
+// 7-9. Permission requests. `permission.request` used to forward whatever names
+//      a page passed straight to requestPermissionsFromUser, so any trusted
+//      page could raise a camera or microphone dialog whenever it liked.
+//
+//      Both directions are checked here, because a gate proven only in the deny
+//      direction is a gate that might refuse everything.
+function permCheck(id, names, wantRefused) {
+  if (!window.splash || !window.splash.invoke) { mark(id, false, 'no shim'); return; }
+  window.splash.invoke('permission.request', names)
+    .then(function (r) {
+      // For the allow direction, "the promise resolved" is not the pass
+      // condition -- that would hold even if the call had been quietly dropped.
+      // ArkTS builds {granted, asked} from the OS result, so `asked` counting
+      // what was sent is what shows the request actually got there. What the
+      // user then taps is not this test's business.
+      var reached = !!(r && r.asked === names.length);
+      mark(id, wantRefused ? false : reached,
+        wantRefused ? 'NOT refused: ' + JSON.stringify(r)
+                    : 'asked=' + (r && r.asked) + ' granted=' + ((r && r.granted) || []).length);
+    })
+    .catch(function (e) {
+      var msg = String(e && e.message ? e.message : e);
+      mark(id, wantRefused, msg.length > 42 ? msg.slice(0, 42) + '…' : msg);
+    });
+}
+
+// Not declared by the app and not page-requestable.
+permCheck('r-perm-bad', ['ohos.permission.READ_CONTACTS'], true);
+// Five at once, over the per-request limit.
+permCheck('r-perm-many', ['ohos.permission.CAMERA', 'ohos.permission.MICROPHONE',
+  'ohos.permission.LOCATION', 'ohos.permission.APPROXIMATELY_LOCATION',
+  'ohos.permission.ACCESS_BLUETOOTH'], true);
+// The allow direction. Deferred, because a real prompt covers the page and the
+// rows above should be legible in a screenshot before it appears.
+setTimeout(function () {
+  permCheck('r-perm-ok', ['ohos.permission.LOCATION'], false);
+}, 6000);

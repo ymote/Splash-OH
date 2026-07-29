@@ -890,7 +890,13 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args_raw: String) {
             } else {
                 format!("[{}]", json_str(&args.text()))
             };
-            park_arkts(slot, call_id, "permission.request", &list);
+            match vet_permissions(&list) {
+                Ok(vetted) => park_arkts(slot, call_id, "permission.request", &vetted),
+                Err(why) => {
+                    crate::log(&format!("bridge: slot {slot} asked for {why}"));
+                    reply(slot, call_id, err(&why));
+                }
+            }
         }
 
         // Cellular network state: operator, technology, roaming. A page has
@@ -1208,6 +1214,60 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args_raw: String) {
 /// an open one turns every card into a proxy for reaching anything the phone
 /// can reach. Suffix-matched on a label boundary, so `open-meteo.com` covers
 /// `api.` and `geocoding-api.` but not `evil-open-meteo.com`.
+/// Permissions a page is allowed to ask the user for.
+///
+/// The app declares eleven in `module.json5`, but declaring one and letting a
+/// *page* prompt for it are different decisions. This tool used to forward
+/// whatever names arrived straight to `requestPermissionsFromUser`, so any
+/// trusted page could raise a camera or microphone dialog at any moment, in any
+/// context — and trust is still one bit, so every trusted page had that power.
+///
+/// Only the user_grant permissions are here, because they are the only ones a
+/// runtime prompt means anything for. The rest (INTERNET, VIBRATE,
+/// GET_NETWORK_INFO, GET_WIFI_INFO, ACCELEROMETER, GYROSCOPE) are granted at
+/// install; asking for them is a mistake rather than a risk, and it is refused
+/// as one so the mistake is visible instead of silently doing nothing.
+///
+/// This is a static list, which is the honest minimum rather than the finished
+/// answer. The real shape is per-page capability declarations — the same place
+/// the HTTP host allowlist below should end up.
+const PAGE_REQUESTABLE_PERMISSIONS: &[&str] = &[
+    "ohos.permission.LOCATION",
+    "ohos.permission.APPROXIMATELY_LOCATION",
+    "ohos.permission.CAMERA",
+    "ohos.permission.MICROPHONE",
+    "ohos.permission.ACCESS_BLUETOOTH",
+];
+
+/// At most this many permissions in one request. A page with a legitimate
+/// reason asks for one or two; a list of thirty is a prompt-fatigue attack.
+const MAX_PERMISSIONS_PER_REQUEST: usize = 4;
+
+/// Check a requested permission list, or say why it was refused.
+///
+/// Fails the whole call rather than filtering the bad names out. Silently
+/// dropping one would leave the page believing it had asked, and the user
+/// believing they had answered.
+fn vet_permissions(list_json: &str) -> Result<String, String> {
+    let names: Vec<String> = serde_json::from_str(list_json)
+        .map_err(|_| "a permission list that is not an array of strings".to_string())?;
+    if names.is_empty() {
+        return Err("no permissions at all".to_string());
+    }
+    if names.len() > MAX_PERMISSIONS_PER_REQUEST {
+        return Err(format!(
+            "{} permissions at once, more than the limit of {MAX_PERMISSIONS_PER_REQUEST}",
+            names.len()
+        ));
+    }
+    for n in &names {
+        if !PAGE_REQUESTABLE_PERMISSIONS.contains(&n.as_str()) {
+            return Err(format!("{n:?}, which pages may not request"));
+        }
+    }
+    Ok(list_json.to_string())
+}
+
 const HTTP_GET_ALLOWED_HOSTS: &[&str] = &[
     "open-meteo.com",
     "api.open-meteo.com",
