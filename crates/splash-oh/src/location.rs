@@ -237,3 +237,112 @@ pub fn nearest_city(lat: f64, lon: f64) -> usize {
     }
     best
 }
+
+// ---- a fix the DSL can ask for during a render ------------------------------
+//
+// `get` blocks until the service answers, so a screen cannot call it while its
+// tree is being built — that is the UI thread, and a location request takes
+// seconds. This is the same shape as the sensor fix: the answer is cached, the
+// refresh happens on a worker, and the caller gets whatever is known now.
+//
+// A screen therefore shows "locating" on first mount and the real position on a
+// later one. That is honest about what a location request costs, and it is why
+// compass_app re-mounts against a clock like the animation demos do.
+
+static CACHE: Mutex<Option<String>> = Mutex::new(None);
+static REFRESHING: AtomicBool = AtomicBool::new(false);
+/// Set when a fix (or a failure) lands, so the screen showing it redraws.
+static DIRTY: AtomicBool = AtomicBool::new(false);
+
+/// True once, if a location result arrived since the last call.
+pub fn take_dirty() -> bool {
+    DIRTY.swap(false, Ordering::SeqCst)
+}
+
+/// "on" or "off", for a screen that shows the answer to a person.
+///
+/// `enabled()` returns the JSON the web bridge wants. A DSL screen has no JSON
+/// parser, so it would print `{"enabled":true}` at a reader — which is what it
+/// did.
+pub fn enabled_word() -> String {
+    match enabled() {
+        Ok(j) if j.contains("true") => "on".into(),
+        Ok(_) => "off".into(),
+        Err(e) => e,
+    }
+}
+
+/// The last known fix, kicking off a refresh when there is none in flight.
+///
+/// Never blocks. `cached()` is a line to show; `cached_state()` is "ok",
+/// "pending" or "error" so a screen can branch without parsing it — the DSL has
+/// no JSON and no substring test, so anything it needs to decide on has to
+/// arrive as a value it can compare with `==`.
+pub fn cached() -> String {
+    if let Ok(c) = CACHE.lock() {
+        if let Some(v) = c.as_ref() {
+            return v.clone();
+        }
+    }
+    kick();
+    "locating…".to_string()
+}
+
+/// "ok" once a fix has landed, "error" if the request failed, else "pending".
+pub fn cached_state() -> String {
+    if let Ok(c) = CACHE.lock() {
+        if let Some(v) = c.as_ref() {
+            return if v.starts_with("lat ") { "ok" } else { "error" }.to_string();
+        }
+    }
+    "pending".to_string()
+}
+
+/// Start a refresh unless one is already running.
+///
+/// `swap` rather than load-then-store: two mounts land close together and both
+/// would otherwise spawn, and `get` serialises on LOCATING anyway, so the
+/// second would sit holding a thread for the length of the first.
+fn kick() {
+    if REFRESHING.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    std::thread::spawn(|| {
+        // 8s was not enough for a cold fix indoors; the device answered
+        // "no fix within 8000 ms" every time. This runs on a worker and
+        // nothing waits on it, so it can afford to be patient.
+        let answer = match get(30_000, "navigation") {
+            Ok(v) => summarise(&v),
+            Err(e) => e,
+        };
+        if let Ok(mut c) = CACHE.lock() {
+            *c = Some(answer);
+        }
+        REFRESHING.store(false, Ordering::SeqCst);
+        // Nothing re-mounts a static screen on its own. Without this the
+        // compass card renders "locating…" once and keeps it forever, however
+        // long the fix takes — the screen would be stale rather than wrong,
+        // which is the harder kind of wrong to notice.
+        DIRTY.store(true, Ordering::SeqCst);
+    });
+}
+
+/// One line out of the fix JSON, for a screen that can only show a string.
+fn summarise(json: &str) -> String {
+    let num = |key: &str| -> Option<f64> {
+        let at = json.find(&format!("\"{key}\":"))? + key.len() + 3;
+        json[at..]
+            .split(|c: char| c == ',' || c == '}')
+            .next()?
+            .trim()
+            .parse()
+            .ok()
+    };
+    match (num("latitude"), num("longitude")) {
+        (Some(lat), Some(lon)) => match num("accuracy") {
+            Some(a) => format!("lat {lat:.4}, lon {lon:.4}  ±{a:.0}m"),
+            None => format!("lat {lat:.4}, lon {lon:.4}"),
+        },
+        _ => json.to_string(),
+    }
+}

@@ -1335,8 +1335,13 @@ struct Index {
             splash.slotOrigin(Number(id), i < 0 ? u : u.substring(0, i));
           })
           .mediaPlayGestureAccess(false)
+          // These are vp, which is what a declarer has to know. A width of 0
+          // means "as wide as the page": a screen that just wants a full-bleed
+          // surface would otherwise have to hardcode a device pixel count, and
+          // the flutter web_embedding screen did exactly that -- 1320, this
+          // display's *physical* width, applied as 1320vp, about 4300px.
           .position({ x: Number(slot.split('|')[2]), y: Number(slot.split('|')[3]) })
-          .width(Number(slot.split('|')[4]))
+          .width(Number(slot.split('|')[4]) > 0 ? Number(slot.split('|')[4]) : '100%')
           .height(Number(slot.split('|')[5]))
 
       }, (slot: string) => slot)

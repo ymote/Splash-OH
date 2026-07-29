@@ -1072,6 +1072,17 @@ fn screen_background_isolate_channels() {
 // view-model layer to bind to, no repository, no command, no persistence — the
 // pipeline evaluates data to a tree once per mount. What is here is the app's
 // surface, not its structure.
+//
+// One thing here is not a mock. A travel planner on a phone can know where the
+// phone is, and this one asks: `location.enabled` reads the system switch and
+// `location.fix` returns the cached position. Splash-OH has had a location
+// stack all along — `location::get`, `nearest_city`, the permissions declared
+// in module.json5 — but only web pages could reach it; no DSL screen could, so
+// this screen was entirely static while the capability sat there unused.
+//
+// `location.fix` never blocks. A real request takes seconds and this runs while
+// the tree is being built, so the worker refreshes a cache and the screen shows
+// "locating" until a mount lands after the fix does.
 
 // name, country, continent, tags
 let ca_dest = [
@@ -1096,6 +1107,28 @@ let ca_activities = [
     ["Wildlife Viewing Cruise", "any"],
 ]
 
+// Where the phone is, from the platform. Not part of the Flutter sample — the
+// sample has no location — but it is the one thing this screen can say that a
+// mock cannot, and the capability was already here.
+fn ca_here() {
+    // The host answers with a line to show and a state to branch on. The VM has
+    // no JSON and no substring test, so anything this screen decides on has to
+    // arrive as a value `==` can compare.
+    let state = invoke("location.state")
+    let got = state == "ok"
+    let tint = pick_if(got, m_pri_cont, m_surf_highest)
+    let ink = pick_if(got, m_on_pri_cont, m_on_surf_var)
+    return {t: "row", fillw: 1, radius: 12, bg: tint, padx: 14, pady: 12,
+            spacing: 10, aligny: 0.5, c: [
+        icon(ic_pin, 14, ink),
+        {t: "column", fillw: 1, fith: 1, spacing: 2, c: [
+            txt("Where you are", 13, 500, ink),
+            para(invoke("location.fix"), 11, 400, ink),
+            para("system switch: " + invoke("location.enabled"), 11, 400, ink),
+        ]},
+    ]}
+}
+
 fn screen_compass_app() {
     let cards = []
     let i = 0
@@ -1117,7 +1150,24 @@ fn screen_compass_app() {
                 icon(ic_search, 15, m_on_surf_var),
                 txt("Search destinations", 16, 400, m_on_surf_var),
             ]},
+            ca_here(),
             m_section("Your bookings", cards),
+            m_section("What is real here and what is not", [
+                para("The destinations, activities and bookings are the "
+                     + "sample's own assets/destinations.json and "
+                     + "activities.json, drawn accurately and wired to nothing: "
+                     + "search does not search, the stepper does not step, and "
+                     + "a booking cannot be made.", 13, 400, m_on_surf_var),
+                para("The position above is real, read from the platform. It is "
+                     + "not part of the Flutter sample — that app has no "
+                     + "location — but Splash-OH's location stack was sitting "
+                     + "unused because no DSL screen could reach it.",
+                     13, 400, m_on_surf_var),
+                para("The architecture the sample exists to demonstrate — MVVM, "
+                     + "repositories, commands, an offline store — is still "
+                     + "absent. A tree evaluated once per mount has nowhere to "
+                     + "put a view model.", 13, 400, m_on_surf_var),
+            ]),
         ]},
     ])
 }
@@ -2135,9 +2185,43 @@ fn screen_form_app_validation() {
 let syd_lat = 0.0 - 33.86
 let syd_lon = 151.20
 
+// makepad has MapView. ArkUI has no map node at all — the `map` tag hit the
+// walker's unknown-tag arm and the node was dropped on the floor, so this
+// screen drew an empty box on the phone while the text above it said "rendered
+// from OpenStreetMap vector tiles". That was a fabrication and this is the
+// repair: the same tiles, from the same source, rasterised by OSM's servers
+// instead of by a vector renderer, laid out as ordinary image nodes.
+//
+// Tile numbers are the standard slippy-map scheme, computed for
+// LatLng(-33.86, 151.20) — the sample's own camera.
+//   zoom 11 -> 1884, 1228      zoom 15 -> 30146, 19662
+fn gm_tiles(z, cx, cy, side) {
+    let rows = []
+    let j = 0 - 1
+    while j <= 1 {
+        let cells = []
+        let i = 0 - 1
+        while i <= 1 {
+            cells.push({t: "image", w: side, h: side,
+                        src: "https://tile.openstreetmap.org/" + z + "/"
+                             + (cx + i) + "/" + (cy + j) + ".png"})
+            i = i + 1
+        }
+        rows.push({t: "row", fith: 1, c: cells})
+        j = j + 1
+    }
+    return {t: "column", fillw: 1, fith: 1, alignx: 0.5, radius: 12, c: rows}
+}
+
 fn gm_map(zoom, tilt, rotation) {
     return {t: "map", fillw: 1, h: 260, radius: 12,
             lat: syd_lat, lon: syd_lon, zoom: zoom, tilt: tilt, rotation: rotation}
+}
+
+// Same place, whichever backend is asking.
+fn gm_view(zoom, tilt, rotation, z, cx, cy) {
+    return pick_if(st.backend == "arkui", gm_tiles(z, cx, cy, 100),
+                   gm_map(zoom, tilt, rotation))
 }
 
 fn screen_google_maps() {
@@ -2146,11 +2230,13 @@ fn screen_google_maps() {
         {t: "scroll", fillw: 1, pad: 16, spacing: 16, c: [
             // The sample's own camera: Sydney at zoom 11, flat.
             m_section("initialCameraPosition", [
-                para("LatLng(-33.86, 151.20), zoom 11 — the sample's camera, "
-                     + "rendered from OpenStreetMap vector tiles.",
+                para("LatLng(-33.86, 151.20), zoom 11 — the sample's camera. "
+                     + "OpenStreetMap either way: makepad rasterises the vector "
+                     + "tiles itself, ArkUI has no map node so it loads the "
+                     + "raster tiles for the same coordinates.",
                      13, 400, m_on_surf_var),
                 {t: "stack", fillw: 1, fith: 1, c: [
-                    gm_map(11.0, 0.0, 0.0),
+                    gm_view(11.0, 0.0, 0.0, 11, 1884, 1228),
                     // The marker, drawn over the centre rather than anchored.
                     {t: "column", fillw: 1, h: 260, alignx: 0.5, aligny: 0.5,
                      c: [ icon(ic_pin, 28, m_error) ]},
@@ -2168,8 +2254,11 @@ fn screen_google_maps() {
             m_section("2.5D — tilt and bearing", [
                 para("The same place at zoom 15 with a 55 degree tilt and a 30 "
                      + "degree bearing. MapView carries both; this is the "
-                     + "renderer's own, not a plugin.", 13, 400, m_on_surf_var),
-                gm_map(15.0, 55.0, 30.0),
+                     + "renderer's own, not a plugin. Tilt and bearing are the "
+                     + "part that does not survive the trip to raster tiles — "
+                     + "on ArkUI this is the same place, flat.",
+                     13, 400, m_on_surf_var),
+                gm_view(15.0, 55.0, 30.0, 15, 30146, 19662),
             ]),
             m_section("What is still missing", [
                 para("Markers are overlay types on MapView (MapMarker, MapPuck, "
@@ -2177,8 +2266,13 @@ fn screen_google_maps() {
                      + "above is painted over the map rather than anchored to "
                      + "the coordinate — it will not stay put as the camera "
                      + "moves.", 13, 400, m_on_surf_var),
-                para("The sample needs an API key and network access. This one "
-                     + "needs neither: the tiles are OpenStreetMap.",
+                para("The sample needs an API key. This one does not — the "
+                     + "tiles are OpenStreetMap — but it does need the network, "
+                     + "which the ArkUI half now uses.",
+                     13, 400, m_on_surf_var),
+                para("ArkUI gets a flat 3x3 of raster tiles, not a map: no pan, "
+                     + "no zoom, no tilt, and the camera is baked into the tile "
+                     + "numbers. Real parity needs a map node on that backend.",
                      13, 400, m_on_surf_var),
             ]),
         ]},
@@ -3286,16 +3380,21 @@ fn screen_veggieseasons() {
 // Geometry is explicit on purpose. A web slot needs absolute coordinates and
 // the DSL tree does not know where a node lands, so the screen says. That is
 // the same thing frontend.rs does in Rust.
-
-let we_top = 300.0
-let we_h = 460.0
+//
+// In vp, the unit every other length in this kit is in. It used to say
+// `w: 1320.0` -- the phone's *physical* width -- which ArkTS then applied as
+// 1320vp, roughly 4300px. ArkUI does not clamp that; it dereferenced a null
+// frame node inside SetWidth and took the whole app down. A width of 0 now
+// means "as wide as the page", so no screen has to name a device pixel count.
+let we_top = 90.0
+let we_h = 300.0
 
 fn screen_web_embedding() {
     let native_or_note = pick_if(st.backend == "arkui",
         // The hole: this reserves the space, and the host puts a real WebView
         // at exactly these coordinates.
         {t: "web", src: "https://flutter.dev", fillw: 1, h: we_h,
-         x: 0.0, y: we_top, w: 1320.0},
+         x: 0.0, y: we_top, w: 0.0},
         {t: "column", fillw: 1, h: 240, radius: 12, bg: m_surf_highest,
          alignx: 0.5, aligny: 0.5, pad: 24, c: [
             para("A web surface needs a WebView the host composites. The "
@@ -3320,10 +3419,11 @@ fn screen_web_embedding() {
                      13, 400, m_on_surf_var),
             ]),
             m_section("What is still missing", [
-                para("The slot's coordinates are written by hand. A web surface "
+                para("The slot's y is still written by hand. A web surface "
                      + "needs absolute geometry and the DSL tree does not know "
                      + "where a node lands, so a screen that wants one has to "
-                     + "say — the same thing the bridge's own cards do in Rust.",
+                     + "say — the same thing the bridge's own cards do in Rust. "
+                     + "The width no longer is: 0 means as wide as the page.",
                      13, 400, m_on_surf_var),
                 para("The sample's interop — JavaScript calling into Dart — has "
                      + "its counterpart in `splash.invoke`, which the "
@@ -3347,41 +3447,56 @@ fn screen_web_embedding() {
 //      rebuilding the full route string from the same data the screen uses and
 //      comparing for equality — see the `for` loops below.
 
-// dir, label, status, route      status: 1 ported (all 27 now are)
+// dir, label, status, route
+//
+// status  2  the screen does the thing — live host data, or it actually moves
+//         1  drawn, not working — the geometry and tokens are transcribed from
+//            the sample, the behaviour behind them is not
+//         0  a note. No port; it says what the counterpart here is
+//
+// This used to read `1` for all 27 and the index drew a check beside every one.
+// That was the complaint, and it was right: a screen that only describes a
+// capability was being counted as done. The split below is an outside review's
+// (gpt-5.6-terra) classification, not mine.
 let fs_samples = [
     ["material_3_demo", "Material 3 Demo", 1, "material_3_demo"],
     ["cupertino_gallery", "Cupertino Gallery", 1, "cupertino_gallery"],
     ["date_planner", "Date Planner", 1, "date_planner"],
     ["platform_design", "Platform Design", 1, "platform_design"],
-    ["animations", "Animations", 1, "animations"],
+    ["animations", "Animations", 2, "animations"],
     ["form_app", "Form App", 1, "form_app"],
-    ["navigation_and_routing", "Navigation and Routing", 1, "navigation_and_routing"],
+    ["navigation_and_routing", "Navigation and Routing", 2, "navigation_and_routing"],
     ["compass_app", "Compass App", 1, "compass_app"],
     ["desktop_photo_search", "Desktop Photo Search", 1, "desktop_photo_search"],
     ["dynamic_theme", "Dynamic Theme", 1, "dynamic_theme"],
     ["testing_app", "Testing App", 1, "testing_app"],
-    ["add_to_app", "Add to App", 1, "add_to_app"],
-    ["analysis_defaults", "Analysis Defaults", 1, "analysis_defaults"],
-    ["android_splash_screen", "Android Splash Screen", 1, "android_splash_screen"],
+    ["add_to_app", "Add to App", 2, "add_to_app"],
+    ["analysis_defaults", "Analysis Defaults", 0, "analysis_defaults"],
+    ["android_splash_screen", "Android Splash Screen", 0, "android_splash_screen"],
     ["asset_transformation", "Asset Transformation", 1, "asset_transformation"],
     ["background_isolate_channels", "Background Isolate Channels", 1, "background_isolate_channels"],
-    ["docs", "docs", 1, "docs"],
+    ["docs", "docs", 0, "docs"],
     ["google_maps", "Google Maps", 1, "google_maps"],
-    ["ios_app_clip", "iOS App Clip", 1, "ios_app_clip"],
+    ["ios_app_clip", "iOS App Clip", 0, "ios_app_clip"],
     ["pedometer", "Pedometer", 1, "pedometer"],
     ["platform_channels", "Platform Channels", 1, "platform_channels"],
     ["platform_view_swift", "Platform View Swift", 1, "platform_view_swift"],
     ["simple_sdf", "Simple SDF", 1, "simple_sdf"],
     ["simple_shader", "Simple Shader", 1, "simple_shader"],
-    ["tool", "tool", 1, "tool"],
-    ["veggieseasons", "Veggie Seasons", 1, "veggieseasons"],
+    ["tool", "tool", 0, "tool"],
+    ["veggieseasons", "Veggie Seasons", 0, "veggieseasons"],
     ["web_embedding", "Web Embedding", 1, "web_embedding"],
 ]
 
-fn fs_index_row(label, dir, ported) {
-    let tint = pick_if(ported == 1, m_pri_cont, m_surf_highest)
-    let ink = pick_if(ported == 1, m_on_pri_cont, m_on_surf_var)
-    let glyph = pick_if(ported == 1, ic_check, ic_file)
+fn fs_index_row(label, dir, status) {
+    // A check only where the screen does the thing. Drawn-but-inert gets a
+    // half-filled dot, a note gets a page glyph — so the list cannot read as
+    // 27 finished ports at a glance, which is exactly how it used to read.
+    let tint = pick_if(status == 2, m_pri_cont,
+               pick_if(status == 1, m_surf_highest, m_surf_cont))
+    let ink = pick_if(status == 2, m_on_pri_cont, m_on_surf_var)
+    let glyph = pick_if(status == 2, ic_check,
+                pick_if(status == 1, ic_paint, ic_file))
     return {t: "row", fillw: 1, h: 64, padx: 16, spacing: 12, aligny: 0.5,
             tapto: dir, c: [
         {t: "column", w: 36, h: 36, radius: 10, bg: tint, alignx: 0.5, aligny: 0.5,
@@ -3395,28 +3510,39 @@ fn fs_index_row(label, dir, ported) {
     ]}
 }
 
+fn fs_count_card(n, label, bg, ink) {
+    return {t: "column", fillw: 1, radius: 12, bg: bg, pad: 12, spacing: 2, c: [
+        txt(n, 26, 500, ink),
+        txt(label, 11, 400, ink),
+    ]}
+}
+
 fn screen_index() {
-    let ported = []
-    let documented = []
+    let working = []
+    let drawn = []
+    let notes = []
     for s in fs_samples {
         let row = fs_index_row(s[1], s[0], s[2])
-        if s[2] == 1 { ported.push(row) } else { documented.push(row) }
+        if s[2] == 2 { working.push(row) }
+        if s[2] == 1 { drawn.push(row) }
+        if s[2] == 0 { notes.push(row) }
     }
     return page(m_surface, [
         {t: "column", bg: m_surf_cont, fillw: 1, padx: 16, pady: 16, spacing: 4, c: [
             txt("flutter/samples", 28, 400, m_on_surface),
-            para("27 directories, rendered as native makepad widgets from the "
-                + "Splash DSL", 14, 400, m_on_surf_var),
+            para("All 27 directories have a screen. Three of them work; most "
+                + "are the sample drawn accurately and not wired up; six are "
+                + "notes, not ports.", 14, 400, m_on_surf_var),
         ]},
         {t: "scroll", fillw: 1, pad: 16, spacing: 16, c: [
             {t: "row", fillw: 1, spacing: 8, c: [
-                {t: "column", fillw: 1, radius: 12, bg: m_pri_cont, pad: 12,
-                 spacing: 2, c: [
-                    txt("27", 28, 500, m_on_pri_cont),
-                    txt("of 27 directories", 12, 400, m_on_pri_cont),
-                ]},
+                fs_count_card("3", "work", m_pri_cont, m_on_pri_cont),
+                fs_count_card("18", "drawn only", m_surf_highest, m_on_surface),
+                fs_count_card("6", "notes", m_surf_cont, m_on_surf_var),
             ]},
-            m_section("Every sample", ported),
+            m_section("Working — live host data, or it moves", working),
+            m_section("Drawn, not wired up", drawn),
+            m_section("Notes, not ports", notes),
             {t: "column", fillw: 1, tapto: "theme:toggle",
              c: [ m_btn_outlined("Toggle light / dark") ]},
         ]},

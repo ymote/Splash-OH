@@ -108,3 +108,27 @@ pub fn web_declare(src: &str, x: f32, y: f32, w: f32, h: f32) -> u32 {
         None => 0,
     }
 }
+
+/// Drop every slot declared by the previous build.
+///
+/// A slot is declared while the tree is being walked, so the registry has to be
+/// emptied before each walk or the surfaces accumulate. Without this the
+/// flutter kit's web_embedding screen left its WebView floating over every
+/// screen visited afterwards — the index included, where it covered half the
+/// list. Same hook inversion as `web_declare`: the registry belongs to the
+/// bridge, so the bridge installs the reset.
+pub type WebReset = fn();
+
+static WEB_RESET: std::sync::Mutex<Option<WebReset>> = std::sync::Mutex::new(None);
+
+pub fn set_web_reset(f: WebReset) {
+    if let Ok(mut w) = WEB_RESET.lock() {
+        *w = Some(f);
+    }
+}
+
+pub fn web_reset() {
+    if let Some(f) = WEB_RESET.lock().ok().and_then(|w| *w) {
+        f();
+    }
+}

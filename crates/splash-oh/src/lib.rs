@@ -102,6 +102,7 @@ pub fn mount(env: Env, content: JsObject) -> napi_ohos::Result<()> {
     // MethodChannel is, and the bridge already carries ~45 of these for web
     // pages. This exposes the same registry to the Splash DSL.
     // A `web` node in the DSL reserves space and asks for a real WebView there.
+    splash_oh_native::set_web_reset(webslot::reset);
     splash_oh_native::set_web_declare(|src, x, y, w, h| {
         if let Some(path) = src.strip_prefix("app:") {
             webslot::declare_app(path, x, y, w, h)
@@ -115,6 +116,14 @@ pub fn mount(env: Env, content: JsObject) -> napi_ohos::Result<()> {
         "device.battery" => device::battery(),
         "device.time" => device::time(),
         "device.notifications" => device::notifications_enabled(),
+        // compass_app: the sample is a travel planner, and the one thing a
+        // travel planner on a phone can know that a mock cannot is where the
+        // phone is. `enabled` is a cheap system-switch read; `fix` is the
+        // cached position, refreshed on a worker, because a real request takes
+        // seconds and this runs while the tree is being built.
+        "location.enabled" => location::enabled_word(),
+        "location.fix" => location::cached(),
+        "location.state" => location::cached_state(),
         "sensor.list" => sensor::list().unwrap_or_else(|e| e),
         // 0 is ARKUI/OH's accelerometer id; the pedometer sample reads step
         // data, which is the same shape of platform call.
@@ -443,7 +452,9 @@ pub fn web_slots_painted() -> Vec<String> {
 /// Polled by ArkTS alongside the web-slot list.
 #[napi(js_name = "appTakeDirty")]
 pub fn app_take_dirty() -> u32 {
-    if apps::weather_web::take_dirty() {
+    // `|` not `||`: both flags have to be cleared, or whichever is checked
+    // second stays set and every poll after this one reports dirty forever.
+    if apps::weather_web::take_dirty() | location::take_dirty() {
         1
     } else {
         0

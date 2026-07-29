@@ -182,6 +182,10 @@ pub fn build(src: &str) -> Option<Node> {
         bx: Box::new(ScriptVmBase::new()),
     };
 
+    // Slots are declared during the walk below, so last build's have to go
+    // first — otherwise every web surface ever declared stays on screen.
+    crate::web_reset();
+
     // Give the DSL its network capability, so the card fetches its own data.
     register_net_capabilities(vm);
     register_host_capabilities(vm);
@@ -348,6 +352,13 @@ fn walk(vm: &mut ScriptVm, value: ScriptValue, depth: usize, parent: &str) -> Op
         // A web surface: reserve the space here, and tell the host to put a
         // real WebView at these coordinates. Same mechanism the bridge's own
         // cards use; this reaches it from the DSL.
+        //
+        // `src`/`x`/`y`/`w` on this node are the *slot's* geometry in device
+        // pixels, not the spacer's. They must not reach the generic attribute
+        // pass below: `w: 1320` there means 1320vp, about 4300px, and ArkUI
+        // dies inside SetWidth rather than clamping. That crash took the whole
+        // app down on a screen the index marked done. `h` is the one dimension
+        // that means the same thing to both, so it is left to fall through.
         "web" => {
             let src = string_prop(vm, value, id!(src)).unwrap_or_default();
             let x = num_prop(vm, value, id!(x)).unwrap_or(0.0) as f32;
@@ -365,6 +376,10 @@ fn walk(vm: &mut ScriptVm, value: ScriptValue, depth: usize, parent: &str) -> Op
 
     let mut node = Node::new(node_ty)?;
 
+    // See the "web" arm: this node's `src`/`x`/`y`/`w` describe the WebView the
+    // host will composite, not the spacer standing in for it here.
+    let slot_geometry = tag == "web";
+
     // --- attributes -------------------------------------------------------
     if let Some(s) = string_prop(vm, value, id!(text)) {
         node = node.text(&s);
@@ -380,7 +395,9 @@ fn walk(vm: &mut ScriptVm, value: ScriptValue, depth: usize, parent: &str) -> Op
     // these the DSL could name an `image` node but never give it a source, so
     // it rendered blank — which is exactly why the LLM card showed no images.
     if let Some(s) = string_prop(vm, value, id!(src)) {
-        node = node.string_attr(attr::image_src(), &s);
+        if !slot_geometry {
+            node = node.string_attr(attr::image_src(), &s);
+        }
     }
     if let Some(v) = num_prop(vm, value, id!(fit)) {
         node = node.i32_attr(attr::image_fit(), v as i32);
@@ -398,7 +415,9 @@ fn walk(vm: &mut ScriptVm, value: ScriptValue, depth: usize, parent: &str) -> Op
         node = node.i32_attr(attr::text_align(), v as i32);
     }
     if let Some(v) = num_prop(vm, value, id!(w)) {
-        node = node.width(v as f32);
+        if !slot_geometry {
+            node = node.width(v as f32);
+        }
     }
     if let Some(v) = num_prop(vm, value, id!(h)) {
         node = node.height(v as f32);

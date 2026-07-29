@@ -329,9 +329,16 @@ pub fn build() -> (Option<Node>, usize, f64) {
         App::Catalog => {
             // The flutter/samples kit, not the Material catalog: the same
             // `.splash` the makepad backend renders, walked into ArkUI. Taps
-            // from here re-enter through `app::rebuild`, which keeps the route.
+            // re-enter through `app::rebuild`, which keeps the route — but a
+            // rebuild that comes from anywhere else lands here, and this used
+            // to hardcode "index". So background data arriving for the screen
+            // you were looking at threw you back to the list: the compass
+            // location card asked for a redraw when its fix landed and the
+            // redraw was the index. Ask for the route that is actually current.
             let _ = sub;
-            splash_oh_native::dsl::build_flutter("index", false)
+            let route = splash_oh_native::app::current_screen();
+            let route = if route.is_empty() { "index".to_string() } else { route };
+            splash_oh_native::dsl::build_flutter(&route, false)
         }
         App::WeChat => unreachable!(),
     };
