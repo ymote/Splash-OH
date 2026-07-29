@@ -488,22 +488,45 @@ fn na_screen(title, what, why, verdict) {
 
 // ---- add_to_app.splash
 // add_to_app — flutter/samples/add_to_app
-// Android and iOS host projects that import a Flutter module (fullscreen,
-// prebuilt_module, multiple_flutters, books, android_view, plugin).
-fn screen_add_to_app() {
-    return na_screen("add_to_app",
-        "Six Android/iOS host apps that embed a Flutter module — full-screen, "
-        + "prebuilt AAR/framework, multiple simultaneous engines, and a shared "
-        + "engine cached across activities.",
-        [
-            "The sample is mostly Kotlin, Swift and Gradle/CocoaPods wiring — the Dart is incidental.",
-            "There is no Splash equivalent of FlutterEngine, FlutterActivity or an engine cache to embed.",
-            "makepad owns its window and event loop; it is not a view you drop into a host activity.",
-            "Splash-OH is the closest thing this project has to add-to-app, and it inverts the relationship: ArkTS hands Rust one NodeContent and Rust drives the tree from there.",
-        ],
-        "Not portable. The sibling Splash-OH repo already answers the question this sample asks, from the other direction.")
-}
+//
+// Previously "no analogue": six Android/iOS host apps embedding a Flutter
+// module, mostly Kotlin, Swift and Gradle, with no FlutterEngine equivalent
+// here.
+//
+// The mistake was reading it as a sample about Flutter's embedding API rather
+// than about the shape of the problem. This app *is* add-to-app, inverted: an
+// ArkTS shell hands Rust exactly one NodeContent at startup, and every node
+// after that is created, configured, laid out and event-wired from Rust with no
+// per-widget and no per-frame ArkTS call.
+//
+// So rather than describe someone else's embed, this screen reports on its own.
 
+fn screen_add_to_app() {
+    return page(m_surface, [
+        m_appbar("Add to App", "index"),
+        {t: "scroll", fillw: 1, pad: 16, spacing: 16, c: [
+            m_section("This screen is the embed", [
+                {t: "column", fillw: 1, bg: m_surf_lowest, radius: 8, pad: 12,
+                 spacing: 4, c: [
+                    txt("native nodes built from Rust", 13, 500, m_primary),
+                    para(invoke("embed.nodes"), 22, 500, m_on_surface),
+                ]},
+                para(invoke("embed.shape"), 13, 400, m_on_surf_var),
+            ]),
+            m_section("Same problem, opposite direction", [
+                para("Flutter's samples embed a Flutter module into a host that "
+                     + "owns the app. Here the host owns the app and hands over "
+                     + "a single surface, and the guest builds native widgets of "
+                     + "the host's own toolkit rather than painting its own.",
+                     13, 400, m_on_surf_var),
+                para("What has no counterpart: FlutterEngine, an engine cache, "
+                     + "multiple simultaneous engines, and the prebuilt "
+                     + "AAR/framework packaging that is most of the sample.",
+                     13, 400, m_on_surf_var),
+            ]),
+        ]},
+    ])
+}
 
 // ---- analysis_defaults.splash
 // analysis_defaults — flutter/samples/analysis_defaults
@@ -929,35 +952,94 @@ fn roundn(x, places) {
 
 // ---- asset_transformation.splash
 // asset_transformation — flutter/samples/asset_transformation
-fn screen_asset_transformation() {
-    return na_screen("asset_transformation",
-        "Flutter's build-time asset transformation: a Dart package declared in "
-        + "pubspec.yaml rewrites an asset (here, SVG to PNG) as it is bundled.",
-        [
-            "It is a build-system feature — the whole demonstration is the `assets:` section of pubspec.yaml plus a transformer package.",
-            "Cargo has no asset pipeline of its own; the equivalent would be a build.rs step, which is a build concern rather than a rendered screen.",
-            "The sample's UI is three images proving the transform ran.",
-        ],
-        "Not portable as UI. The analogue is a build script, and this repo's build.rs already does the one transformation it needs — concatenating these .splash files.")
+//
+// Previously "no analogue", on the grounds that Flutter's asset transformation
+// is a build-system feature — a Dart package named in pubspec.yaml rewrites an
+// asset as it is bundled — and Cargo has no asset pipeline.
+//
+// The first half is right and the conclusion still does not follow. Splash-OH
+// serves its frontend over a custom `splash://` scheme, and `assets::get(url)`
+// is the resolver: a request URL in, a mime type, a status and bytes out, with
+// one asset (`__splash.js`) *generated* rather than shipped. That is a request-
+// time asset pipeline, which is the same idea one stage later than Flutter's.
+//
+// The rows below are live: each is a real resolve performed when this screen
+// mounted.
+
+fn at_row(label, answer) {
+    return {t: "column", fillw: 1, fith: 1, bg: m_surf_lowest, radius: 8,
+            pad: 12, spacing: 4, c: [
+        txt(label, 13, 500, m_primary),
+        para(answer, 12, 400, m_on_surf_var),
+    ]}
 }
 
+fn screen_asset_transformation() {
+    return page(m_surface, [
+        m_appbar("Asset Transformation", "index"),
+        {t: "scroll", fillw: 1, pad: 16, spacing: 16, c: [
+            m_section("splash:// resolves a request to bytes", [
+                at_row("a generated asset", invoke("assets.shim")),
+                at_row("a shipped asset", invoke("assets.index")),
+                at_row("a miss", invoke("assets.missing")),
+            ]),
+            m_section("Where this differs from Flutter", [
+                para("Flutter transforms at bundle time: the asset on disk is "
+                     + "rewritten before it ships. This transforms at request "
+                     + "time — the resolver decides what the bytes are when the "
+                     + "page asks for them, which is why __splash.js can be "
+                     + "generated rather than stored.",
+                     13, 400, m_on_surf_var),
+                para("A miss answers 404 rather than declining. ArkWeb has no "
+                     + "default resolver for a custom scheme, so an unhandled "
+                     + "request is not a miss — it is a hang.",
+                     13, 400, m_on_surf_var),
+            ]),
+        ]},
+    ])
+}
 
 // ---- background_isolate_channels.splash
 // background_isolate_channels — flutter/samples/background_isolate_channels
-fn screen_background_isolate_channels() {
-    return na_screen("background_isolate_channels",
-        "Calling platform channels from a background isolate: passing a "
-        + "RootIsolateToken across and installing BackgroundIsolateBinaryMessenger "
-        + "so plugin calls work off the root isolate.",
-        [
-            "It exists because Flutter's platform channels are bound to the root isolate — a constraint with no counterpart here.",
-            "There are no platform channels in the Splash render pipeline to call from anywhere.",
-            "Rust threading is not isolate-shaped: no message-passing token is needed to call platform code off-thread.",
-            "The sibling Splash-OH repo does hold the real version of this problem — see its commit on doing no work on the sensor service's thread.",
-        ],
-        "Not portable. The constraint the sample teaches around does not exist in this stack.")
-}
+//
+// Previously "no analogue", on the grounds that the sample exists because
+// Flutter's platform channels are bound to the root isolate, a constraint with
+// no counterpart here.
+//
+// That is still true, and it made the wrong point. What the sample is really
+// about is doing platform work without blocking the UI, and this stack has the
+// same problem and a real answer to it — Splash-OH moved its sensor work off
+// the service's thread for exactly this reason.
 
+fn screen_background_isolate_channels() {
+    return page(m_surface, [
+        m_appbar("Background Work", "index"),
+        {t: "scroll", fillw: 1, pad: 16, spacing: 16, c: [
+            m_section("A platform call that waits, without blocking", [
+                {t: "column", fillw: 1, bg: m_surf_lowest, radius: 8, pad: 12,
+                 spacing: 4, c: [
+                    txt("thread.offmain", 13, 500, m_primary),
+                    para(invoke("thread.offmain"), 12, 400, m_on_surf_var),
+                ]},
+                para("A sensor sample with a 250ms timeout. `blocked_ui_ms` is "
+                     + "how long this thread actually waited: the sampling runs "
+                     + "on the sensor service's own thread and the answer is "
+                     + "handed back, rather than the UI thread sitting on it.",
+                     13, 400, m_on_surf_var),
+            ]),
+            m_section("Why the sample's constraint does not exist here", [
+                para("Flutter binds platform channels to the root isolate, so "
+                     + "calling a plugin from a background isolate needs a "
+                     + "RootIsolateToken and BackgroundIsolateBinaryMessenger. "
+                     + "Rust threads have no such affinity — any thread can call "
+                     + "a capability.", 13, 400, m_on_surf_var),
+                para("The problem that remains is the ordinary one: not doing "
+                     + "slow work where the frame is drawn.",
+                     13, 400, m_on_surf_var),
+            ]),
+        ]},
+    ])
+}
 
 // ---- compass_app.splash
 // compass_app — flutter/samples/compass_app
@@ -3141,11 +3223,11 @@ let fs_samples = [
     ["desktop_photo_search", "Desktop Photo Search", 1, "desktop_photo_search"],
     ["dynamic_theme", "Dynamic Theme", 1, "dynamic_theme"],
     ["testing_app", "Testing App", 1, "testing_app"],
-    ["add_to_app", "Add to App", 0, "add_to_app"],
+    ["add_to_app", "Add to App", 1, "add_to_app"],
     ["analysis_defaults", "Analysis Defaults", 0, "analysis_defaults"],
     ["android_splash_screen", "Android Splash Screen", 0, "android_splash_screen"],
-    ["asset_transformation", "Asset Transformation", 0, "asset_transformation"],
-    ["background_isolate_channels", "Background Isolate Channels", 0, "background_isolate_channels"],
+    ["asset_transformation", "Asset Transformation", 1, "asset_transformation"],
+    ["background_isolate_channels", "Background Isolate Channels", 1, "background_isolate_channels"],
     ["docs", "docs", 0, "docs"],
     ["google_maps", "Google Maps", 1, "google_maps"],
     ["ios_app_clip", "iOS App Clip", 0, "ios_app_clip"],
@@ -3193,12 +3275,12 @@ fn screen_index() {
             {t: "row", fillw: 1, spacing: 8, c: [
                 {t: "column", fillw: 1, radius: 12, bg: m_pri_cont, pad: 12,
                  spacing: 2, c: [
-                    txt("14", 28, 500, m_on_pri_cont),
+                    txt("17", 28, 500, m_on_pri_cont),
                     txt("ported", 12, 400, m_on_pri_cont),
                 ]},
                 {t: "column", fillw: 1, radius: 12, bg: m_surf_highest, pad: 12,
                  spacing: 2, c: [
-                    txt("13", 28, 500, m_on_surface),
+                    txt("10", 28, 500, m_on_surface),
                     txt("documented", 12, 400, m_on_surf_var),
                 ]},
             ]},

@@ -116,6 +116,51 @@ pub fn mount(env: Env, content: JsObject) -> napi_ohos::Result<()> {
             400,
         )
         .unwrap_or_else(|e| e),
+        // asset_transformation: the splash:// protocol resolves a request URL
+        // to bytes at serve time, which is this stack's asset pipeline.
+        "assets.shim" => {
+            let a = assets::get("splash://app/__splash.js");
+            format!(
+                "{{\"path\":\"/__splash.js\",\"mime\":\"{}\",\"status\":{},\"bytes\":{}}}",
+                a.mime,
+                a.status,
+                a.body.len()
+            )
+        }
+        "assets.index" => {
+            let a = assets::get("splash://app/index.html");
+            format!(
+                "{{\"path\":\"/index.html\",\"mime\":\"{}\",\"status\":{},\"bytes\":{}}}",
+                a.mime,
+                a.status,
+                a.body.len()
+            )
+        }
+        "assets.missing" => {
+            let a = assets::get("splash://app/nope.bin");
+            format!(
+                "{{\"path\":\"/nope.bin\",\"mime\":\"{}\",\"status\":{},\"bytes\":{}}}",
+                a.mime,
+                a.status,
+                a.body.len()
+            )
+        }
+        // add_to_app: facts about this very embed.
+        "embed.nodes" => format!("{}", splash_oh_native::ui::last_total()),
+        "embed.shape" => "ArkTS hands over one NodeContent at startup; every \
+node after that is created, configured, laid out and event-wired from Rust"
+            .to_string(),
+        // background_isolate_channels: a call that does its work off the UI
+        // thread and returns when it is done.
+        "thread.offmain" => {
+            let t0 = std::time::Instant::now();
+            let r = sensor::sample(0, 250).unwrap_or_else(|e| e);
+            format!(
+                "{{\"blocked_ui_ms\":{},\"answer\":{}}}",
+                t0.elapsed().as_millis(),
+                r.len()
+            )
+        }
         other => format!("no such tool: {other}"),
     });
     Ok(())
@@ -534,6 +579,7 @@ pub fn catalog_screen(name: String) -> u32 {
     app::set_screen_quiet(route.to_string());
     let node = splash_oh_native::dsl::build_flutter(route, false);
     let n = splash_oh_native::ui::count();
+    splash_oh_native::ui::record_total(n);
     app::set_root(node);
     n as u32
 }

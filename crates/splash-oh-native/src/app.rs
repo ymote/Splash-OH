@@ -267,6 +267,7 @@ pub fn rebuild() {
         return;
     };
 
+    crate::ui::record_total(crate::ui::count());
     APP.with(|a| {
         let mut b = a.borrow_mut();
         let app = b.as_mut().unwrap();
