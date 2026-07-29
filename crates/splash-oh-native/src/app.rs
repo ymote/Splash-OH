@@ -227,6 +227,14 @@ pub fn set_root(new_root: Option<Node>) {
             Err(e) => crate::log(&format!("app: mount failed: {e}")),
         }
     });
+
+}
+
+thread_local! {
+    /// The route the mounted tree was built for, so a rebuild can tell a state
+    /// change from a navigation.
+    static LAST_ROUTE: std::cell::RefCell<String> =
+        const { std::cell::RefCell::new(String::new()) };
 }
 
 /// Remove the mounted tree without putting anything back, so another owner can
@@ -270,6 +278,26 @@ pub fn rebuild() {
     // the index. `bench` is unused by this kit.
     let _ = &bench;
     let route = if screen.is_empty() { "index" } else { &screen };
+
+    // Where the old tree was scrolled to, read before it is dropped.
+    //
+    // Only carried across when the route is unchanged: a tap that ticks a
+    // checkbox should leave you looking at the checkbox, and a tap that
+    // navigates should start the new screen at the top, the way every phone
+    // does it.
+    let keep = LAST_ROUTE.with(|r| *r.borrow() == route);
+    let offset = if keep {
+        let h = crate::dsl::scroll_node();
+        if h.is_null() {
+            None
+        } else {
+            crate::arkui::Node::get_f32(h, crate::arkui::attr::scroll_offset(), 1)
+        }
+    } else {
+        None
+    };
+    LAST_ROUTE.with(|r| *r.borrow_mut() = route.to_string());
+
     let Some(new_root) = crate::dsl::build_flutter(route, false) else {
         crate::log("app: DSL build failed");
         return;
@@ -290,4 +318,18 @@ pub fn rebuild() {
             Err(e) => crate::log(&format!("app: mount failed: {e}")),
         }
     });
+
+    // After mounting, not before: the node has no content to scroll over until
+    // it is in the tree, and setting an offset on a zero-height Scroll is a
+    // no-op that looks exactly like this working.
+    if let Some(y) = offset {
+        let h = crate::dsl::scroll_node();
+        if !h.is_null() && y > 0.0 {
+            crate::arkui::Node::set_f32v_raw(
+                h,
+                crate::arkui::attr::scroll_offset(),
+                &[0.0, y],
+            );
+        }
+    }
 }

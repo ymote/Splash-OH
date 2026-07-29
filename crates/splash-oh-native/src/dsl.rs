@@ -132,6 +132,29 @@ fn elapsed_secs() -> f64 {
 thread_local! {
     static FLUTTER_ROUTES: std::cell::RefCell<Vec<String>> =
         const { std::cell::RefCell::new(Vec::new()) };
+    /// The first `scroll` node of the tree currently mounted.
+    ///
+    /// A tap rebuilds everything, so this is the handle whose offset has to be
+    /// read before the old tree is dropped and written back onto the new one —
+    /// otherwise checking a checkbox halfway down a screen leaves you at the
+    /// top of it. First, not all: every screen in this kit is one scrolling
+    /// column under an app bar, and a wrong guess here scrolls the wrong thing
+    /// rather than failing loudly.
+    static SCROLL_NODE: std::cell::Cell<crate::arkui::NodeHandle> =
+        const { std::cell::Cell::new(std::ptr::null_mut()) };
+}
+
+/// The mounted tree's scrolling node, if it has one.
+pub fn scroll_node() -> crate::arkui::NodeHandle {
+    SCROLL_NODE.with(|s| s.get())
+}
+
+fn note_scroll_node(h: crate::arkui::NodeHandle) {
+    SCROLL_NODE.with(|s| {
+        if s.get().is_null() {
+            s.set(h);
+        }
+    });
 }
 
 /// Intern a route string, returning the tap id that stands for it.
@@ -185,6 +208,7 @@ pub fn build(src: &str) -> Option<Node> {
     // Slots are declared during the walk below, so last build's have to go
     // first — otherwise every web surface ever declared stays on screen.
     crate::web_reset();
+    SCROLL_NODE.with(|s| s.set(std::ptr::null_mut()));
 
     // Give the DSL its network capability, so the card fetches its own data.
     register_net_capabilities(vm);
@@ -392,6 +416,9 @@ fn walk(vm: &mut ScriptVm, value: ScriptValue, depth: usize, parent: &str) -> Op
     };
 
     let mut node = Node::new(node_ty)?;
+    if tag == "scroll" {
+        note_scroll_node(node.raw());
+    }
 
     // See the "web" arm: this node's `src`/`x`/`y`/`w` describe the WebView the
     // host will composite, not the spacer standing in for it here.

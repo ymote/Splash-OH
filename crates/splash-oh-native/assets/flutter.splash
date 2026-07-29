@@ -1016,15 +1016,45 @@ fn at_row(label, answer) {
     ]}
 }
 
+let at_reqs = [["a generated asset", "assets.shim"],
+               ["a shipped asset", "assets.index"],
+               ["a miss", "assets.missing"]]
+
+fn at_label() { return at_reqs[sget("at_pick", 0)][0] }
+
+fn at_rows() {
+    let out = []
+    let i = 0
+    for r in at_reqs {
+        if son("at_one") == 0 { out.push(at_row(r[0], invoke(r[1]))) }
+        if son("at_one") { if i == sget("at_pick", 0) { out.push(at_row(r[0], invoke(r[1]))) } }
+        i = i + 1
+    }
+    return out
+}
+
 fn screen_asset_transformation() {
     return page(m_surface, [
         m_appbar("Asset Transformation", "index"),
         {t: "scroll", fillw: 1, pad: 16, spacing: 16, c: [
-            m_section("splash:// resolves a request to bytes", [
-                at_row("a generated asset", invoke("assets.shim")),
-                at_row("a shipped asset", invoke("assets.index")),
-                at_row("a miss", invoke("assets.missing")),
-            ]),
+            // One at a time, so the difference between a hit, a generated
+            // answer and a miss is a thing you step through rather than three
+            // rows to compare.
+            {t: "row", fillw: 1, radius: 8, bg: m_pri_cont, padx: 12, pady: 10,
+             spacing: 8, aligny: 0.5, tapto: act_toggle("at_one"), c: [
+                icon(ic_file, 13, m_on_pri_cont),
+                txt(pick_if(son("at_one"), "One request — tap for all three",
+                                           "All three — tap for one"),
+                    13, 500, m_on_pri_cont),
+            ]},
+            pick_if(son("at_one"),
+                {t: "row", fillw: 1, radius: 8, bg: m_surf_highest, padx: 12,
+                 pady: 10, aligny: 0.5, tapto: act_cycle("at_pick", 3), c: [
+                    txt(at_label() + " — tap to step", 13, 500, m_on_surface),
+                ]},
+                {t: "column", w: 1, h: 1}),
+            m_section("splash:// resolves a request to bytes",
+                at_rows()),
             m_section("Where this differs from Flutter", [
                 para("Flutter transforms at bundle time: the asset on disk is "
                      + "rewritten before it ships. This transforms at request "
@@ -1057,6 +1087,12 @@ fn screen_background_isolate_channels() {
     return page(m_surface, [
         m_appbar("Background Work", "index"),
         {t: "scroll", fillw: 1, pad: 16, spacing: 16, c: [
+            {t: "row", fillw: 1, radius: 8, bg: m_pri_cont, padx: 12, pady: 10,
+             spacing: 8, aligny: 0.5, tapto: act_up("bg_runs", 1), c: [
+                icon(ic_bolt, 13, m_on_pri_cont),
+                txt("Run it again — " + sget("bg_runs", 1) + " runs",
+                    13, 500, m_on_pri_cont),
+            ]},
             m_section("A platform call that waits, without blocking", [
                 {t: "column", fillw: 1, bg: m_surf_lowest, radius: 8, pad: 12,
                  spacing: 4, c: [
@@ -2031,7 +2067,14 @@ fn screen_docs() {
 // What does not port is the model call. google_generative_ai needs an HTTPS
 // client and a streaming response; the render pipeline has neither, so the
 // transcript is a fixed exchange showing the three tool calls the sample
-// declares.
+// declares — but it now arrives a turn at a time when you send, rather than
+// being there before you ask.
+//
+// Two of the three declared functions are real. change_theme_mode flips the
+// host's dark flag, and change_text_scale_factor scales this screen's own type
+// — the sample's own 1.0-is-14px, 2.0-is-48px range, applied where a reader can
+// see it. change_theme_color is the one that stays a note: the palette is built
+// from M3 baseline tokens at kit level, not seeded per screen.
 
 let dt_messages = [
     [1, "Make the theme purple"],
@@ -2042,9 +2085,27 @@ let dt_messages = [
     [0, "change_text_scale_factor({ scale: 1.3 }) → text scale updated"],
 ]
 
+// The sample's scale argument, as the three steps its own prompt asks for.
+fn dt_scale() {
+    let i = sget("dt_scale", 0)
+    if i == 1 { return 1.15 }
+    if i == 2 { return 1.3 }
+    return 1.0
+}
+
+// Type on this screen answers change_text_scale_factor.
+fn dt_sz(n) { return n * dt_scale() }
+
 fn screen_dynamic_theme() {
+    // The transcript arrives a turn at a time. Two entries per turn, so the
+    // model's answer lands with the question that asked for it.
+    let turns = sget("dt_turn", 1)
+    let shown = turns * 2
     let bubbles = []
+    let mi = 0
     for m in dt_messages {
+        if mi >= shown { break }
+        mi = mi + 1
         let mine = m[0] == 1
         // The bubble must FILL its share of the row: a `fillw` paragraph inside
         // a `fitw` column is degenerate — Fill resolving against Fit collapsed
@@ -2052,7 +2113,7 @@ fn screen_dynamic_theme() {
         // opposite side gives the incoming/outgoing offset instead.
         let bubble = {t: "column", fillw: 1, fith: 1, radius: 16, pad: 12,
                       bg: pick_if(mine, m_pri_cont, m_surf_highest), c: [
-            para(m[1], 14, 400, pick_if(mine, m_on_pri_cont, m_on_surface)),
+            para(m[1], dt_sz(14), 400, pick_if(mine, m_on_pri_cont, m_on_surface)),
         ]}
         let gutter = {t: "column", w: 56, h: 1}
         let cells = []
@@ -2070,18 +2131,26 @@ fn screen_dynamic_theme() {
                 ]},
                 m_btn("Submit", m_primary, m_on_primary),
             ]),
-            m_section("Transcript", bubbles),
+            m_section("Transcript — " + turns + " of 3 turns", bubbles),
             m_section("Declared functions", [
                 dt_fn("change_theme_color", "hex — 6 characters, e.g. FF00EE"),
                 dt_fn("change_theme_mode", "mode — light | dark | system"),
                 dt_fn("change_text_scale_factor", "scale — 1.0 is 14px, 2.0 is 48px"),
             ]),
-            m_section("This one is real", [
-                para("change_theme_mode is the one tool call that works here: the "
-                    + "host carries the dark flag and every screen re-reads it on "
-                    + "mount.", 13, 400, m_on_surf_var),
+            m_section("Two of these are real", [
+                para("change_theme_mode flips the host's dark flag and every "
+                    + "screen re-reads it on mount.",
+                    dt_sz(13), 400, m_on_surf_var),
                 {t: "column", fillw: 1, tapto: "theme:toggle",
                  c: [ m_btn("Toggle theme mode", m_sec_cont, m_on_sec_cont) ]},
+                para("change_text_scale_factor is applied to this screen's own "
+                    + "type. Currently " + dt_scale() + "x.",
+                    dt_sz(13), 400, m_on_surf_var),
+                {t: "column", fillw: 1, tapto: act_cycle("dt_scale", 3),
+                 c: [ m_btn_outlined("Scale text — 1.0, 1.15, 1.3") ]},
+                para("change_theme_color is the one that stays a note: the "
+                    + "palette is built from M3 baseline tokens at kit level, "
+                    + "not seeded per screen.", dt_sz(13), 400, m_on_surf_var),
             ]),
         ]},
         // The prompt bar.
@@ -2091,7 +2160,8 @@ fn screen_dynamic_theme() {
              padx: 16, aligny: 0.5,
              c: [ {t: "input", placeholder: "Ask Gemini…", fillw: 1, fith: 1} ]},
             {t: "column", w: 48, h: 48, radius: 24, bg: m_primary,
-             alignx: 0.5, aligny: 0.5, c: [ icon(ic_bolt, 16, m_on_primary) ]},
+             alignx: 0.5, aligny: 0.5, tapto: act_climb("dt_turn", 3),
+             c: [ icon(ic_bolt, 16, m_on_primary) ]},
         ]},
     ])
 }
@@ -2325,6 +2395,18 @@ fn gm_view(zoom, tilt, rotation, z, cx, cy) {
                    gm_map(zoom, tilt, rotation))
 }
 
+// Zoom, as the four tile sets this screen ships. Panning would need tiles
+// fetched per gesture; stepping the camera needs only arithmetic, and each step
+// is a genuinely different request to OSM.
+let gm_cams = [
+    [9,  471,  307, "9 — the region"],
+    [11, 1884, 1228, "11 — the sample's camera"],
+    [13, 7536, 4915, "13 — the harbour"],
+    [15, 30146, 19662, "15 — the streets"],
+]
+
+fn gm_cam() { return gm_cams[sget("gm_zoom", 1)] }
+
 fn screen_google_maps() {
     return page(m_surface, [
         m_appbar("Sydney", "index"),
@@ -2337,10 +2419,18 @@ fn screen_google_maps() {
                      + "raster tiles for the same coordinates.",
                      13, 400, m_on_surf_var),
                 {t: "stack", fillw: 1, fith: 1, c: [
-                    gm_view(11.0, 0.0, 0.0, 11, 1884, 1228),
+                    gm_view(gm_cam()[0] * 1.0, 0.0, 0.0,
+                            gm_cam()[0], gm_cam()[1], gm_cam()[2]),
                     // The marker, drawn over the centre rather than anchored.
                     {t: "column", fillw: 1, h: 260, alignx: 0.5, aligny: 0.5,
                      c: [ icon(ic_pin, 28, m_error) ]},
+                ]},
+                {t: "row", fillw: 1, radius: 8, bg: m_pri_cont, padx: 12,
+                 pady: 10, spacing: 8, aligny: 0.5,
+                 tapto: act_cycle("gm_zoom", 4), c: [
+                    icon(ic_search, 13, m_on_pri_cont),
+                    txt("Zoom " + gm_cam()[3] + " — tap to step",
+                        13, 500, m_on_pri_cont),
                 ]},
                 {t: "row", fillw: 1, bg: m_surf_lowest, radius: 8, padx: 12,
                  pady: 8, spacing: 8, aligny: 0.5, c: [
@@ -2896,6 +2986,12 @@ fn screen_pedometer() {
     return page(m_surface, [
         m_appbar("Pedometer", "index"),
         {t: "scroll", fillw: 1, pad: 16, spacing: 16, c: [
+            {t: "row", fillw: 1, radius: 8, bg: m_pri_cont, padx: 12, pady: 10,
+             spacing: 8, aligny: 0.5, tapto: act_up("pd_reads", 1), c: [
+                icon(ic_walk, 13, m_on_pri_cont),
+                txt("Read the sensor again — " + sget("pd_reads", 1)
+                    + " reads this session", 13, 500, m_on_pri_cont),
+            ]},
             m_section("Steps", [
                 {t: "column", fillw: 1, alignx: 0.5, pady: 8, spacing: 4, c: [
                     icon(ic_walk, 34, m_primary),
@@ -2905,6 +3001,11 @@ fn screen_pedometer() {
                      + "capability bridge platform_channels uses. A device "
                      + "without that sensor answers with the error rather than "
                      + "a number.", 13, 400, m_on_surf_var),
+                para("Tapping re-reads: the sample subscribes to a stream, and "
+                     + "this samples on demand. The accelerometer row below is "
+                     + "the one that visibly changes between reads, because a "
+                     + "step count does not move while a phone sits still.",
+                     13, 400, m_on_surf_var),
             ]),
             m_section("What the sensor stack reports", [
                 pd_row("sensor.list", invoke("sensor.list")),
@@ -2952,20 +3053,49 @@ fn pc_row(tool, answer) {
     ]}
 }
 
+// The tools this screen can call. `device.notifications` was registered and
+// reached by nothing — the review found it sitting there unused — so it is on
+// the list now.
+let pc_tools = ["device.info", "device.display", "device.battery",
+                "device.time", "device.notifications"]
+
 fn screen_platform_channels() {
     // MethodChannel: ask the platform by name, get an answer.
-    let calls = [
-        ["device.info", invoke("device.info")],
-        ["device.display", invoke("device.display")],
-        ["device.battery", invoke("device.battery")],
-        ["device.time", invoke("device.time")],
-    ]
+    //
+    // Every rebuild re-invokes, so the counter is not decoration: it is how you
+    // can tell a fresh answer from the one already on screen. device.time
+    // changes every read, which makes the whole thing checkable by eye.
+    let reads = sget("pc_reads", 1)
+    let one = sget("pc_one", 0)
     let rows = []
-    for c in calls { rows.push(pc_row(c[0], c[1])) }
+    let ti = 0
+    for t in pc_tools {
+        if one == 0 { rows.push(pc_row(t, invoke(t))) }
+        if one == 1 { if ti == sget("pc_pick", 0) { rows.push(pc_row(t, invoke(t))) } }
+        ti = ti + 1
+    }
 
     return page(m_surface, [
         m_appbar("Platform Channels", "index"),
         {t: "scroll", fillw: 1, pad: 16, spacing: 16, c: [
+            {t: "row", fillw: 1, spacing: 8, c: [
+                {t: "column", fillw: 1, radius: 8, bg: m_pri_cont, padx: 12,
+                 pady: 10, alignx: 0.5, tapto: act_up("pc_reads", 1), c: [
+                    txt("Call again — " + reads + " so far", 13, 500, m_on_pri_cont),
+                ]},
+                {t: "column", fillw: 1, radius: 8, bg: m_surf_highest, padx: 12,
+                 pady: 10, alignx: 0.5, tapto: act_toggle("pc_one"), c: [
+                    txt(pick_if(one == 1, "One channel", "All channels"),
+                        13, 500, m_on_surface),
+                ]},
+            ]},
+            pick_if(one == 1,
+                {t: "row", fillw: 1, radius: 8, bg: m_surf_highest, padx: 12,
+                 pady: 10, alignx: 0.5, tapto: act_cycle("pc_pick", 5), c: [
+                    txt("Channel " + (sget("pc_pick", 0) + 1) + " of 5 — tap to change",
+                        13, 500, m_on_surface),
+                ]},
+                {t: "column", w: 1, h: 1}),
             m_section("MethodChannel — invoke(tool) returns an answer", rows),
             // EventChannel: a value that keeps changing. The host re-mounts
             // against a clock, so re-reading the sensor is the same shape as
@@ -3220,15 +3350,55 @@ fn pd_ios_tab(label, glyph, sel) {
 // `xcomp::surface(w, h)` is an ArkUI XComponent: a real EGL surface that camera
 // preview and video decode render into, composited among the widgets Rust
 // built. The state below is read from it.
+//
+// The sample's actual interaction ports too, and it is the part that was
+// missing: it switches between the two halves and passes a counter across. So
+// does this. The counter lives in the one store both halves read, which is the
+// honest local form of "passed across a channel" — there is no boundary here to
+// pass it over, because the surface is inside the tree rather than beside it.
+
+fn pvs_half(title, sub, count, active, act) {
+    let bg = pick_if(active, m_pri_cont, m_surf_highest)
+    let ink = pick_if(active, m_on_pri_cont, m_on_surf_var)
+    return {t: "column", fillw: 1, radius: 12, bg: bg, pad: 14, spacing: 4,
+            tapto: act, c: [
+        txt(title, 14, 500, ink),
+        txt(sub, 11, 400, ink),
+        txt("count " + count, 22, 500, ink),
+    ]}
+}
 
 fn screen_platform_view_swift() {
+    // Which half is in front, and the counter both of them read.
+    let native = son("pvs_native")
+    let n = sget("pvs_count", 0)
     return page(m_surface, [
         m_appbar("Platform View", "index"),
         {t: "scroll", fillw: 1, pad: 16, spacing: 16, c: [
+            m_section("Switch, and pass the count across", [
+                {t: "row", fillw: 1, spacing: 8, c: [
+                    pvs_half("Platform surface", "XComponent · EGL", n,
+                             native, act_set("pvs_native", 1)),
+                    pvs_half("Widget tree", "ArkUI nodes from the DSL", n,
+                             native == 0, act_set("pvs_native", 0)),
+                ]},
+                {t: "row", fillw: 1, radius: 8, bg: m_surf_lowest, padx: 12,
+                 pady: 10, spacing: 8, aligny: 0.5,
+                 tapto: act_up("pvs_count", 1), c: [
+                    icon(ic_plus, 13, m_primary),
+                    txt("Increment — the other half sees it too",
+                        13, 500, m_on_surface),
+                ]},
+                para("The sample presents a UIViewController, switches to a "
+                     + "full-screen Flutter view and passes a counter over a "
+                     + "MethodChannel. Both halves are on screen at once here, "
+                     + "so the count needs no channel: they read the same "
+                     + "store.", 13, 400, m_on_surf_var),
+            ]),
             m_section("A platform surface in the same tree", [
                 {t: "column", fillw: 1, bg: m_surf_lowest, radius: 8, pad: 12,
-                 spacing: 4, c: [
-                    txt("surface.state", 13, 500, m_primary),
+                 spacing: 4, tapto: act_up("pvs_reads", 1), c: [
+                    txt("surface.state — tap to re-read", 13, 500, m_primary),
                     para(invoke("surface.state"), 12, 400, m_on_surf_var),
                 ]},
                 para("An ArkUI XComponent — a real EGL surface that camera "
@@ -3266,7 +3436,12 @@ fn screen_platform_view_swift() {
 // makepad would draw this per-pixel with Sdf2d, and that route is built; it
 // does not resolve in the Splash isolate yet. This one runs on both backends.
 
-let sdf_n = 22
+// Resolution, stepped. The whole point of the screen is that the field is
+// arithmetic rather than a picture, and nothing shows that like recomputing it
+// at a different sampling rate: 264 is 22x12dp, and the others divide it
+// exactly so no row lands mid-pixel and seams.
+let sdf_res = [11, 22, 33, 44]
+let sdf_n = sdf_res[sget("sdf_res", 1)]
 
 fn sd_heart(px, py) {
     let x = absn(px)
@@ -3318,6 +3493,12 @@ fn screen_simple_sdf() {
         m_appbar("Simple SDF", "index"),
         {t: "scroll", fillw: 1, pad: 16, spacing: 16, c: [
             sd_grid(),
+            {t: "row", fillw: 1, radius: 8, bg: m_pri_cont, padx: 12, pady: 10,
+             spacing: 8, aligny: 0.5, tapto: act_cycle("sdf_res", 4), c: [
+                icon(ic_bolt, 13, m_on_pri_cont),
+                txt(sdf_n + "x" + sdf_n + " cells — tap to resample",
+                    13, 500, m_on_pri_cont),
+            ]},
             m_section("What this is", [
                 para("sdHeart from the sample's GLSL, evaluated per cell: fold "
                      + "on x, branch on p.y + p.x > 1, take the distance to the "
@@ -3356,7 +3537,10 @@ fn screen_simple_sdf() {
 // simple.frag: color = mix(mix(sky, blue, p*2), mix(blue, navy, p*2-1),
 // step(0.5, p)) where p = (st.x + st.y) / 2.
 
-let sh_n = 18
+// Resolution, stepped — same reason as simple_sdf: a shader evaluated per cell
+// is a function, and a function can be sampled at any rate.
+let sh_res = [9, 18, 36, 72]
+let sh_n = sh_res[sget("sh_res", 1)]
 
 fn sh_cell(ix, iy) {
     let sky  = argb(255, 2, 125, 253)
@@ -3390,6 +3574,12 @@ fn screen_simple_shader() {
         m_appbar("Simple Shader", "index"),
         {t: "scroll", fillw: 1, pad: 16, spacing: 16, c: [
             sh_grid(),
+            {t: "row", fillw: 1, radius: 8, bg: m_pri_cont, padx: 12, pady: 10,
+             spacing: 8, aligny: 0.5, tapto: act_cycle("sh_res", 4), c: [
+                icon(ic_bolt, 13, m_on_pri_cont),
+                txt(sh_n + "x" + sh_n + " cells — tap to resample",
+                    13, 500, m_on_pri_cont),
+            ]},
             m_section("What this is", [
                 para("simple.frag, evaluated in the DSL: sky to blue to navy "
                      + "across (st.x + st.y) / 2, with the step at 0.5. A "
@@ -3400,7 +3590,8 @@ fn screen_simple_shader() {
             ]),
             m_section("What the GPU would still do better", [
                 para("Per-pixel instead of per-cell, and for free. This grid is "
-                     + "18x18 native nodes; the shader is one draw call.",
+                     + sh_n + "x" + sh_n + " native nodes; the shader is one "
+                     + "draw call at any resolution.",
                      13, 400, m_on_surf_var),
                 para("The compiled-MPSL route is built (FlutterShader in "
                      + "splash-widgets) and is the right answer on makepad, but "
@@ -3559,6 +3750,18 @@ fn screen_veggieseasons() {
 // 1320vp, roughly 4300px. ArkUI does not clamp that; it dereferenced a null
 // frame node inside SetWidth and took the whole app down. A width of 0 now
 // means "as wide as the page", so no screen has to name a device pixel count.
+// The pages the slot can show. Switching them is the interaction the sample's
+// own demo has — a host page choosing what to embed — and it exercises the part
+// that matters here: a slot is re-declared on every build, so navigating it is
+// the same code path as declaring it.
+let we_pages = [
+    ["https://flutter.dev", "flutter.dev"],
+    ["https://dart.dev", "dart.dev"],
+    ["https://developer.huawei.com/consumer/en/harmonyos", "HarmonyOS"],
+]
+
+fn we_page() { return we_pages[sget("we_page", 0)] }
+
 let we_top = 90.0
 let we_h = 300.0
 
@@ -3566,7 +3769,7 @@ fn screen_web_embedding() {
     let native_or_note = pick_if(st.backend == "arkui",
         // The hole: this reserves the space, and the host puts a real WebView
         // at exactly these coordinates.
-        {t: "web", src: "https://flutter.dev", fillw: 1, h: we_h,
+        {t: "web", src: we_page()[0], fillw: 1, h: we_h,
          x: 0.0, y: we_top, w: 0.0},
         {t: "column", fillw: 1, h: 240, radius: 12, bg: m_surf_highest,
          alignx: 0.5, aligny: 0.5, pad: 24, c: [
@@ -3578,9 +3781,18 @@ fn screen_web_embedding() {
 
     return page(m_surface, [
         m_appbar("Web Embedding", "index"),
-        {t: "column", fillw: 1, padx: 16, pady: 8, c: [
+        {t: "column", fillw: 1, padx: 16, pady: 8, spacing: 8, c: [
             para("Native widgets above, a real web surface below — one tree.",
                  13, 400, m_on_surf_var),
+            pick_if(st.backend == "arkui",
+                {t: "row", fillw: 1, radius: 8, bg: m_pri_cont, padx: 12,
+                 pady: 10, spacing: 8, aligny: 0.5,
+                 tapto: act_cycle("we_page", 3), c: [
+                    icon(ic_globe, 13, m_on_pri_cont),
+                    txt("Showing " + we_page()[1] + " — tap to switch",
+                        13, 500, m_on_pri_cont),
+                ]},
+                {t: "column", w: 1, h: 1}),
         ]},
         native_or_note,
         {t: "column", fillw: 1, pad: 16, spacing: 12, c: [
@@ -3624,9 +3836,14 @@ fn screen_web_embedding() {
 //
 // status  2  the screen responds — live host data, motion, or controls that
 //            change what you see when you tap them
-//         1  drawn, not working — the geometry and tokens are transcribed from
-//            the sample, the behaviour behind them is not
-//         0  a note. No port; it says what the counterpart here is
+//         0  a note. No port; the sample is configuration or prose and there is
+//            no UI to port
+//
+// Status 1 used to mean "drawn, not working" and covered eighteen screens.
+// It is gone because they are: every one of them has a control now, and
+// `a_control_changes_what_the_screen_renders` holds all twenty-eight cases to
+// it. `fs_index_row` still handles 1 so the distinction can come back if a
+// future screen lands half-finished.
 //
 // This used to read `1` for all 27 and the index drew a check beside every one.
 // That was the complaint, and it was right: a screen that only describes a
@@ -3642,24 +3859,24 @@ let fs_samples = [
     ["navigation_and_routing", "Navigation and Routing", 2, "navigation_and_routing"],
     ["compass_app", "Compass App", 2, "compass_app"],
     ["desktop_photo_search", "Desktop Photo Search", 2, "desktop_photo_search"],
-    ["dynamic_theme", "Dynamic Theme", 1, "dynamic_theme"],
+    ["dynamic_theme", "Dynamic Theme", 2, "dynamic_theme"],
     ["testing_app", "Testing App", 2, "testing_app"],
     ["add_to_app", "Add to App", 2, "add_to_app"],
     ["analysis_defaults", "Analysis Defaults", 0, "analysis_defaults"],
     ["android_splash_screen", "Android Splash Screen", 0, "android_splash_screen"],
-    ["asset_transformation", "Asset Transformation", 1, "asset_transformation"],
-    ["background_isolate_channels", "Background Isolate Channels", 1, "background_isolate_channels"],
+    ["asset_transformation", "Asset Transformation", 2, "asset_transformation"],
+    ["background_isolate_channels", "Background Isolate Channels", 2, "background_isolate_channels"],
     ["docs", "docs", 0, "docs"],
-    ["google_maps", "Google Maps", 1, "google_maps"],
+    ["google_maps", "Google Maps", 2, "google_maps"],
     ["ios_app_clip", "iOS App Clip", 0, "ios_app_clip"],
-    ["pedometer", "Pedometer", 1, "pedometer"],
-    ["platform_channels", "Platform Channels", 1, "platform_channels"],
-    ["platform_view_swift", "Platform View Swift", 1, "platform_view_swift"],
-    ["simple_sdf", "Simple SDF", 1, "simple_sdf"],
-    ["simple_shader", "Simple Shader", 1, "simple_shader"],
+    ["pedometer", "Pedometer", 2, "pedometer"],
+    ["platform_channels", "Platform Channels", 2, "platform_channels"],
+    ["platform_view_swift", "Platform View Swift", 2, "platform_view_swift"],
+    ["simple_sdf", "Simple SDF", 2, "simple_sdf"],
+    ["simple_shader", "Simple Shader", 2, "simple_shader"],
     ["tool", "tool", 0, "tool"],
     ["veggieseasons", "Veggie Seasons", 0, "veggieseasons"],
-    ["web_embedding", "Web Embedding", 1, "web_embedding"],
+    ["web_embedding", "Web Embedding", 2, "web_embedding"],
 ]
 
 fn fs_index_row(label, dir, status) {
@@ -3693,30 +3910,26 @@ fn fs_count_card(n, label, bg, ink) {
 
 fn screen_index() {
     let working = []
-    let drawn = []
     let notes = []
     for s in fs_samples {
         let row = fs_index_row(s[1], s[0], s[2])
         if s[2] == 2 { working.push(row) }
-        if s[2] == 1 { drawn.push(row) }
         if s[2] == 0 { notes.push(row) }
     }
     return page(m_surface, [
         {t: "column", bg: m_surf_cont, fillw: 1, padx: 16, pady: 16, spacing: 4, c: [
             txt("flutter/samples", 28, 400, m_on_surface),
-            para("All 27 directories have a screen. Eleven respond — live "
-                + "data, motion, or controls that do something. Ten are drawn "
-                + "and not wired up. Six are notes, not ports.",
-                14, 400, m_on_surf_var),
+            para("All 27 directories have a screen. Twenty-one respond — live "
+                + "data, motion, or controls that change what you see. Six are "
+                + "notes: the sample is configuration or prose, with no UI to "
+                + "port.", 14, 400, m_on_surf_var),
         ]},
         {t: "scroll", fillw: 1, pad: 16, spacing: 16, c: [
             {t: "row", fillw: 1, spacing: 8, c: [
-                fs_count_card("11", "respond", m_pri_cont, m_on_pri_cont),
-                fs_count_card("10", "drawn only", m_surf_highest, m_on_surface),
+                fs_count_card("21", "respond", m_pri_cont, m_on_pri_cont),
                 fs_count_card("6", "notes", m_surf_cont, m_on_surf_var),
             ]},
             m_section("Responds — data, motion, or a control that works", working),
-            m_section("Drawn, not wired up", drawn),
             m_section("Notes, not ports", notes),
             {t: "column", fillw: 1, tapto: "theme:toggle",
              c: [ m_btn_outlined("Toggle light / dark") ]},
