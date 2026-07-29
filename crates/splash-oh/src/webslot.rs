@@ -55,11 +55,37 @@ thread_local! {
     /// of every build, because a stale slot leaves a webview floating over a
     /// screen that no longer has one.
     static SLOTS: RefCell<Vec<WebSlot>> = const { RefCell::new(Vec::new()) };
+    /// Reset per build, so the Nth slot of a screen keeps the same id every
+    /// time that screen is built. See `reset`.
     static NEXT_ID: RefCell<u32> = const { RefCell::new(1) };
 }
 
+/// Start a build's slot list over.
+///
+/// **`NEXT_ID` resets too, and that is the point.** It used to increase
+/// monotonically for the life of the process, which meant every rebuild minted
+/// fresh ids for the same slots. ArkTS keys its `ForEach` on the encoded slot
+/// string, and that string begins with the id — so a new id was a new key, and
+/// a new key destroys the `Web` component and builds another one.
+///
+/// The consequences were all the ones you would predict and none of them were
+/// being attributed here:
+///
+///   - a page reloaded from scratch on every `appRerender`, so nothing in it
+///     could hold state across a native data update;
+///   - `controllerFor` cached a `WebviewController` per id, so the map grew by
+///     one dead controller per rebuild for the life of the process;
+///   - a surface that went white on reload looked like a load bug rather than
+///     a component that had just been thrown away and replaced.
+///
+/// Per-build ids are stable because a screen declares its slots in the same
+/// order every time it is built. They are *positional*, not identities: slot 1
+/// of one app and slot 1 of another are different pages. Nothing downstream
+/// assumes otherwise — ArkTS keys `loaded` on id *and content*, so a different
+/// page at the same id still reloads.
 pub fn reset() {
     SLOTS.with(|s| s.borrow_mut().clear());
+    NEXT_ID.with(|n| *n.borrow_mut() = 1);
 }
 
 /// Record a web surface. Returns its id, which ArkTS uses to address the
