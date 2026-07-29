@@ -53,6 +53,9 @@ pub enum Source {
 pub struct WebSlot {
     pub id: u32,
     pub source: Source,
+    /// What this surface may do. Declared here, next to the geometry, because
+    /// the page must not be able to influence it.
+    pub caps: crate::caps::Caps,
     pub x: f32,
     pub y: f32,
     pub w: f32,
@@ -108,22 +111,50 @@ pub fn declare_html(html: String, x: f32, y: f32, w: f32, h: f32) -> u32 {
     declare_source(Source::Html(html), x, y, w, h)
 }
 
-/// Declare a surface showing a page from the shipped bundle.
+/// Declare a surface showing a page from the shipped bundle, with everything.
+///
+/// Prefer [`declare_app_with`]. This exists because the demo apps were written
+/// before capabilities did.
 pub fn declare_app(path: &str, x: f32, y: f32, w: f32, h: f32) -> u32 {
     declare_source(Source::App(path.to_string()), x, y, w, h)
 }
 
+/// Declare a bundle surface and state what it may do.
+pub fn declare_app_with(
+    path: &str,
+    caps: crate::caps::Caps,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+) -> u32 {
+    declare_with_caps(Source::App(path.to_string()), caps, x, y, w, h)
+}
+
 fn declare_source(source: Source, x: f32, y: f32, w: f32, h: f32) -> u32 {
+    declare_with_caps(source, crate::caps::Caps::all(), x, y, w, h)
+}
+
+fn declare_with_caps(
+    source: Source,
+    caps: crate::caps::Caps,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+) -> u32 {
     let id = NEXT_ID.with(|n| {
         let mut n = n.borrow_mut();
         let v = *n;
         *n = v.wrapping_add(1).max(1);
         v
     });
+    remember_caps(id, &caps);
     SLOTS.with(|s| {
         s.borrow_mut().push(WebSlot {
             id,
             source,
+            caps,
             x,
             y,
             w,
@@ -228,6 +259,36 @@ pub fn is_trusted(id: u32) -> bool {
         }
         _ => true,
     }
+}
+
+/// Capability sets, reachable from any thread.
+///
+/// A process-wide map rather than a read of `SLOTS`, and the difference is not
+/// stylistic: `SLOTS` is a `thread_local!`, and the tools that most need a
+/// scope check -- `http.get`, `fs.read`, `fs.list` -- do their work on a
+/// spawned worker. There `SLOTS` is empty, so `caps_for` returned `None` and
+/// every scope check quietly passed. The host scope was measured letting a
+/// request through to a host it did not grant.
+///
+/// Not cleared on `reset`, for the same reason `OBSERVED` is not: a rebuild
+/// re-declares slots without stopping work already in flight, and a worker that
+/// found no entry would be a worker with no scope.
+static CAPS: std::sync::Mutex<Vec<(u32, crate::caps::Caps)>> = std::sync::Mutex::new(Vec::new());
+
+fn remember_caps(id: u32, caps: &crate::caps::Caps) {
+    if let Ok(mut m) = CAPS.lock() {
+        match m.iter_mut().find(|(i, _)| *i == id) {
+            Some(e) => e.1 = caps.clone(),
+            None => m.push((id, caps.clone())),
+        }
+    }
+}
+
+/// The capability set for `id`. Nothing for an unknown slot.
+pub fn caps_for(id: u32) -> Option<crate::caps::Caps> {
+    CAPS.lock()
+        .ok()
+        .and_then(|m| m.iter().find(|(i, _)| *i == id).map(|(_, c)| c.clone()))
 }
 
 pub fn slots() -> Vec<WebSlot> {
