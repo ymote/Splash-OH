@@ -105,7 +105,7 @@ pub fn build_flutter(route: &str, dark: bool) -> Option<Node> {
     const KIT: &str = include_str!("../assets/flutter.splash");
     FLUTTER_ROUTES.with(|r| r.borrow_mut().clear());
     let src = format!(
-        "let st = {{ route: {route:?}, dark: {}, t: {} }}\n{KIT}",
+        "let st = {{ route: {route:?}, dark: {}, t: {}, backend: \"arkui\" }}\n{KIT}",
         u8::from(dark),
         elapsed_secs()
     );
