@@ -230,12 +230,6 @@ pub fn set_root(new_root: Option<Node>) {
 
 }
 
-thread_local! {
-    /// The route the mounted tree was built for, so a rebuild can tell a state
-    /// change from a navigation.
-    static LAST_ROUTE: std::cell::RefCell<String> =
-        const { std::cell::RefCell::new(String::new()) };
-}
 
 /// Remove the mounted tree without putting anything back, so another owner can
 /// use the slot.
@@ -285,7 +279,7 @@ pub fn rebuild() {
     // checkbox should leave you looking at the checkbox, and a tap that
     // navigates should start the new screen at the top, the way every phone
     // does it.
-    let keep = LAST_ROUTE.with(|r| *r.borrow() == route);
+    let keep = crate::dsl::built_route() == route;
     let offset = if keep {
         let h = crate::dsl::scroll_node();
         if h.is_null() {
@@ -296,7 +290,6 @@ pub fn rebuild() {
     } else {
         None
     };
-    LAST_ROUTE.with(|r| *r.borrow_mut() = route.to_string());
 
     let Some(new_root) = crate::dsl::build_flutter(route, false) else {
         crate::log("app: DSL build failed");

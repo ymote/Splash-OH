@@ -104,6 +104,7 @@ fn display_lines(s: &str, per_line: usize) -> usize {
 pub fn build_flutter(route: &str, dark: bool) -> Option<Node> {
     const KIT: &str = include_str!("../assets/flutter.splash");
     FLUTTER_ROUTES.with(|r| r.borrow_mut().clear());
+    BUILT_ROUTE.with(|b| *b.borrow_mut() = route.to_string());
     let src = format!(
         "let st = {{ route: {route:?}, dark: {}, t: {}, backend: \"arkui\" }}\n{KIT}",
         u8::from(dark),
@@ -142,6 +143,19 @@ thread_local! {
     /// rather than failing loudly.
     static SCROLL_NODE: std::cell::Cell<crate::arkui::NodeHandle> =
         const { std::cell::Cell::new(std::ptr::null_mut()) };
+    static BUILT_ROUTE: std::cell::RefCell<String> =
+        const { std::cell::RefCell::new(String::new()) };
+}
+
+/// The route the mounted tree was built for.
+///
+/// Recorded here rather than by the caller because there are three ways a tree
+/// gets mounted — `rebuild`, `goBack` and `catalogScreen` — and only the first
+/// went through the place that used to track this. The other two left it stale,
+/// so a later tap could compare against the wrong route and restore a scroll
+/// offset captured on a different screen.
+pub fn built_route() -> String {
+    BUILT_ROUTE.with(|b| b.borrow().clone())
 }
 
 /// The mounted tree's scrolling node, if it has one.
