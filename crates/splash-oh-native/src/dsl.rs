@@ -639,7 +639,15 @@ fn walk(vm: &mut ScriptVm, value: ScriptValue, depth: usize, parent: &str) -> Op
     // column vertical, so which of justify/align-items each drives flips.
     let alignx = num_prop(vm, value, id!(alignx)).map(|v| v as f32);
     let aligny = num_prop(vm, value, id!(aligny)).map(|v| v as f32);
-    let bucket = |v: f32| if v < 0.34 { 0 } else if v < 0.67 { 1 } else { 2 };
+    let bucket = |v: f32| {
+        if v < 0.34 {
+            0
+        } else if v < 0.67 {
+            1
+        } else {
+            2
+        }
+    };
     match tag.as_str() {
         "row" => {
             if let Some(x) = alignx {
@@ -713,24 +721,24 @@ fn walk(vm: &mut ScriptVm, value: ScriptValue, depth: usize, parent: &str) -> Op
 /// shows up as a visible placeholder instead of a hole.
 fn icon_fallback(fa: &str) -> &'static str {
     match fa.chars().next().map(|c| c as u32) {
-        Some(0xf053) => "\u{2039}", // chevron-left
-        Some(0xf054) => "\u{203A}", // chevron-right
+        Some(0xf053) => "\u{2039}",  // chevron-left
+        Some(0xf054) => "\u{203A}",  // chevron-right
         Some(0xf067) => "+",         // plus
-        Some(0xf00c) => "\u{2713}", // check
-        Some(0xf05e) => "\u{2298}", // ban
-        Some(0xf002) => "\u{2315}", // search
-        Some(0xf004) => "\u{2665}", // heart
-        Some(0xf005) => "\u{2605}", // star
-        Some(0xf013) => "\u{2699}", // gear
-        Some(0xf03a) => "\u{2261}", // list
-        Some(0xf007) => "\u{25CF}", // user
-        Some(0xf02d) => "\u{25A4}", // book
-        Some(0xf015) => "\u{2302}", // home
-        Some(0xf04b) => "\u{25B6}", // play
-        Some(0xf0e7) => "\u{26A1}", // bolt
+        Some(0xf00c) => "\u{2713}",  // check
+        Some(0xf05e) => "\u{2298}",  // ban
+        Some(0xf002) => "\u{2315}",  // search
+        Some(0xf004) => "\u{2665}",  // heart
+        Some(0xf005) => "\u{2605}",  // star
+        Some(0xf013) => "\u{2699}",  // gear
+        Some(0xf03a) => "\u{2261}",  // list
+        Some(0xf007) => "\u{25CF}",  // user
+        Some(0xf02d) => "\u{25A4}",  // book
+        Some(0xf015) => "\u{2302}",  // home
+        Some(0xf04b) => "\u{25B6}",  // play
+        Some(0xf0e7) => "\u{26A1}",  // bolt
         Some(0xf133) => "\u{1F4C5}", // calendar
-        Some(0xf3c5) => "\u{25C9}", // map pin
-        Some(0xf15b) => "\u{25A7}", // file
+        Some(0xf3c5) => "\u{25C9}",  // map pin
+        Some(0xf15b) => "\u{25A7}",  // file
         _ => "\u{00B7}",
     }
 }

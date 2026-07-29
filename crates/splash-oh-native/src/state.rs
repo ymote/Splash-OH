@@ -175,7 +175,11 @@ mod tests {
         // What a screen declaring `sget("k", 1)` does on first render.
         assert_eq!(get_or_seed("k", 1.0), 1.0);
         apply("set:k=!");
-        assert_eq!(get_or_seed("k", 1.0), 0.0, "toggling an on-by-default control must turn it off");
+        assert_eq!(
+            get_or_seed("k", 1.0),
+            0.0,
+            "toggling an on-by-default control must turn it off"
+        );
         apply("set:k=!");
         assert_eq!(get_or_seed("k", 1.0), 1.0);
     }

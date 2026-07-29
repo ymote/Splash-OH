@@ -128,11 +128,8 @@ pub fn mount(env: Env, content: JsObject) -> napi_ohos::Result<()> {
         // 0 is ARKUI/OH's accelerometer id; the pedometer sample reads step
         // data, which is the same shape of platform call.
         "sensor.accelerometer" => sensor::sample(0, 400).unwrap_or_else(|e| e),
-        "sensor.steps" => sensor::sample(
-            sensor::type_from_name("pedometer").unwrap_or(266),
-            400,
-        )
-        .unwrap_or_else(|e| e),
+        "sensor.steps" => sensor::sample(sensor::type_from_name("pedometer").unwrap_or(266), 400)
+            .unwrap_or_else(|e| e),
         // asset_transformation: the splash:// protocol resolves a request URL
         // to bytes at serve time, which is this stack's asset pipeline.
         "assets.shim" => {
@@ -563,7 +560,11 @@ pub fn app_render(app: String) -> Vec<f64> {
 #[napi(js_name = "goBack")]
 pub fn go_back() -> bool {
     let screen = app::current_screen();
-    let cur = if screen.is_empty() { "index" } else { screen.as_str() };
+    let cur = if screen.is_empty() {
+        "index"
+    } else {
+        screen.as_str()
+    };
     if cur == "index" {
         return false;
     }
@@ -596,7 +597,11 @@ pub fn catalog_screen(name: String) -> u32 {
     app::set_wechat_active(true);
     // The flutter kit routes by *string*, so the name passes straight through
     // rather than being looked up in CATALOG_SCREENS. Empty means the index.
-    let route = if name.is_empty() { "index" } else { name.as_str() };
+    let route = if name.is_empty() {
+        "index"
+    } else {
+        name.as_str()
+    };
     // Record it, or the animation tick cannot tell what is on screen.
     app::set_screen_quiet(route.to_string());
     let node = splash_oh_native::dsl::build_flutter(route, false);

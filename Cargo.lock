@@ -335,6 +335,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "splash-oh-cli"
+version = "0.1.0"
+dependencies = [
+ "splash-oh-core",
+]
+
+[[package]]
 name = "splash-oh-core"
 version = "0.1.0"
 dependencies = [

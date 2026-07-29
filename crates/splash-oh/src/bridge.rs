@@ -1700,74 +1700,9 @@ pub fn drain() -> Vec<String> {
 /// `splash_native` is the raw proxy ArkWeb injects: synchronous and void. This
 /// wraps it in the promise API a page actually wants, and provides `_resolve`
 /// for ArkTS to call back into.
-/// The bridge shim as bare JavaScript, with no `<script>` wrapper.
-///
-/// Split out from [`SHIM`] so the asset server can serve it as a real file.
-/// A page that Rust did not generate cannot have the shim prepended to it,
-/// so it has to be fetchable at a URL like any other script.
-pub const SHIM_JS: &str = r#"(function(){
-  var n = 0, pending = {};
-  window.splash = {
-    // ARGS ARE ALWAYS JSON. Whatever is passed is stringified, so a tool
-    // always receives valid JSON and can deserialize into a type instead of
-    // guessing. Results come back already decoded, as before.
-    invoke: function (tool, args) {
-      return new Promise(function (res, rej) {
-        // Ids are strings: they are u64 in Rust and JS numbers are f64, so
-        // anything past 2^53 would come back rounded.
-        var id = String(++n);
-        pending[id] = { res: res, rej: rej };
-        if (!window.splash_native || !window.splash_native.invoke) {
-          delete pending[id];
-          rej(new Error('splash_native bridge not present'));
-          return;
-        }
-        // Always stringified. It used to pass a string through raw, which
-        // meant `args` was JSON for some calls and not others, and every tool
-        // had to guess -- see Args in bridge.rs for the two bugs that caused.
-        window.splash_native.invoke(id, tool,
-          JSON.stringify(args === undefined ? null : args));
-      });
-    },
-    // Subscribe to events Rust sends with no call outstanding. The direction
-    // that did not exist before: a page can now be told things.
-    on: function (name, cb) {
-      (this._l[name] = this._l[name] || []).push(cb);
-      return this;
-    },
-    off: function (name) { delete this._l[name]; return this; },
-    _l: {},
-    _event: function (name, payload) {
-      var fns = this._l[name];
-      if (!fns) { return; }
-      for (var i = 0; i < fns.length; i++) {
-        try { fns[i](payload); } catch (e) { /* one bad listener must not stop the rest */ }
-      }
-    },
-    _resolve: function (id, payload) {
-      var p = pending[String(id)];
-      if (!p) { return; }
-      delete pending[String(id)];
-      if (payload && payload.ok) { p.res(payload.data); }
-      else { p.rej(new Error((payload && payload.error) || 'call failed')); }
-    },
-    available: function () {
-      return !!(window.splash_native && window.splash_native.invoke);
-    }
-  };
-  // Tell the host this page is really running.
-  //
-  // ArkTS otherwise has to infer it, and both available signals lie: loadData
-  // returns without throwing when it has silently rendered nothing, and
-  // onPageEnd also fires for the blank origin the slot starts on, so a failed
-  // load looks exactly like a successful one. Script executing is the only
-  // witness that cannot be wrong about it -- if this line runs, the page is
-  // there. Fire and forget; nothing waits on the reply.
-  if (window.splash_native && window.splash_native.invoke) {
-    window.splash_native.invoke('ready', 'slot.ready', '');
-  }
-})();
-"#;
+/// The shim now lives in `splash-oh-core`, so a host-side tool can print it
+/// without building this cdylib -- a dev server has to serve it too.
+pub use splash_oh_core::SHIM_JS;
 
 /// The shim wrapped in a `<script>` tag, for markup Rust generates.
 pub fn shim() -> String {

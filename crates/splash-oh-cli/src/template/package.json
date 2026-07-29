@@ -1,0 +1,13 @@
+{
+  "name": "my-splash-app",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "vite build",
+    "shim": "splash-oh shim"
+  },
+  "devDependencies": {
+    "vite": "^7.0.0"
+  }
+}
