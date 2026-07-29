@@ -101,3 +101,26 @@ permCheck('r-perm-many', ['ohos.permission.CAMERA', 'ohos.permission.MICROPHONE'
 setTimeout(function () {
   permCheck('r-perm-ok', ['ohos.permission.LOCATION'], false);
 }, 6000);
+
+// 10-12. A tool defined in a crate the bridge does not depend on.
+//
+//        splash-oh-plugin-demo depends on splash-oh-core and nothing else. It
+//        cannot see bridge.rs. If these answer, a capability was added without
+//        editing the framework -- which is the thing that separated this from
+//        a framework anyone else could build on.
+if (window.splash && window.splash.invoke) {
+  window.splash.invoke('demo.reverse', 'OpenHarmony')
+    .then(function (r) { mark('r-plugin', r === 'ynomraHnepO', String(r)); })
+    .catch(function (e) { mark('r-plugin', false, String(e)); });
+
+  window.splash.invoke('demo.sum', { a: 19, b: 23 })
+    .then(function (r) { mark('r-plugin2', Number(r) === 42, 'a+b=' + r); })
+    .catch(function (e) { mark('r-plugin2', false, String(e)); });
+
+  window.splash.invoke('plugin.list', {})
+    .then(function (r) {
+      var have = Array.isArray(r) && r.indexOf('demo.sum') >= 0 && r.indexOf('demo.reverse') >= 0;
+      mark('r-plugin-list', have, Array.isArray(r) ? r.join(', ') : String(r));
+    })
+    .catch(function (e) { mark('r-plugin-list', false, String(e)); });
+}
