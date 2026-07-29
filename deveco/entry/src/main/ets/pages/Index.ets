@@ -19,6 +19,23 @@ import { Taobao, TikTok, Wonderous } from './AppsArkTs';
 /** Start in the browser card, which is the app that exercises the web overlay.
  *  Empty string starts in the benchmark harness instead. */
 const START_APP: string = 'catalog';
+/**
+ * Milliseconds per screen for the catalog screenshot sweep, or 0 to leave the
+ * catalog interactive.
+ *
+ * Set to a non-zero value (7000 works — a snapshot plus an hdc pull takes about
+ * five seconds) and the app steps through every catalog screen on its own, so a
+ * capture script can photograph all 28 without simulating taps. That sweep is
+ * how the badge and text-picker defects were found, and it is left here so the
+ * check is repeatable rather than a thing that has to be rebuilt each time.
+ */
+const CATALOG_WALK_MS: number = 0;
+/** The sweep's order: the index, then every screen the catalog defines. */
+const CATALOG_WALK: Array<string> = ['', 'buttons', 'fab', 'checkbox', 'radio', 'switch',
+  'slider', 'progress', 'textfield', 'chips', 'cards', 'lists', 'dividers',
+  'badges', 'tabs', 'appbar', 'bottomnav', 'datepicker', 'timepicker',
+  'textpicker', 'swiper', 'grid', 'waterflow', 'refresh', 'image',
+  'typography', 'color', 'layout', 'bench'];
 /** Origin given to generated pages. Content loaded with no baseUrl gets an
  *  opaque origin in ArkWeb and never paints; it needs a real https one. */
 const WEB_BASE: string = 'https://localhost/';
@@ -577,6 +594,16 @@ struct Index {
       // .splash card rendered blank.
       splash.dslSelfTest();
       splash.appRender(START_APP);
+      // Off by default; set CATALOG_WALK_MS to re-run the screenshot sweep.
+      if (START_APP === 'catalog' && CATALOG_WALK_MS > 0) {
+        let k: number = 0;
+        setInterval(() => {
+          if (k < CATALOG_WALK.length) {
+            splash.catalogScreen(CATALOG_WALK[k]);
+            k++;
+          }
+        }, CATALOG_WALK_MS);
+      }
       this.syncWebSlots();
       // Hand Rust a direct line in. Everything below this point that Rust
       // wants to say arrives immediately instead of on the next 250 ms tick.

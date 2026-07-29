@@ -16,6 +16,7 @@ extern "C" {
     fn splash_dispose_node(n: NodeHandle);
     fn splash_add_child(parent: NodeHandle, child: NodeHandle) -> c_int;
     fn splash_set_string(n: NodeHandle, attr: c_int, s: *const c_char) -> c_int;
+    fn splash_set_i32_string(n: NodeHandle, attr: c_int, v: i32, s: *const c_char) -> c_int;
     fn splash_set_f32(n: NodeHandle, attr: c_int, v: f32) -> c_int;
     fn splash_set_i32(n: NodeHandle, attr: c_int, v: i32) -> c_int;
     fn splash_set_u32(n: NodeHandle, attr: c_int, v: u32) -> c_int;
@@ -43,6 +44,7 @@ mod raw {
         pub static splash_a_radio_checked: i32;
         pub static splash_a_toggle_value: i32;
         pub static splash_a_toggle_color: i32;
+        pub static splash_a_textpicker_range: i32;
         pub static splash_a_image_src: i32;
         pub static splash_a_image_fit: i32;
         pub static splash_a_alignment: i32;
@@ -129,6 +131,7 @@ pub mod attr {
         toggle_color => splash_a_toggle_color,
         image_src => splash_a_image_src,
         image_fit => splash_a_image_fit,
+        textpicker_range => splash_a_textpicker_range,
     }
 }
 
@@ -188,6 +191,15 @@ impl Node {
     pub fn string_attr(self, a: i32, s: &str) -> Self {
         if let Ok(c) = CString::new(s) {
             unsafe { splash_set_string(self.raw, a, c.as_ptr()) };
+        }
+        self
+    }
+
+    /// For attributes that carry a number *and* a string in the same item —
+    /// the text picker's range being the one this exists for.
+    pub fn i32_string_attr(self, a: i32, v: i32, s: &str) -> Self {
+        if let Ok(c) = CString::new(s) {
+            unsafe { splash_set_i32_string(self.raw, a, v, c.as_ptr()) };
         }
         self
     }

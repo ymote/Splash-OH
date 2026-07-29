@@ -16,8 +16,8 @@
 //! equivalent native node, and faking it would measure the fake. The static
 //! composition is built instead, and the tab is honest about that.
 
-use crate::ui::*;
 use crate::arkui::Node;
+use crate::ui::*;
 
 const APP: &str = "wonderous";
 

@@ -21,10 +21,7 @@ pub mod browser;
 pub mod files;
 pub mod native;
 
-
-
 pub mod weather_web;
-
 
 use splash_oh_native::arkui::Node;
 use std::cell::RefCell;
@@ -106,7 +103,14 @@ impl App {
             App::WeatherWeb => &["0|root", "1|root", "2|root", "3|root", "0|root", "1|root"],
             App::Files => &["0|root", "1|root", "2|root", "3|root", "4|root", "0|root"],
             App::Native => &["0|root", "0|root", "0|root", "0|root", "0|root", "0|root"],
-            App::Catalog => &["0|root", "0|buttons", "0|chips", "0|lists", "0|color", "0|root"],
+            App::Catalog => &[
+                "0|root",
+                "0|buttons",
+                "0|chips",
+                "0|lists",
+                "0|color",
+                "0|root",
+            ],
         }
     }
 }
@@ -159,7 +163,10 @@ pub fn handle(target: i32) -> bool {
                     nav.pushed = false;
                     was
                 }
-                t if (splash_oh_native::taobao::TAB_BASE..splash_oh_native::taobao::TAB_BASE + 5).contains(&t) => {
+                t if (splash_oh_native::taobao::TAB_BASE
+                    ..splash_oh_native::taobao::TAB_BASE + 5)
+                    .contains(&t) =>
+                {
                     nav.tab = (t - splash_oh_native::taobao::TAB_BASE) as usize;
                     nav.pushed = false;
                     true
@@ -177,7 +184,10 @@ pub fn handle(target: i32) -> bool {
                     nav.pushed = false;
                     was
                 }
-                t if (splash_oh_native::tiktok::TAB_BASE..splash_oh_native::tiktok::TAB_BASE + 2).contains(&t) => {
+                t if (splash_oh_native::tiktok::TAB_BASE
+                    ..splash_oh_native::tiktok::TAB_BASE + 2)
+                    .contains(&t) =>
+                {
                     nav.tab = (t - splash_oh_native::tiktok::TAB_BASE) as usize;
                     true
                 }
@@ -195,12 +205,16 @@ pub fn handle(target: i32) -> bool {
                     nav.sub = 0;
                     was
                 }
-                t if (splash_oh_native::wonderous::TAB_BASE..splash_oh_native::wonderous::TAB_BASE + 4).contains(&t) => {
+                t if (splash_oh_native::wonderous::TAB_BASE
+                    ..splash_oh_native::wonderous::TAB_BASE + 4)
+                    .contains(&t) =>
+                {
                     nav.tab = (t - splash_oh_native::wonderous::TAB_BASE) as usize;
                     true
                 }
                 t if t >= splash_oh_native::wonderous::ART_BASE => {
-                    nav.sub = (t - splash_oh_native::wonderous::ART_BASE) as usize % splash_oh_native::wonderous::WONDERS.len();
+                    nav.sub = (t - splash_oh_native::wonderous::ART_BASE) as usize
+                        % splash_oh_native::wonderous::WONDERS.len();
                     true
                 }
                 _ => false,
@@ -263,6 +277,11 @@ pub fn handle(target: i32) -> bool {
     })
 }
 
+/// Point the catalog at a screen index (0 = the index page).
+pub fn set_catalog_screen(idx: usize) {
+    NAV.with(|n| n.borrow_mut().sub = idx);
+}
+
 /// Build the current app's current screen. Returns (root, nodes, µs).
 pub fn build() -> (Option<Node>, usize, f64) {
     // Whichever thread renders is a thread that must not block on the network.
@@ -287,7 +306,10 @@ pub fn build() -> (Option<Node>, usize, f64) {
                 splash_oh_native::tiktok::build(tab, sub, pushed)
             }
         }
-        App::Wonderous => splash_oh_native::wonderous::build(tab, sub % splash_oh_native::wonderous::WONDERS.len()),
+        App::Wonderous => splash_oh_native::wonderous::build(
+            tab,
+            sub % splash_oh_native::wonderous::WONDERS.len(),
+        ),
         App::Browser => browser::build(tab),
         App::WeatherWeb => weather_web::build(tab),
         App::Files => files::build(tab),
@@ -320,7 +342,9 @@ pub fn build_route(app: App, tab: usize, route: &str) -> (usize, f64) {
     splash_oh_native::ui::reset_count();
     let t0 = Instant::now();
     let node = match app {
-        App::Taobao => splash_oh_native::taobao::build(tab, if route == "detail" { Some(0) } else { None }),
+        App::Taobao => {
+            splash_oh_native::taobao::build(tab, if route == "detail" { Some(0) } else { None })
+        }
         App::TikTok => match route {
             "sheet" => splash_oh_native::tiktok::build(tab, 0, true),
             "feed" => splash_oh_native::tiktok::build_feed(),

@@ -194,7 +194,6 @@ pub fn html_for(id: u32) -> String {
         .unwrap_or_default()
 }
 
-
 // ---------------------------------------------------------------------------
 // The two builders that make a hole in a native tree.
 //
@@ -230,4 +229,3 @@ pub fn web_html(html: String, x: f32, y: f32, w: f32, h: f32) -> Option<Node> {
     self::declare_html(with_shim, x, y, w, h);
     col(w, h, 0x00000000)
 }
-

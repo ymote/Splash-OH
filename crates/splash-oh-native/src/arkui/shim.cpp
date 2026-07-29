@@ -71,6 +71,23 @@ int splash_set_string(ArkUI_NodeHandle n, int attr, const char *s) {
     return g_api->setAttribute(n, (ArkUI_NodeAttributeType)attr, &item);
 }
 
+// A few attributes are not string-only or number-only but both at once. The
+// text picker's range is the example: `.string` carries the items and
+// `.value[0].i32` says how to read them. Setting only the string leaves the
+// item count at zero, and the picker then draws its rows empty -- which is
+// exactly what the catalog's Text picker screen did.
+int splash_set_i32_string(ArkUI_NodeHandle n, int attr, int v, const char *s) {
+    if (!g_api || !n) return -1;
+    ArkUI_NumberValue nv[1];
+    nv[0].i32 = v;
+    ArkUI_AttributeItem item;
+    std::memset(&item, 0, sizeof(item));
+    item.value = nv;
+    item.size = 1;
+    item.string = s;
+    return g_api->setAttribute(n, (ArkUI_NodeAttributeType)attr, &item);
+}
+
 int splash_set_f32(ArkUI_NodeHandle n, int attr, float v) {
     if (!g_api || !n) return -1;
     ArkUI_NumberValue nv[1];
@@ -275,6 +292,7 @@ SPLASH_CONST(splash_a_checkbox_color,    NODE_CHECKBOX_SELECT_COLOR)
 SPLASH_CONST(splash_a_radio_checked,     NODE_RADIO_CHECKED)
 SPLASH_CONST(splash_a_toggle_value,      NODE_TOGGLE_VALUE)
 SPLASH_CONST(splash_a_toggle_color,      NODE_TOGGLE_SELECTED_COLOR)
+SPLASH_CONST(splash_a_textpicker_range,  NODE_TEXT_PICKER_OPTION_RANGE)
 
 SPLASH_CONST(splash_t_text,     ARKUI_NODE_TEXT)
 SPLASH_CONST(splash_t_image,    ARKUI_NODE_IMAGE)

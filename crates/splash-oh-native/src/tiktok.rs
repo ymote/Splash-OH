@@ -19,8 +19,8 @@
 //! `ReelActions` in the reference app is a column of four buttons, each a
 //! `View` wrapping a `Button` and a `Label`, so three nodes per action.
 
-use crate::ui::*;
 use crate::arkui::Node;
+use crate::ui::*;
 
 const APP: &str = "tiktok";
 
