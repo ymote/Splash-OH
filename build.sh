@@ -9,6 +9,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
+export SPLASH_FRONTEND_DIR="${SPLASH_FRONTEND_DIR:-}"
 source ~/ohos-sdk/env-deveco.sh >/dev/null 2>&1
 export OHOS_SDK_NATIVE="$OHOS_BASE_SDK_HOME/21/native"
 export DEVECO_SDK_HOME="$DEVECO_HOME/sdk"
