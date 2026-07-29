@@ -19,6 +19,18 @@ dist = "dist"
 # Where a live-reload build looks instead. Overridden by SPLASH_DEV_SERVER.
 dev-server = "http://localhost:5173"
 
+[signing]
+# Material from AppGallery Connect. A release build needs all three, and the
+# profile is issued for one bundle id -- `splash-oh apply` checks that it
+# matches the one above, because a mismatch fails at install with an opaque
+# code rather than saying which id it wanted.
+#
+# p12     = "~/.ohos/config/release.p12"
+# cert    = "~/.ohos/config/release.cer"
+# profile = "~/.ohos/config/release.p7b"
+# alias   = "releaseKey"
+# Password comes from SPLASH_SIGN_PWD in the environment, never from this file.
+
 [permissions]
 # Permissions the app declares. A page can only ever request from this set, and
 # only the user_grant ones are requestable at runtime at all.

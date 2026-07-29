@@ -21,6 +21,7 @@ fn main() {
         "shim" => shim(rest),
         "new" => new_project(rest),
         "dev" => dev(rest),
+        "apply" => apply(rest),
         "help" | "--help" | "-h" => {
             usage();
             0
@@ -42,6 +43,7 @@ splash-oh — tooling for a Splash-OH app
   splash-oh new <dir>        create a project: a frontend, a plugin crate, a config
   splash-oh shim [path]      write the bridge shim (default: public/__splash.js)
   splash-oh dev              open the USB tunnel for a live-reload loop
+  splash-oh apply            write splash.toml into the app shell (name, id, version, icon)
 
 A frontend must load the shim before it can call native code:
 
@@ -300,4 +302,308 @@ fn scaffold(root: &Path) -> std::io::Result<()> {
         ),
     )?;
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// splash.toml -> the app shell
+// ---------------------------------------------------------------------------
+
+#[derive(serde::Deserialize, Default)]
+struct Config {
+    #[serde(default)]
+    app: AppConfig,
+    #[serde(default)]
+    signing: SigningConfig,
+    #[serde(default)]
+    permissions: PermissionConfig,
+}
+
+#[derive(serde::Deserialize, Default)]
+struct AppConfig {
+    name: Option<String>,
+    #[serde(rename = "bundle-id")]
+    bundle_id: Option<String>,
+    version: Option<String>,
+    #[serde(rename = "version-code")]
+    version_code: Option<u64>,
+    icon: Option<String>,
+}
+
+#[derive(serde::Deserialize, Default)]
+struct SigningConfig {
+    profile: Option<String>,
+}
+
+#[derive(serde::Deserialize, Default)]
+struct PermissionConfig {
+    #[serde(default)]
+    declare: Vec<String>,
+}
+
+/// Write this project's identity into the app shell.
+///
+/// The shell ships as the demo — `com.example.myapplication`, "entry", the
+/// stock icon — and until this runs, so does anything built with it. That is
+/// not cosmetic once AGC is involved: a provisioning profile is issued for one
+/// bundle id, and a build whose id does not match it fails at install with a
+/// numeric code that names neither id.
+fn apply(args: &[String]) -> i32 {
+    let shell = args
+        .iter()
+        .find_map(|a| a.strip_prefix("--shell="))
+        .map(PathBuf::from)
+        .or_else(|| std::env::var("SPLASH_OH").ok().map(PathBuf::from))
+        .unwrap_or_else(|| PathBuf::from("../Splash-OH"));
+
+    let cfg_path = args
+        .iter()
+        .find_map(|a| a.strip_prefix("--config="))
+        .unwrap_or("splash.toml");
+
+    let text = match std::fs::read_to_string(cfg_path) {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("splash-oh: cannot read {cfg_path}: {e}");
+            return 1;
+        }
+    };
+    let cfg: Config = match toml::from_str(&text) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("splash-oh: {cfg_path} is not valid: {e}");
+            return 1;
+        }
+    };
+
+    let Some(bundle_id) = cfg.app.bundle_id.clone() else {
+        eprintln!("splash-oh: {cfg_path} has no app.bundle-id");
+        return 1;
+    };
+
+    // Before anything is written. A profile that does not match is the failure
+    // people lose an afternoon to, and it is cheap to catch here.
+    if let Some(profile) = cfg.signing.profile.as_deref() {
+        match profile_bundle_id(&expand(profile)) {
+            Ok(Some(want)) if want != bundle_id => {
+                eprintln!(
+                    "splash-oh: the provisioning profile is issued for {want:?}, \
+                     but {cfg_path} says {bundle_id:?}.\n\
+                     \x20          Change app.bundle-id to match, or get a profile for this id \
+                     in AppGallery Connect."
+                );
+                return 1;
+            }
+            Ok(Some(_)) => println!("profile matches bundle id {bundle_id}"),
+            Ok(None) => eprintln!("splash-oh: warning: no bundle id found in {profile}"),
+            Err(e) => {
+                eprintln!("splash-oh: cannot read {profile}: {e}");
+                return 1;
+            }
+        }
+    }
+
+    let app_json = shell.join("deveco/AppScope/app.json5");
+    let strings = shell.join("deveco/AppScope/resources/base/element/string.json");
+    let module_json = shell.join("deveco/entry/src/main/module.json5");
+    if !app_json.exists() {
+        eprintln!(
+            "splash-oh: no app shell at {} — set SPLASH_OH or pass --shell=",
+            shell.display()
+        );
+        return 1;
+    }
+
+    // Edited in place with targeted replacements rather than reparsed and
+    // rewritten: these are JSON5 with comments that explain hard-won details,
+    // and a round trip through a JSON writer would delete every one of them.
+    if let Err(e) = edit(&app_json, |s| {
+        let mut s = set_json_string(s, "bundleName", &bundle_id);
+        if let Some(v) = &cfg.app.version {
+            s = set_json_string(&s, "versionName", v);
+        }
+        if let Some(c) = cfg.app.version_code {
+            s = set_json_number(&s, "versionCode", c);
+        }
+        s
+    }) {
+        eprintln!("splash-oh: {e}");
+        return 1;
+    }
+
+    if let Some(name) = &cfg.app.name {
+        // Two labels, not one, and they show up in different places. app_name
+        // is what Settings and the app list use; EntryAbility_label is the
+        // caption under the launcher icon. Setting only the first leaves the
+        // icon reading "label", which is the stock value and looks like a bug
+        // in your app rather than an unset field.
+        if let Err(e) = edit(&strings, |s| set_named_string(s, "app_name", name)) {
+            eprintln!("splash-oh: {e}");
+            return 1;
+        }
+        let ability = shell.join("deveco/entry/src/main/resources/base/element/string.json");
+        if ability.exists() {
+            if let Err(e) = edit(&ability, |s| {
+                set_named_string(s, "EntryAbility_label", name)
+            }) {
+                eprintln!("splash-oh: {e}");
+                return 1;
+            }
+        }
+    }
+
+    if !cfg.permissions.declare.is_empty() && module_json.exists() {
+        match edit(&module_json, |s| {
+            set_permissions(s, &cfg.permissions.declare)
+        }) {
+            Ok(()) => println!("declared {} permission(s)", cfg.permissions.declare.len()),
+            Err(e) => {
+                eprintln!("splash-oh: {e}");
+                return 1;
+            }
+        }
+    }
+
+    if let Some(icon) = &cfg.app.icon {
+        let src = PathBuf::from(expand(icon));
+        let dest = shell.join("deveco/AppScope/resources/base/media/app_icon.png");
+        if src.exists() {
+            match std::fs::copy(&src, &dest) {
+                Ok(_) => println!("icon from {}", src.display()),
+                Err(e) => eprintln!("splash-oh: warning: could not copy the icon: {e}"),
+            }
+        } else {
+            eprintln!("splash-oh: warning: no icon at {}", src.display());
+        }
+    }
+
+    println!(
+        "applied: {} ({}){}",
+        cfg.app.name.as_deref().unwrap_or("unnamed"),
+        bundle_id,
+        cfg.app
+            .version
+            .as_deref()
+            .map(|v| format!(" v{v}"))
+            .unwrap_or_default()
+    );
+    0
+}
+
+fn expand(p: &str) -> String {
+    match p.strip_prefix("~/") {
+        Some(rest) => match std::env::var("HOME") {
+            Ok(h) => format!("{h}/{rest}"),
+            Err(_) => p.to_string(),
+        },
+        None => p.to_string(),
+    }
+}
+
+fn edit(path: &Path, f: impl FnOnce(&str) -> String) -> Result<(), String> {
+    let s = std::fs::read_to_string(path)
+        .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+    let out = f(&s);
+    std::fs::write(path, out).map_err(|e| format!("cannot write {}: {e}", path.display()))
+}
+
+/// Set the `value` of the `{name, value}` entry called `name`.
+///
+/// Positional replacement would not do: a resource file is a list of pairs that
+/// all use the same two keys, so "the first value" is whichever entry happens to
+/// be first in the file.
+fn set_named_string(src: &str, name: &str, value: &str) -> String {
+    let needle = format!("\"name\": \"{name}\"");
+    let Some(at) = src.find(&needle) else {
+        return src.to_string();
+    };
+    let rest = &src[at..];
+    let Some(voff) = rest.find("\"value\"") else {
+        return src.to_string();
+    };
+    let head = &src[..at];
+    let tail = replace_value(&src[at..], "value", &format!("\"{value}\""));
+    let _ = voff;
+    format!("{head}{tail}")
+}
+
+/// Replace the value of `"key": "..."`, leaving everything else byte for byte.
+fn set_json_string(src: &str, key: &str, value: &str) -> String {
+    replace_value(src, key, &format!("\"{value}\""))
+}
+
+fn set_json_number(src: &str, key: &str, value: u64) -> String {
+    replace_value(src, key, &value.to_string())
+}
+
+fn replace_value(src: &str, key: &str, literal: &str) -> String {
+    let needle = format!("\"{key}\"");
+    let Some(k) = src.find(&needle) else {
+        return src.to_string();
+    };
+    let after = k + needle.len();
+    let Some(colon) = src[after..].find(':') else {
+        return src.to_string();
+    };
+    let vstart = after + colon + 1;
+    // To the end of the value: a comma or the closing brace, whichever is first.
+    let vend = src[vstart..]
+        .find([',', '\n'])
+        .map(|i| vstart + i)
+        .unwrap_or(src.len());
+    format!(
+        "{}{}{}",
+        &src[..vstart],
+        format_args!(" {literal}"),
+        &src[vend..]
+    )
+}
+
+/// Rewrite the requestPermissions array, keeping the surrounding comments.
+fn set_permissions(src: &str, names: &[String]) -> String {
+    let Some(start) = src.find("\"requestPermissions\"") else {
+        return src.to_string();
+    };
+    let Some(open) = src[start..].find('[').map(|i| start + i) else {
+        return src.to_string();
+    };
+    let mut depth = 0usize;
+    let mut close = open;
+    for (i, c) in src[open..].char_indices() {
+        match c {
+            '[' => depth += 1,
+            ']' => {
+                depth -= 1;
+                if depth == 0 {
+                    close = open + i;
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    let body: Vec<String> = names
+        .iter()
+        .map(|n| format!("      {{\n        \"name\": \"{n}\"\n      }}"))
+        .collect();
+    format!(
+        "{}[\n{}\n    ]{}",
+        &src[..open],
+        body.join(",\n"),
+        &src[close + 1..]
+    )
+}
+
+/// The bundle id a provisioning profile is issued for.
+///
+/// The .p7b is PKCS#7 with a JSON payload; the field is found by scanning
+/// rather than by parsing ASN.1, which is enough to compare two strings and
+/// keeps this from needing a crypto dependency to answer one question.
+fn profile_bundle_id(path: &str) -> std::io::Result<Option<String>> {
+    let raw = std::fs::read(path)?;
+    let text = String::from_utf8_lossy(&raw);
+    let key = "\"bundle-name\":\"";
+    Ok(text.find(key).and_then(|i| {
+        let rest = &text[i + key.len()..];
+        rest.find('"').map(|j| rest[..j].to_string())
+    }))
 }
