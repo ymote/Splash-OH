@@ -327,12 +327,11 @@ pub fn build() -> (Option<Node>, usize, f64) {
         App::Native => native::build(),
         App::Frontend => frontend::build(),
         App::Catalog => {
-            let screen = if sub == 0 {
-                ""
-            } else {
-                splash_oh_native::dsl::CATALOG_SCREENS[sub - 1]
-            };
-            splash_oh_native::dsl::build_screen(screen, None)
+            // The flutter/samples kit, not the Material catalog: the same
+            // `.splash` the makepad backend renders, walked into ArkUI. Taps
+            // from here re-enter through `app::rebuild`, which keeps the route.
+            let _ = sub;
+            splash_oh_native::dsl::build_flutter("index", false)
         }
         App::WeChat => unreachable!(),
     };
@@ -382,9 +381,9 @@ pub fn build_route(app: App, tab: usize, route: &str) -> (usize, f64) {
         App::Frontend => frontend::build(),
         App::Catalog => {
             // The tour names screens directly ("0|chips"), so "root" is the
-            // index and anything else is the screen id verbatim.
-            let screen = if route == "root" { "" } else { route };
-            splash_oh_native::dsl::build_screen(screen, None)
+            // index and anything else is the route verbatim.
+            let screen = if route == "root" { "index" } else { route };
+            splash_oh_native::dsl::build_flutter(screen, false)
         }
         App::WeChat => unreachable!(),
     };

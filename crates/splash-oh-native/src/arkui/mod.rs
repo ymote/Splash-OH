@@ -59,6 +59,21 @@ mod raw {
         pub static splash_a_progress_value: i32;
         pub static splash_a_progress_total: i32;
         pub static splash_a_input_placeholder: i32;
+        pub static splash_a_width_percent: i32;
+        pub static splash_a_height_percent: i32;
+        pub static splash_a_font_family: i32;
+        pub static splash_a_row_align: i32;
+        pub static splash_a_row_justify: i32;
+        pub static splash_a_col_align: i32;
+        pub static splash_a_col_justify: i32;
+        pub static splash_a_shadow: i32;
+        pub static splash_a_layout_weight: i32;
+        pub static splash_a_slider_value: i32;
+        pub static splash_a_slider_min: i32;
+        pub static splash_a_slider_max: i32;
+        pub static splash_a_checkbox_shape: i32;
+        pub static splash_a_loading_color: i32;
+        pub static splash_a_progress_color: i32;
 
         pub static splash_t_text: i32;
         pub static splash_t_image: i32;
@@ -132,6 +147,21 @@ pub mod attr {
         image_src => splash_a_image_src,
         image_fit => splash_a_image_fit,
         textpicker_range => splash_a_textpicker_range,
+        width_percent => splash_a_width_percent,
+        height_percent => splash_a_height_percent,
+        font_family => splash_a_font_family,
+        row_align => splash_a_row_align,
+        row_justify => splash_a_row_justify,
+        col_align => splash_a_col_align,
+        col_justify => splash_a_col_justify,
+        shadow => splash_a_shadow,
+        layout_weight => splash_a_layout_weight,
+        slider_value => splash_a_slider_value,
+        slider_min => splash_a_slider_min,
+        slider_max => splash_a_slider_max,
+        checkbox_shape => splash_a_checkbox_shape,
+        loading_color => splash_a_loading_color,
+        progress_color => splash_a_progress_color,
     }
 }
 

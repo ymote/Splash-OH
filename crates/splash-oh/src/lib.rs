@@ -461,18 +461,57 @@ pub fn app_render(app: String) -> Vec<f64> {
 /// An unknown name lands on the index rather than failing — the caller is a
 /// capture script, and a silent no-op there would be harder to spot than a
 /// screen that visibly is not the one asked for.
+/// Handle the system back gesture: pop one level of the route.
+///
+/// The kit's routes are hierarchical strings — `cupertino_gallery/button` sits
+/// under `cupertino_gallery`, which sits under the index — so "back" is just
+/// dropping the last segment. Returns false at the index so the platform does
+/// its own thing (leaving the app), which is what a back gesture should do
+/// there.
+///
+/// Without this, ArkTS never implemented `onBackPress`, so the system back
+/// gesture closed the app from any screen rather than navigating.
+#[napi(js_name = "goBack")]
+pub fn go_back() -> bool {
+    let screen = app::current_screen();
+    let cur = if screen.is_empty() { "index" } else { screen.as_str() };
+    if cur == "index" {
+        return false;
+    }
+    let parent = match cur.rfind('/') {
+        Some(i) => cur[..i].to_string(),
+        None => "index".to_string(),
+    };
+    app::set_screen_quiet(parent.clone());
+    let node = splash_oh_native::dsl::build_flutter(&parent, false);
+    app::set_root(node);
+    true
+}
+
+/// One animation frame: re-mount only if the current screen animates.
+///
+/// ArkTS calls this on a short interval. It is a no-op on every static screen,
+/// which is all of them but the animation demos.
+#[napi(js_name = "animTick")]
+pub fn anim_tick() -> bool {
+    if !app::is_animating() {
+        return false;
+    }
+    app::rebuild();
+    true
+}
+
 #[napi(js_name = "catalogScreen")]
 pub fn catalog_screen(name: String) -> u32 {
     apps::set_app(apps::App::Catalog);
     app::set_wechat_active(true);
-    // +1 because index 0 is the index page and screen 0 is the first entry.
-    let idx = splash_oh_native::dsl::CATALOG_SCREENS
-        .iter()
-        .position(|s| *s == name)
-        .map(|i| i + 1)
-        .unwrap_or(0);
-    apps::set_catalog_screen(idx);
-    let (node, n, _) = apps::build();
+    // The flutter kit routes by *string*, so the name passes straight through
+    // rather than being looked up in CATALOG_SCREENS. Empty means the index.
+    let route = if name.is_empty() { "index" } else { name.as_str() };
+    // Record it, or the animation tick cannot tell what is on screen.
+    app::set_screen_quiet(route.to_string());
+    let node = splash_oh_native::dsl::build_flutter(route, false);
+    let n = splash_oh_native::ui::count();
     app::set_root(node);
     n as u32
 }

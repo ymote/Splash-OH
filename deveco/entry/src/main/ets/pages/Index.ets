@@ -20,7 +20,7 @@ import { Taobao, TikTok, Wonderous } from './AppsArkTs';
  */
 /** Start in the browser card, which is the app that exercises the web overlay.
  *  Empty string starts in the benchmark harness instead. */
-const START_APP: string = 'frontend';
+const START_APP: string = 'catalog';
 /**
  * Milliseconds per screen for the catalog screenshot sweep, or 0 to leave the
  * catalog interactive.
@@ -33,11 +33,7 @@ const START_APP: string = 'frontend';
  */
 const CATALOG_WALK_MS: number = 0;
 /** The sweep's order: the index, then every screen the catalog defines. */
-const CATALOG_WALK: Array<string> = ['', 'buttons', 'fab', 'checkbox', 'radio', 'switch',
-  'slider', 'progress', 'textfield', 'chips', 'cards', 'lists', 'dividers',
-  'badges', 'tabs', 'appbar', 'bottomnav', 'datepicker', 'timepicker',
-  'textpicker', 'swiper', 'grid', 'waterflow', 'refresh', 'image',
-  'typography', 'color', 'layout', 'bench'];
+const CATALOG_WALK: Array<string> = ['index', 'animations/tween_sequence'];
 /** Origin given to generated pages. Content loaded with no baseUrl gets an
  *  opaque origin in ArkWeb and never paints; it needs a real https one. */
 /**
@@ -152,6 +148,16 @@ class SplashNativeBridge {
 @Component
 struct Index {
   private content: NodeContent = new NodeContent();
+
+  /**
+   * System back gesture: pop one level of the kit's route instead of leaving
+   * the app. Returning false at the index lets the platform close it, which is
+   * what a back gesture should do there.
+   */
+  onBackPress(): boolean {
+    return splash.goBack() as boolean;
+  }
+
   private wc: WeChatArkTs | null = null;
   private load: LoadGenerator = new LoadGenerator();
   private useRust: boolean = true;
@@ -689,6 +695,11 @@ struct Index {
 
   aboutToAppear(): void {
     splash.mount(this.content);
+    // Animation frames. The DSL evaluates a tree once per mount, so a screen can
+    // only move if it is re-mounted against a changing clock; `animTick` does
+    // exactly that and returns false (doing nothing) on every static screen, so
+    // this costs nothing anywhere but the animation demos.
+    setInterval(() => { splash.animTick(); }, 33);
     if (START_APP !== '') {
       // Prove the VM works on this build. The ported apps build in Rust and
       // never evaluate a script, so a broken VM would stay hidden until a

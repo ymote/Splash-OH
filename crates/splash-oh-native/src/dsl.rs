@@ -92,6 +92,70 @@ fn display_lines(s: &str, per_line: usize) -> usize {
         .max(1)
 }
 
+/// The flutter/samples kit, rendered to native ArkUI.
+///
+/// Same `.splash` source the makepad backend renders — vendored from
+/// Splash-Makepad's `components/flutter/` by its `assemble` example. That the
+/// identical kit drives two unrelated native toolkits is the whole point of the
+/// UiNode split; this is the ArkUI half of it.
+///
+/// `route` picks the screen, `dark` the palette, exactly as the makepad host
+/// injects them.
+pub fn build_flutter(route: &str, dark: bool) -> Option<Node> {
+    const KIT: &str = include_str!("../assets/flutter.splash");
+    FLUTTER_ROUTES.with(|r| r.borrow_mut().clear());
+    let src = format!(
+        "let st = {{ route: {route:?}, dark: {}, t: {} }}\n{KIT}",
+        u8::from(dark),
+        elapsed_secs()
+    );
+    build(&src)
+}
+
+/// Tap ids for the flutter kit start here. The kit names its targets with
+/// route *strings* (`tapto: "date_planner/maya"`), but ArkUI events carry an
+/// i32, so the walk interns each route as it meets it and hands back an index.
+pub const FLUTTER_NAV_BASE: i32 = 2000;
+
+/// Seconds since the first mount, handed to the kit as `st.t`.
+///
+/// The DSL evaluates a tree once per mount and has no tween or controller, so
+/// the only thing that can make a screen move is re-mounting it against a
+/// changing clock. `anim_tick()` drives that from ArkTS.
+fn elapsed_secs() -> f64 {
+    use std::sync::OnceLock;
+    use std::time::Instant;
+    static START: OnceLock<Instant> = OnceLock::new();
+    START.get_or_init(Instant::now).elapsed().as_secs_f64()
+}
+
+thread_local! {
+    static FLUTTER_ROUTES: std::cell::RefCell<Vec<String>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Intern a route string, returning the tap id that stands for it.
+fn intern_route(route: &str) -> i32 {
+    FLUTTER_ROUTES.with(|r| {
+        let mut v = r.borrow_mut();
+        match v.iter().position(|s| s == route) {
+            Some(i) => FLUTTER_NAV_BASE + i as i32,
+            None => {
+                v.push(route.to_string());
+                FLUTTER_NAV_BASE + (v.len() - 1) as i32
+            }
+        }
+    })
+}
+
+/// The route a tap id stands for, or `None` if it is not one of ours.
+pub fn flutter_route(id: i32) -> Option<String> {
+    if id < FLUTTER_NAV_BASE {
+        return None;
+    }
+    FLUTTER_ROUTES.with(|r| r.borrow().get((id - FLUTTER_NAV_BASE) as usize).cloned())
+}
+
 /// Evaluate the LLM-generated weather card (`assets/weather.splash`) → native
 /// ArkUI tree. Self-contained (data inlined), so it needs no bound host vars.
 pub fn build_weather() -> Option<Node> {
@@ -148,7 +212,7 @@ pub fn build(src: &str) -> Option<Node> {
         }
         return None;
     }
-    walk(vm, value, 0)
+    walk(vm, value, 0, "")
 }
 
 /// Expose the network capability to the DSL as injected global functions, so
@@ -230,7 +294,7 @@ where
 }
 
 /// One DSL object → one ArkUI node, recursing into `c`.
-fn walk(vm: &mut ScriptVm, value: ScriptValue, depth: usize) -> Option<Node> {
+fn walk(vm: &mut ScriptVm, value: ScriptValue, depth: usize, parent: &str) -> Option<Node> {
     // A malformed script should not be able to blow the native stack.
     if depth > 32 {
         return None;
@@ -316,7 +380,16 @@ fn walk(vm: &mut ScriptVm, value: ScriptValue, depth: usize) -> Option<Node> {
         node = node.font_color(v as u32);
     }
     if let Some(v) = num_prop(vm, value, id!(bg)) {
-        node = node.bg(v as u32);
+        // On a progress indicator `bg` means the *indicator* colour, not a
+        // background fill. The makepad backend already reads it that way (it
+        // recolours the arc); ArkUI painted a solid box behind the spinner
+        // instead, so Flutter's CircularProgressIndicator — an arc on nothing —
+        // came out as a filled purple square.
+        match tag.as_str() {
+            "loading" => node = node.u32_attr(attr::loading_color(), v as u32),
+            "progress" => node = node.u32_attr(attr::progress_color(), v as u32),
+            _ => node = node.bg(v as u32),
+        }
     }
     if let Some(v) = num_prop(vm, value, id!(radius)) {
         node = node.radius(v as f32);
@@ -333,11 +406,31 @@ fn walk(vm: &mut ScriptVm, value: ScriptValue, depth: usize) -> Option<Node> {
     if let Some(v) = num_prop(vm, value, id!(bordercolor)) {
         node = node.u32_attr(attr::border_color(), v as u32);
     }
-    if let Some(v) = num_prop(vm, value, id!(value)) {
-        node = node.f32_attr(attr::progress_value(), v as f32);
-    }
-    if let Some(v) = num_prop(vm, value, id!(total)) {
-        node = node.f32_attr(attr::progress_total(), v as f32);
+    // `value`/`total` mean different attributes on different controls. Setting
+    // NODE_PROGRESS_VALUE on an ARKUI_NODE_SLIDER — which is what this used to
+    // do for every node — is simply the wrong attribute, so a slider declared at
+    // 0.35 sat wherever ArkUI left it while the caption beside it said 0.35.
+    let val = num_prop(vm, value, id!(value));
+    let total = num_prop(vm, value, id!(total));
+    match tag.as_str() {
+        "slider" => {
+            if let Some(v) = val {
+                // The kit expresses slider positions as a 0..1 fraction; ArkUI
+                // defaults a slider to 0..100, so pin the range too.
+                node = node
+                    .f32_attr(attr::slider_min(), 0.0)
+                    .f32_attr(attr::slider_max(), total.unwrap_or(1.0) as f32)
+                    .f32_attr(attr::slider_value(), v as f32);
+            }
+        }
+        _ => {
+            if let Some(v) = val {
+                node = node.f32_attr(attr::progress_value(), v as f32);
+            }
+            if let Some(v) = total {
+                node = node.f32_attr(attr::progress_total(), v as f32);
+            }
+        }
     }
     // `align: n` is ArkUI_Alignment. A Scroll whose content is shorter than its
     // own height centres it by default, which drops the page half way down the
@@ -355,7 +448,12 @@ fn walk(vm: &mut ScriptVm, value: ScriptValue, depth: usize) -> Option<Node> {
             "checkbox" => {
                 node = node
                     .i32_attr(attr::checkbox_select(), on)
-                    .u32_attr(attr::checkbox_color(), 0xFF6750A4);
+                    .u32_attr(attr::checkbox_color(), 0xFF6750A4)
+                    // ArkUI draws a checkbox as a CIRCLE by default, which reads
+                    // as a radio button. Material's is a rounded square —
+                    // `_kEdgeSize` 18 with a RoundedRectangleBorder
+                    // (material/checkbox.dart:650). 1 is ROUNDED_SQUARE.
+                    .i32_attr(attr::checkbox_shape(), 1);
             }
             "radio" => node = node.i32_attr(attr::radio_checked(), on),
             "toggle" => {
@@ -371,18 +469,160 @@ fn walk(vm: &mut ScriptVm, value: ScriptValue, depth: usize) -> Option<Node> {
     if let Some(v) = num_prop(vm, value, id!(tap)) {
         node = node.on_event(event::click(), v as i32);
     }
+    // `tapto: "<route>"` is the flutter kit's form of the same thing: a route
+    // string rather than a number. Intern it and wire the resulting id.
+    if let Some(route) = string_prop(vm, value, id!(tapto)) {
+        node = node.on_event(event::click(), intern_route(&route));
+    }
+
+    // ---- the flutter kit's layout vocabulary -----------------------------
+    // These have no ArkUI spelling of their own; they are makepad's Fill/Fit
+    // and per-axis padding, mapped onto percent sizing and the 4-value padding
+    // ArkUI does understand.
+    // Which ArkUI concept "fill" is depends on the parent's axis. Along the
+    // main axis it is flex growth (`layoutWeight`); across it, a full-width or
+    // full-height percentage. Mapping both to a 100% size made every child of a
+    // row demand the whole row, so the second stat tile vanished off the edge.
+    let in_row = parent == "row";
+    if num_prop(vm, value, id!(fillw)).unwrap_or(0.0) as i32 == 1 {
+        if in_row {
+            node = node.f32_attr(attr::layout_weight(), 1.0);
+        } else {
+            node = node.f32_attr(attr::width_percent(), 1.0);
+        }
+    }
+    if num_prop(vm, value, id!(fillh)).unwrap_or(0.0) as i32 == 1 {
+        if in_row {
+            node = node.f32_attr(attr::height_percent(), 1.0);
+        } else {
+            node = node.f32_attr(attr::layout_weight(), 1.0);
+        }
+    }
+    // `padx`/`pady` override `pad` on their axis. ArkUI's padding vector is
+    // top, right, bottom, left.
+    let padx = num_prop(vm, value, id!(padx));
+    let pady = num_prop(vm, value, id!(pady));
+    if padx.is_some() || pady.is_some() {
+        let base = num_prop(vm, value, id!(pad)).unwrap_or(0.0) as f32;
+        let px = padx.map(|v| v as f32).unwrap_or(base);
+        let py = pady.map(|v| v as f32).unwrap_or(base);
+        node = node.f32v_attr(attr::padding(), &[py, px, py, px]);
+    }
+    // `elevation` is a Material dp; ArkUI's shadow takes (radius, offsetX,
+    // offsetY, ...) so scale it the way the makepad backend does.
+    if let Some(e) = num_prop(vm, value, id!(elevation)) {
+        let e = e as f32;
+        node = node.f32v_attr(attr::shadow(), &[3.0 + e * 2.0, 0.0, 1.0 + e * 0.6, 0.0]);
+    }
+    // `icon: 1` marks a Font-Awesome glyph. That face ships with the makepad
+    // theme; OpenHarmony has no such font, and FA's codepoints sit in the
+    // Private Use Area, so pointing font-family at a font that is not there
+    // rendered every icon as nothing at all — invisible chevrons, empty FABs.
+    // Substituting the nearest glyph that HarmonyOS Sans actually has is the
+    // honest fallback: the icon is approximate, but it is visible.
+    if num_prop(vm, value, id!(icon)).unwrap_or(0.0) as i32 == 1 {
+        if let Some(cp) = string_prop(vm, value, id!(text)) {
+            node = node.text(icon_fallback(&cp));
+        }
+    }
+    // `alignx`/`aligny` in 0..=1. For a row the main axis is horizontal, for a
+    // column vertical, so which of justify/align-items each drives flips.
+    let alignx = num_prop(vm, value, id!(alignx)).map(|v| v as f32);
+    let aligny = num_prop(vm, value, id!(aligny)).map(|v| v as f32);
+    let bucket = |v: f32| if v < 0.34 { 0 } else if v < 0.67 { 1 } else { 2 };
+    match tag.as_str() {
+        "row" => {
+            if let Some(x) = alignx {
+                node = node.i32_attr(attr::row_justify(), bucket(x) + 1);
+            }
+            if let Some(y) = aligny {
+                node = node.i32_attr(attr::row_align(), bucket(y));
+            }
+        }
+        "column" | "scroll" | "list" => {
+            if let Some(y) = aligny {
+                node = node.i32_attr(attr::col_justify(), bucket(y) + 1);
+            }
+            // ArkUI's Column centres its children; Flutter's CrossAxisAlignment
+            // defaults to start, and so does makepad. Without this every screen
+            // came out centre-aligned.
+            node = node.i32_attr(attr::col_align(), alignx.map(bucket).unwrap_or(0));
+        }
+        _ => {}
+    }
 
     // --- children ---------------------------------------------------------
     // `c` is a ScriptArray, NOT an object with a vec — arrays are their own
     // heap type in this VM, so `as_object()` on one yields None and the whole
     // subtree silently disappears.
-    for kid in children_of(vm, value) {
-        if let Some(child) = walk(vm, kid, depth + 1) {
-            node = node.child(child);
+    // `spacing` has no ArkUI attribute — Column/Row take their gap at creation
+    // time, which the node API does not expose. Applying it as a trailing
+    // margin on every child but the last is the same picture.
+    let spacing = num_prop(vm, value, id!(spacing)).unwrap_or(0.0) as f32;
+    let kids = children_of(vm, value);
+    // ArkUI's Scroll takes exactly ONE child; everything after the first is
+    // dropped on the floor. The DSL (and Flutter, and makepad) all let a
+    // scrolling area hold a list of things, so give it the Column it needs.
+    // Without this the index rendered its header and nothing else.
+    let scroll_wrap = tag == "scroll" && kids.len() > 1;
+    let axis = if scroll_wrap { "column" } else { tag.as_str() };
+    let last = kids.len().saturating_sub(1);
+    let mut built = Vec::new();
+    for (i, kid) in kids.into_iter().enumerate() {
+        if let Some(mut child) = walk(vm, kid, depth + 1, axis) {
+            if spacing > 0.0 && i < last {
+                child = match axis {
+                    "row" => child.f32v_attr(attr::margin(), &[0.0, spacing, 0.0, 0.0]),
+                    _ => child.f32v_attr(attr::margin(), &[0.0, 0.0, spacing, 0.0]),
+                };
+            }
+            built.push(child);
+        }
+    }
+    if scroll_wrap {
+        let mut inner = Node::new(ty::column())?
+            .f32_attr(attr::width_percent(), 1.0)
+            .i32_attr(attr::col_align(), 0);
+        for c in built {
+            inner = inner.child(c);
+        }
+        node = node.child(inner);
+    } else {
+        for c in built {
+            node = node.child(c);
         }
     }
 
     Some(node)
+}
+
+/// Nearest system-font glyph for a Font-Awesome codepoint.
+///
+/// Only the icons the flutter kit actually uses. Anything unmapped falls back
+/// to a middle dot rather than the invisible PUA codepoint, so a missing entry
+/// shows up as a visible placeholder instead of a hole.
+fn icon_fallback(fa: &str) -> &'static str {
+    match fa.chars().next().map(|c| c as u32) {
+        Some(0xf053) => "\u{2039}", // chevron-left
+        Some(0xf054) => "\u{203A}", // chevron-right
+        Some(0xf067) => "+",         // plus
+        Some(0xf00c) => "\u{2713}", // check
+        Some(0xf05e) => "\u{2298}", // ban
+        Some(0xf002) => "\u{2315}", // search
+        Some(0xf004) => "\u{2665}", // heart
+        Some(0xf005) => "\u{2605}", // star
+        Some(0xf013) => "\u{2699}", // gear
+        Some(0xf03a) => "\u{2261}", // list
+        Some(0xf007) => "\u{25CF}", // user
+        Some(0xf02d) => "\u{25A4}", // book
+        Some(0xf015) => "\u{2302}", // home
+        Some(0xf04b) => "\u{25B6}", // play
+        Some(0xf0e7) => "\u{26A1}", // bolt
+        Some(0xf133) => "\u{1F4C5}", // calendar
+        Some(0xf3c5) => "\u{25C9}", // map pin
+        Some(0xf15b) => "\u{25A7}", // file
+        _ => "\u{00B7}",
+    }
 }
 
 /// The `c` array's members, copied out so the walk can borrow the vm again.

@@ -294,6 +294,26 @@ SPLASH_CONST(splash_a_toggle_value,      NODE_TOGGLE_VALUE)
 SPLASH_CONST(splash_a_toggle_color,      NODE_TOGGLE_SELECTED_COLOR)
 SPLASH_CONST(splash_a_textpicker_range,  NODE_TEXT_PICKER_OPTION_RANGE)
 
+// Added for the flutter/samples kit, which is authored against the makepad
+// backend's richer attribute set. Percent sizing is how that kit's `fillw`/
+// `fillh` (makepad's Fill) express themselves in ArkUI; the layout attributes
+// carry its `alignx`/`aligny`, and FONT_FAMILY carries `icon`.
+SPLASH_CONST(splash_a_width_percent,  NODE_WIDTH_PERCENT)
+SPLASH_CONST(splash_a_height_percent, NODE_HEIGHT_PERCENT)
+SPLASH_CONST(splash_a_font_family,    NODE_FONT_FAMILY)
+SPLASH_CONST(splash_a_row_align,      NODE_ROW_ALIGN_ITEMS)
+SPLASH_CONST(splash_a_row_justify,    NODE_ROW_JUSTIFY_CONTENT)
+SPLASH_CONST(splash_a_col_align,      NODE_COLUMN_ALIGN_ITEMS)
+SPLASH_CONST(splash_a_col_justify,    NODE_COLUMN_JUSTIFY_CONTENT)
+SPLASH_CONST(splash_a_shadow,         NODE_SHADOW)
+SPLASH_CONST(splash_a_layout_weight,  NODE_LAYOUT_WEIGHT)
+SPLASH_CONST(splash_a_slider_value,   NODE_SLIDER_VALUE)
+SPLASH_CONST(splash_a_slider_min,     NODE_SLIDER_MIN_VALUE)
+SPLASH_CONST(splash_a_slider_max,     NODE_SLIDER_MAX_VALUE)
+SPLASH_CONST(splash_a_checkbox_shape, NODE_CHECKBOX_SHAPE)
+SPLASH_CONST(splash_a_loading_color,  NODE_LOADING_PROGRESS_COLOR)
+SPLASH_CONST(splash_a_progress_color, NODE_PROGRESS_COLOR)
+
 SPLASH_CONST(splash_t_text,     ARKUI_NODE_TEXT)
 SPLASH_CONST(splash_t_image,    ARKUI_NODE_IMAGE)
 SPLASH_CONST(splash_t_toggle,   ARKUI_NODE_TOGGLE)
