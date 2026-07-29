@@ -272,6 +272,23 @@ fn lerp_argb(c1, c2, t) {
 // correctly checked. Fixing it means reading NODE_SCROLL_OFFSET before the
 // rebuild and restoring it after, which needs a shim getter this build does not
 // have. Verified on the phone; not fixed.
+// 1 on ArkUI, 0 on makepad — for a scroll that has a bar under it.
+//
+// A scroll with a following sibling and no bounded height gets an ArkUI
+// viewport that runs past the bottom of the screen: it reaches its scroll end
+// with content still below the fold, and the bar after it is pushed off
+// entirely. The Cupertino Gallery lost its last two entries that way — Text
+// Theme and Time Picker could not be reached at all. `fillh` in a column maps to
+// LAYOUT_WEIGHT, so it claims exactly what the fixed-size siblings leave.
+//
+// Not on makepad. The host mounts Splash with `height: Fit`, and a Fill inside
+// a Fit is degenerate there — it collapsed every screen in this kit to nothing
+// once already. Both backends test `fillh` against 1, so 0 is a no-op on each.
+fn restfill() {
+    if st.backend == "arkui" { return 1 }
+    return 0
+}
+
 fn act_set(key, v)    { return "set:" + key + "=" + v }
 fn act_toggle(key)    { return "set:" + key + "=!" }
 fn act_up(key, n)     { return "set:" + key + "=+" + n }
@@ -1469,7 +1486,7 @@ fn screen_cupertino_gallery() {
             ]},
         ]},
         c_largetitle("Cupertino Gallery"),
-        {t: "scroll", fillw: 1, bg: c_grouped, c: rows},
+        {t: "scroll", fillw: 1, fillh: restfill(), bg: c_grouped, c: rows},
         cg_tabbar("Widgets"),
     ])
 }
@@ -1477,7 +1494,7 @@ fn screen_cupertino_gallery() {
 fn screen_cupertino_gallery_settings() {
     return page(c_bg, [
         c_largetitle("Settings"),
-        {t: "scroll", fillw: 1, padx: 16, c: [
+        {t: "scroll", fillw: 1, fillh: restfill(), padx: 16, c: [
             c_group("APPEARANCE", [
                 {t: "row", fillw: 1, h: 44, padx: 16, spacing: 8, aligny: 0.5,
                  tapto: act_toggle("cup_settings_dark"), c: [
@@ -2081,7 +2098,7 @@ fn dps_variant(label, fluent) {
              alignx: 0.5, aligny: 0.5, tapto: act_cycle("dps_query", 4),
              c: [ txt("Search", 14, 500, white) ]},
         ]},
-        {t: "scroll", fillw: 1, padx: 16, spacing: 10, c: tiles},
+        {t: "scroll", fillw: 1, fillh: restfill(), padx: 16, spacing: 10, c: tiles},
         {t: "row", fillw: 1, padx: 16, pady: 12, c: [
             {t: "column", fillw: 1, tapto: other,
              c: [ m_btn_outlined(other_label) ]},
@@ -2173,7 +2190,7 @@ fn screen_dynamic_theme() {
     }
     return page(m_surface, [
         m_appbar("Flutter + GenAI", "index"),
-        {t: "scroll", fillw: 1, pad: 16, spacing: 16, c: [
+        {t: "scroll", fillw: 1, fillh: restfill(), pad: 16, spacing: 16, c: [
             m_section("API key", [
                 {t: "row", fillw: 1, h: 56, radius: 4, bg: m_surf_highest,
                  padx: 16, spacing: 8, aligny: 0.5, c: [
@@ -2572,7 +2589,7 @@ fn m3_tabbar(active) {
 
 fn m3_page(active, body_kids) {
     let kids = [ m_appbar("Material 3", "index") ]
-    kids.push({t: "scroll", fillw: 1, pad: 16, spacing: 16, c: body_kids})
+    kids.push({t: "scroll", fillw: 1, fillh: restfill(), pad: 16, spacing: 16, c: body_kids})
     kids.push(m3_tabbar(active))
     return page(m_surface, kids)
 }
@@ -2892,7 +2909,7 @@ fn nr_page(active, filter) {
     return page(m_surface, [
         m_appbar("Books", "index"),
         nr_tabbar(active),
-        {t: "scroll", fillw: 1, c: nr_booklist(filter) },
+        {t: "scroll", fillw: 1, fillh: restfill(), c: nr_booklist(filter) },
         nr_bottombar("Books"),
     ])
 }
@@ -2935,7 +2952,7 @@ fn screen_navigation_and_routing_authors() {
     }
     return page(m_surface, [
         m_appbar("Authors", "index"),
-        {t: "scroll", fillw: 1, c: rows},
+        {t: "scroll", fillw: 1, fillh: restfill(), c: rows},
         nr_bottombar("Authors"),
     ])
 }
@@ -3249,7 +3266,7 @@ fn pd_mat_tabbar(active) {
 fn pd_mat_page(title, active, body_kids) {
     return page(m_surface, [
         m_appbar(title, "index"),
-        {t: "scroll", fillw: 1, pad: 12, spacing: 12, c: body_kids},
+        {t: "scroll", fillw: 1, fillh: restfill(), pad: 12, spacing: 12, c: body_kids},
         pd_mat_tabbar(active),
     ])
 }
@@ -3367,7 +3384,7 @@ fn screen_platform_design_ios() {
     }
     return page(c_bg, [
         c_navbar("Songs — iOS chrome", "platform_design"),
-        {t: "scroll", fillw: 1, bg: c_grouped, c: rows},
+        {t: "scroll", fillw: 1, fillh: restfill(), bg: c_grouped, c: rows},
         {t: "column", fillw: 1, bg: c_grouped, c: [
             rule(c_separator),
             {t: "row", fillw: 1, h: 50, c: [
@@ -3719,7 +3736,7 @@ fn screen_testing_app() {
                 txt("Favorites " + n, 14, 500, m_on_pri_cont),
             ]},
         ]},
-        {t: "scroll", fillw: 1, c: rows},
+        {t: "scroll", fillw: 1, fillh: restfill(), c: rows},
         // The SnackBar the sample shows on each toggle. It says the count now,
         // because a message that never changes is not feedback.
         {t: "row", bg: m_inv_surf, radius: 4, fillw: 1, h: 48, padx: 16,
