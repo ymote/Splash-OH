@@ -16,7 +16,11 @@ export DEVECO_SDK_HOME="$DEVECO_HOME/sdk"
 export NODE_HOME="$DEVECO_HOME/tools/node"
 export PATH="$NODE_HOME/bin:$HOME/ohos-sdk/ohos-base-deveco/21/toolchains:$PATH"
 
-DEVICE="${DEVICE:-5ZGYD25B13020968}"
+# The Pura X (VDE-AL10). Two other phones are usually plugged in and neither is
+# a target: the Mate 70 Air (SUP-AL90, 5ZGYD25B13020968) and a OnePlus 6T on
+# adb. Naming the device rather than taking the first one hdc lists is what
+# keeps a deploy off them.
+DEVICE="${DEVICE:-3XC0225315001027}"
 
 echo "==> cargo"
 cargo build --target aarch64-unknown-linux-ohos --release 2>&1 | grep -E "^(error|warning: unused var)" -A4 || true
