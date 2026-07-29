@@ -98,7 +98,15 @@ extern "C" fn on_event(target_id: i32, _event_type: i32) {
     // was being handed to a router that knows nothing about route strings and
     // then dropped. Nothing was clickable.
     if let Some(route) = crate::dsl::flutter_route(target_id) {
-        set_screen(route);
+        // A target is either somewhere to go or something to change. The kit
+        // names the second kind "set:key=…" and it rides the same interning as
+        // a route, so a control needs no new node attribute and both backends
+        // get it from the one place a tap already lands.
+        if crate::state::apply(&route) {
+            rebuild();
+        } else {
+            set_screen(route);
+        }
         return;
     }
 

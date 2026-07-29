@@ -256,6 +256,33 @@ fn lerp_argb(c1, c2, t) {
 // The VM has no sqrt, min, sign or smoothstep. A signed distance field is just
 // arithmetic, so with these the DSL can evaluate one per cell and draw it with
 // ordinary nodes — no fragment shader, and it works on both backends.
+// ---- state: what makes a control a control ----------------------------------
+// `sget(key, default)` is a host global — it reads the store the tap wrote.
+// The helpers below build the tap target that writes it. A target is either
+// somewhere to go (`tapto: "date_planner/maya"`) or something to change
+// (`tapto: "set:guests=+1"`), and both ride the same interning, so a control
+// needs no new node attribute and works on both backends.
+//
+// Relative forms matter: a tap target is a string baked into the tree when it
+// was built, so a stepper that encoded its next value would encode the value
+// that was current at build time and the second tap would undo the first.
+// Known limitation: a tap rebuilds the whole tree, and ArkUI's Scroll is a new
+// node each time, so the view jumps back to the top. Tap a checkbox halfway
+// down Material 3 and you land at the top of the screen with the checkbox
+// correctly checked. Fixing it means reading NODE_SCROLL_OFFSET before the
+// rebuild and restoring it after, which needs a shim getter this build does not
+// have. Verified on the phone; not fixed.
+fn act_set(key, v)    { return "set:" + key + "=" + v }
+fn act_toggle(key)    { return "set:" + key + "=!" }
+fn act_up(key, n)     { return "set:" + key + "=+" + n }
+fn act_down(key, n)   { return "set:" + key + "=-" + n }
+fn act_cycle(key, n)  { return "set:" + key + "=~" + n }
+fn act_climb(key, n)  { return "set:" + key + "=^" + n }
+
+// True when the flag at `key` is set. The DSL has no bool; 0 and 1 are it.
+fn son(key)           { return sget(key, 0) == 1 }
+fn son_d(key, dflt)   { return sget(key, dflt) == 1 }
+
 fn absn(x) { if x < 0.0 { return 0.0 - x }  return x }
 fn minn(a, b) { if a < b { return a } return b }
 fn maxn(a, b) { if a > b { return a } return b }
@@ -1187,7 +1214,11 @@ fn ca_card(name, country, tags) {
 
 fn screen_compass_app_search() {
     let chips = []
-    for c in ca_continents { chips.push(m_chip(c, c == "Europe")) }
+    let ci = 0
+    for c in ca_continents {
+        chips.push(m_chip_pick(c, "ca_continent", ci, 3))
+        ci = ci + 1
+    }
     return page(m_surface, [
         m_appbar("Search", "compass_app"),
         {t: "scroll", fillw: 1, pad: 16, spacing: 16, c: [
@@ -1203,7 +1234,7 @@ fn screen_compass_app_search() {
                 {t: "row", fillw: 1, h: 56, spacing: 16, aligny: 0.5, c: [
                     txt("Guests", 16, 400, m_on_surface),
                     spacer(),
-                    ca_stepper("2"),
+                    ca_stepper("ca_guests", 2),
                 ]},
             ]),
             m_btn("Search", m_primary, m_on_primary),
@@ -1211,13 +1242,22 @@ fn screen_compass_app_search() {
     ])
 }
 
-fn ca_stepper(value) {
+// The stepper steps. `+1`/`-1` are relative on purpose: a tap target is a
+// string baked into the tree at build time, so a button encoding its next value
+// would encode the value that was current when the tree was built.
+fn ca_stepper(key, dflt) {
+    let n = sget(key, dflt)
     return {t: "row", fitw: 1, spacing: 16, aligny: 0.5, c: [
         {t: "column", w: 36, h: 36, radius: 18, bg: m_surf_highest,
-         alignx: 0.5, aligny: 0.5, c: [ txt("−", 18, 500, m_on_surface) ]},
-        txt(value, 16, 500, m_on_surface),
+         alignx: 0.5, aligny: 0.5, tapto: act_down(key, 1),
+         c: [ txt("−", 18, 500, m_on_surface) ]},
+        // "" + n, not n: txt() sizes its box from s.len() and a number has no
+        // len, so the stepper's value rendered as no node at all — the two
+        // buttons sat side by side with nothing between them.
+        txt("" + n, 16, 500, m_on_surface),
         {t: "column", w: 36, h: 36, radius: 18, bg: m_surf_highest,
-         alignx: 0.5, aligny: 0.5, c: [ txt("+", 18, 500, m_on_surface) ]},
+         alignx: 0.5, aligny: 0.5, tapto: act_up(key, 1),
+         c: [ txt("+", 18, 500, m_on_surface) ]},
     ]}
 }
 
@@ -1246,13 +1286,16 @@ fn ca_result_row(name, country, tags) {
 fn screen_compass_app_activities() {
     let morning = []
     let anytime = []
+    let ai = 0
     for a in ca_activities {
+        let ak = "ca_act_" + ai
         let row = {t: "row", fillw: 1, fith: 1, pady: 10, spacing: 12,
-                   aligny: 0.5, c: [
-            {t: "checkbox", on: 0, w: 18, h: 18},
+                   aligny: 0.5, tapto: act_toggle(ak), c: [
+            {t: "checkbox", on: sget(ak, 0), w: 18, h: 18},
             {t: "column", fillw: 1, fith: 1, c: [ para(a[0], 15, 400, m_on_surface) ]},
         ]}
         if a[1] == "morning" { morning.push(row) } else { anytime.push(row) }
+        ai = ai + 1
     }
     return page(m_surface, [
         m_appbar("Activities", "compass_app/results"),
@@ -1372,14 +1415,16 @@ fn screen_cupertino_gallery_settings() {
         c_largetitle("Settings"),
         {t: "scroll", fillw: 1, padx: 16, c: [
             c_group("APPEARANCE", [
-                {t: "row", fillw: 1, h: 44, padx: 16, spacing: 8, aligny: 0.5, c: [
+                {t: "row", fillw: 1, h: 44, padx: 16, spacing: 8, aligny: 0.5,
+                 tapto: act_toggle("cup_settings_dark"), c: [
                     txt("Dark Mode", 17, 400, c_label), spacer(),
-                    {t: "toggle", on: dk, w: 51, h: 31},
+                    {t: "toggle", on: sget("cup_settings_dark", dk), w: 51, h: 31},
                 ]},
             ]),
             c_group("TEXT SIZE", [
-                {t: "column", fillw: 1, padx: 16, pady: 12, spacing: 8, c: [
-                    {t: "slider", value: 0.5, fillw: 1, h: 28},
+                {t: "column", fillw: 1, padx: 16, pady: 12, spacing: 8,
+                 tapto: act_cycle("cup_bright", 5), c: [
+                    {t: "slider", value: sget("cup_bright", 2) / 4.0, fillw: 1, h: 28},
                     {t: "row", fillw: 1, c: [
                         txt("A", 13, 400, c_label2), spacer(), txt("A", 22, 400, c_label2),
                     ]},
@@ -1429,17 +1474,34 @@ fn screen_cg_button() {
 // switch_page.dart holds one CupertinoSwitch, initially ON. Track 51x31 with a
 // 28 thumb (cupertino/switch.dart:29-31).
 fn screen_cg_switch() {
-    return cg_detail("Switch", [ {t: "toggle", on: 1, w: 51, h: 31} ])
+    return cg_detail("Switch", [
+        {t: "column", fitw: 1, fith: 1, tapto: act_toggle("cup_switch"), c: [
+            {t: "toggle", on: sget("cup_switch", 1), w: 51, h: 31},
+        ]},
+    ])
 }
 
 // checkbox_page.dart: one CupertinoCheckbox, initially OFF.
 fn screen_cg_checkbox() {
-    return cg_detail("Checkbox", [ {t: "checkbox", on: 0, w: 18, h: 18} ])
+    return cg_detail("Checkbox", [
+        {t: "column", fitw: 1, fith: 1, tapto: act_toggle("cup_check"), c: [
+            {t: "checkbox", on: sget("cup_check", 0), w: 18, h: 18},
+        ]},
+    ])
 }
 
 // slider_page.dart: one CupertinoSlider at 0.5.
 fn screen_cg_slider() {
-    return cg_detail("Slider", [ {t: "slider", value: 0.5, fillw: 1, h: 30} ])
+    // A slider with no drag is still a slider if tapping moves it. ArkUI and
+    // makepad both report drags, but neither reports them to *here* — the walk
+    // wires taps only — so stepping is what this backend can honestly offer.
+    return cg_detail("Slider", [
+        {t: "column", fillw: 1, tapto: act_cycle("cup_slider", 5), c: [
+            {t: "slider", value: sget("cup_slider", 2) / 4.0, fillw: 1, h: 30},
+        ]},
+        txt("Value " + sget("cup_slider", 2) + " of 4 — tap to step",
+            13, 400, c_label),
+    ])
 }
 
 // radio_page.dart: three CupertinoListTiles, each with a leading CupertinoRadio,
@@ -1603,7 +1665,13 @@ fn cg_segments(sliding) {
     for s in segs {
         let sel = i == 0
         let bg = pick_if(sel, pick_if(sliding == 1, c_grouped, c_blue), clear)
-        let ink = pick_if(sel && sliding == 0, white, c_label)
+        // `sel && sliding == 0` inline in the call never bound `ink` — the VM
+        // reported "variable ink not found in scope" on the line below and the
+        // segmented control drew its selected segment in the fallback colour.
+        // Hoisting the condition to its own binding is what it wants.
+        let light = 0
+        if sel { if sliding == 0 { light = 1 } }
+        let ink = pick_if(light == 1, white, c_label)
         cells.push({t: "column", fillw: 1, h: 28, radius: 7, alignx: 0.5,
                     aligny: 0.5, bg: bg, c: [ txt(s, 13, 500, ink) ]})
         i = i + 1
@@ -1797,15 +1865,22 @@ fn screen_date_planner_event(key) {
     for t in dp_tasks {
         if t[0] == key {
             let first = 1
+            let n = 0
             for one in t[1] {
                 if first == 0 { task_rows.push(rule(c_separator)) }
                 first = 0
+                // Keyed by index within the plan, so each plan keeps its own
+                // ticks rather than every plan sharing one set.
+                let tk = "plan_task_" + n
+                let done = son(tk)
                 task_rows.push({t: "row", fillw: 1, fith: 1, padx: 16, pady: 10,
-                                spacing: 12, aligny: 0.5, c: [
-                    {t: "checkbox", on: 0, w: 18, h: 18},
+                                spacing: 12, aligny: 0.5,
+                                tapto: act_toggle(tk), c: [
+                    {t: "checkbox", on: sget(tk, 0), w: 18, h: 18},
                     {t: "column", fillw: 1, fith: 1,
-                     c: [ para(one, 17, 400, c_label) ]},
+                     c: [ para(one, 17, 400, pick_if(done, c_label2, c_label)) ]},
                 ]})
+                n = n + 1
             }
         }
     }
@@ -1856,6 +1931,10 @@ let dps_photos = [
     ["Coastal cliffs", "Diego Alves"],
 ]
 
+let dps_terms = ["mountains", "coffee", "tokyo", "wildflowers"]
+
+fn dps_term() { return dps_terms[sget("dps_query", 0)] }
+
 fn screen_desktop_photo_search() {
     return dps_variant("Material", 0)
 }
@@ -1873,9 +1952,16 @@ fn dps_variant(label, fluent) {
     let accent  = pick_if(fluent == 1, argb(255, 0, 120, 212), m_primary)
     let corner  = pick_if(fluent == 1, 4, 12)
 
-    let tiles = []
+    // Results answer the query. Each term takes a different slice of the
+    // sample's own photo list, so cycling the search box visibly changes what
+    // comes back rather than leaving the same rows under a new word.
+    let q = sget("dps_query", 0)
+    let tiles = [{t: "row", fillw: 1, padx: 4, pady: 4, c: [
+        txt("Results for “" + dps_term() + "”", 13, 400, ink2),
+    ]}]
     let i = 0
     for p in dps_photos {
+        if (i + q) % 4 != 0 { i = i + 1  continue }
         tiles.push({t: "row", fillw: 1, h: 84, radius: corner, bg: panel,
                     spacing: 12, c: [
             {t: "column", w: 110, fillh: 1, radius: corner, bg: pd_colors[i % 11]},
@@ -1896,13 +1982,18 @@ fn dps_variant(label, fluent) {
     return page(bg, [
         m_appbar("Photo Search — " + label, "index"),
         {t: "row", fillw: 1, padx: 16, pady: 12, spacing: 10, aligny: 0.5, c: [
+            // The field cannot be typed into: a tap is the only event the walk
+            // wires, on either backend. So the query cycles through the terms
+            // the sample ships with, which is the honest form of a search box
+            // in a pipeline with no keyboard — and the tiles below answer it.
             {t: "row", fillw: 1, h: 44, radius: corner, bg: panel, padx: 12,
-             spacing: 8, aligny: 0.5, c: [
+             spacing: 8, aligny: 0.5, tapto: act_cycle("dps_query", 4), c: [
                 icon(ic_search, 14, ink2),
-                {t: "input", placeholder: "Search Unsplash", fillw: 1, fith: 1},
+                {t: "input", placeholder: dps_term(), fillw: 1, fith: 1},
             ]},
             {t: "column", h: 44, radius: corner, bg: accent, padx: 20, fitw: 1,
-             alignx: 0.5, aligny: 0.5, c: [ txt("Search", 14, 500, white) ]},
+             alignx: 0.5, aligny: 0.5, tapto: act_cycle("dps_query", 4),
+             c: [ txt("Search", 14, 500, white) ]},
         ]},
         {t: "scroll", fillw: 1, padx: 16, spacing: 10, c: tiles},
         {t: "row", fillw: 1, padx: 16, pady: 12, c: [
@@ -2119,17 +2210,22 @@ fn screen_form_app_form_widgets() {
                 ]},
             ]),
             m_section("Slider", [
-                {t: "slider", value: 0.5, fillw: 1, h: 32},
-                txt("Max value", 13, 400, m_on_surf_var),
+                {t: "column", fillw: 1, tapto: act_cycle("form_slider", 5), c: [
+                    {t: "slider", value: sget("form_slider", 2) / 4.0,
+                     fillw: 1, h: 32},
+                ]},
+                txt("Value " + sget("form_slider", 2) + " of 4 — tap to step",
+                    13, 400, m_on_surf_var),
             ]),
             m_section("Checkbox", [
-                check_row("Brushed teeth", 1),
+                check_row("Brushed teeth", "form_teeth", 1),
             ]),
             m_section("Switch", [
-                {t: "row", fillw: 1, h: 40, spacing: 12, aligny: 0.5, c: [
+                {t: "row", fillw: 1, h: 40, spacing: 12, aligny: 0.5,
+                 tapto: act_toggle("form_feature"), c: [
                     txt("Enable feature", 14, 400, m_on_surface),
                     spacer(),
-                    {t: "toggle", on: 1, w: 52, h: 32},
+                    {t: "toggle", on: sget("form_feature", 1), w: 52, h: 32},
                 ]},
             ]),
         ]},
@@ -2145,13 +2241,18 @@ fn screen_form_app_validation() {
                              "Not a valid adjective."),
                 fa_field_err("Enter a noun", "i.e. a person, place or thing",
                              "Not a valid noun."),
-                {t: "row", fillw: 1, spacing: 12, aligny: 0.5, c: [
-                    {t: "checkbox", on: 0, w: 18, h: 18},
+                {t: "row", fillw: 1, spacing: 12, aligny: 0.5,
+                 tapto: act_toggle("form_terms"), c: [
+                    {t: "checkbox", on: sget("form_terms", 0), w: 18, h: 18},
                     {t: "column", fitw: 1, c: [
                         txt("I agree to the terms of service.", 14, 400, m_on_surface),
                     ]},
                 ]},
-                txt("You must agree to the terms of service.", 12, 400, m_error),
+                // Validation is the sample's whole subject, so the message has
+                // to answer the checkbox rather than sit under it permanently.
+                pick_if(son("form_terms"),
+                    txt("Thank you.", 12, 400, m_primary),
+                    txt("You must agree to the terms of service.", 12, 400, m_error)),
                 m_btn("Submit", m_primary, m_on_primary),
             ]),
             m_section("Result dialog", [
@@ -2376,19 +2477,25 @@ fn screen_material_3_demo() {
 
     // Switches, checkboxes, radios — real native makepad controls.
     let switches = {t: "row", fillw: 1, spacing: 16, aligny: 0.5, c: [
-        {t: "toggle", on: 1, w: 52, h: 32}, {t: "toggle", on: 0, w: 52, h: 32},
+        {t: "column", fitw: 1, fith: 1, tapto: act_toggle("m3_switch"), c: [
+            {t: "toggle", on: sget("m3_switch", 1), w: 52, h: 32}]},
+        {t: "column", fitw: 1, fith: 1, tapto: act_toggle("m3_switch2"), c: [
+            {t: "toggle", on: sget("m3_switch2", 0), w: 52, h: 32}]},
     ]}
     let checks = {t: "column", fillw: 1, spacing: 4, c: [
-        check_row("Option 1", 1), check_row("Option 2", 1),
-        check_row("Option 3", 0), check_row("Option 4", 0),
+        check_row("Option 1", "m3_c1", 1), check_row("Option 2", "m3_c2", 1),
+        check_row("Option 3", "m3_c3", 0), check_row("Option 4", "m3_c4", 0),
     ]}
     let radios = {t: "column", fillw: 1, spacing: 4, c: [
-        radio_row("Option 1", 1), radio_row("Option 2", 0), radio_row("Option 3", 0),
+        radio_row("Option 1", "m3_radio", 0), radio_row("Option 2", "m3_radio", 1),
+        radio_row("Option 3", "m3_radio", 2),
     ]}
 
     // Chips — assist / filter (selected) / input.
     let chips = {t: "row", fillw: 1, spacing: 8, c: [
-        m_chip("Assist", 0), m_chip("Filter", 1), m_chip("Input", 0),
+        m_chip_flag("Assist", "m3_chip_a", 0),
+        m_chip_flag("Filter", "m3_chip_f", 1),
+        m_chip_flag("Input", "m3_chip_i", 0),
     ]}
 
     // Progress indicators — the animated spinner and the M3 shape-morph.
@@ -2521,18 +2628,42 @@ fn elev_card(level, dp, overlay) {
 
 // ---- small shared component rows -------------------------------------------
 
-fn check_row(label, on) {
-    return {t: "row", fillw: 1, h: 40, spacing: 12, aligny: 0.5, c: [
-        {t: "checkbox", on: on, w: 18, h: 18},
+// The shared control rows. Each takes a state key, so tapping the row is what
+// makes the control a control — `on:` used to be a literal and these were
+// pictures of checkboxes.
+//
+// The whole row is the target, not the box. Flutter's CheckboxListTile and
+// SwitchListTile behave that way, and a 18x18 box is well under the 48dp
+// minimum a finger needs.
+fn check_row(label, key, dflt) {
+    return {t: "row", fillw: 1, h: 40, spacing: 12, aligny: 0.5,
+            tapto: act_toggle(key), c: [
+        {t: "checkbox", on: sget(key, dflt), w: 18, h: 18},
         txt(label, 14, 400, m_on_surface),
     ]}
 }
 
-fn radio_row(label, on) {
-    return {t: "row", fillw: 1, h: 40, spacing: 12, aligny: 0.5, c: [
-        {t: "radio", on: on, w: 16, h: 16},
+// A radio is a checkbox that cannot uncheck itself: tapping sets the *group* to
+// this value, and every other row in the group goes off because it is reading
+// the same key.
+fn radio_row(label, group, value) {
+    return {t: "row", fillw: 1, h: 40, spacing: 12, aligny: 0.5,
+            tapto: act_set(group, value), c: [
+        {t: "radio", on: pick_if(sget(group, 0) == value, 1, 0), w: 16, h: 16},
         txt(label, 14, 400, m_on_surface),
     ]}
+}
+
+// A filter chip that filters. `m_chip(label, selected)` stays for the places
+// that draw a specimen rather than offer a choice.
+fn m_chip_pick(label, key, value, dflt) {
+    return {t: "column", fitw: 1, fith: 1, tapto: act_set(key, value),
+            c: [ m_chip(label, sget(key, dflt) == value) ]}
+}
+
+fn m_chip_flag(label, key, dflt) {
+    return {t: "column", fitw: 1, fith: 1, tapto: act_toggle(key),
+            c: [ m_chip(label, son_d(key, dflt)) ]}
 }
 
 fn m_chip(label, selected) {
@@ -2983,10 +3114,14 @@ fn screen_platform_design_profile() {
                      "My neighbor hates me"]
     let mood = ["Over the moon", "Basking in sunlight", "Hello fellow Martians",
                 "Into the darkness"]
+    // Two radio groups. Defaults are the entries the sample starts on: index 1
+    // of intensity and index 0 of mood.
     let a = []
-    for o in intensity { a.push(pd_opt_row(o, o == "Dial it to 11")) }
+    let ai = 0
+    for o in intensity { a.push(pd_opt_row2(o, "pd_intensity", ai, 1))  ai = ai + 1 }
     let b = []
-    for o in mood { b.push(pd_opt_row(o, o == "Over the moon")) }
+    let bi = 0
+    for o in mood { b.push(pd_opt_row2(o, "pd_mood", bi, 0))  bi = bi + 1 }
     return pd_mat_page("Profile", "Profile", [
         {t: "column", fillw: 1, spacing: 8, alignx: 0.5, pady: 12, c: [
             {t: "column", w: 88, h: 88, radius: 44, bg: m_surf_highest,
@@ -2998,9 +3133,18 @@ fn screen_platform_design_profile() {
     ])
 }
 
-fn pd_opt_row(label, selected) {
-    return {t: "row", fillw: 1, h: 40, spacing: 12, aligny: 0.5, c: [
-        {t: "radio", on: pick_if(selected, 1, 0), w: 16, h: 16},
+fn pd_opt_row2(label, group, value, dflt) {
+    return {t: "row", fillw: 1, h: 40, spacing: 12, aligny: 0.5,
+            tapto: act_set(group, value), c: [
+        {t: "radio", on: pick_if(sget(group, dflt) == value, 1, 0), w: 16, h: 16},
+        txt(label, 14, 400, m_on_surface),
+    ]}
+}
+
+fn pd_opt_row(label, group, value) {
+    return {t: "row", fillw: 1, h: 40, spacing: 12, aligny: 0.5,
+            tapto: act_set(group, value), c: [
+        {t: "radio", on: pick_if(sget(group, 0) == value, 1, 0), w: 16, h: 16},
         txt(label, 14, 400, m_on_surface),
     ]}
 }
@@ -3009,10 +3153,13 @@ fn screen_platform_design_settings() {
     let rows = []
     let i = 0
     for s in pd_settings {
+        // The sample's Settings is a list of switches. They were alternating
+        // by index — a checkerboard that looked like state and was arithmetic.
+        let k = "pd_notify_" + i
         rows.push({t: "row", fillw: 1, fith: 1, pady: 8, spacing: 12,
-                   aligny: 0.5, c: [
+                   aligny: 0.5, tapto: act_toggle(k), c: [
             {t: "column", fillw: 1, fith: 1, c: [ para(s, 14, 400, m_on_surface) ]},
-            {t: "toggle", on: pick_if(i % 2 == 0, 1, 0), fitw: 1},
+            {t: "toggle", on: sget(k, pick_if(i % 2 == 0, 1, 0)), fitw: 1},
         ]})
         i = i + 1
     }
@@ -3272,58 +3419,85 @@ fn screen_simple_shader() {
 // snackbar on toggle) that exists as a fixture for the sample's unit, widget
 // and integration tests.
 //
-// The UI ports in full. The reason the sample exists does not: its value is
-// the `test/` and `integration_test/` directories — testWidgets, WidgetTester,
+// The UI ports in full, and it now works: tapping a heart favourites the item,
+// the favourites screen lists what is actually favourited, and the count and
+// the snackbar follow. That used to be three hardcoded rows and a heart that
+// was a picture of a heart.
+//
+// The reason the sample exists still does not port: its value is the `test/`
+// and `integration_test/` directories — testWidgets, WidgetTester,
 // pumpAndSettle, Key-based finders. There is no widget-test harness for the
 // Splash pipeline, and the translated output is a makepad dialect string, so
 // the closest analogue is asserting on that string — which is what
 // `tests/flutter_samples.rs` in this repo does for every screen.
 
+fn ta_key(i) { return "testing_fav_" + i }
+
+// The three the sample starts favourited. Written as separate `if`s because
+// `a or b` is not an operator in this VM — it parsed, evaluated to something
+// unhelpful, and the count came out as 1 instead of 3 with nothing to say so.
+fn ta_start(i) {
+    if i == 2 { return 1 }
+    if i == 5 { return 1 }
+    if i == 9 { return 1 }
+    return 0
+}
+
+fn ta_fav(i) { return son_d(ta_key(i), ta_start(i)) }
+
+fn ta_row(i, name) {
+    let fav = ta_fav(i)
+    return {t: "column", fillw: 1, c: [
+        {t: "row", fillw: 1, h: 56, padx: 16, spacing: 12, aligny: 0.5,
+         tapto: act_toggle(ta_key(i)), c: [
+            txt(name, 16, 400, m_on_surface),
+            spacer(),
+            icon(ic_heart, 15, pick_if(fav, m_error, m_on_surf_var)),
+        ]},
+        rule(m_outline_var),
+    ]}
+}
+
 fn screen_testing_app() {
     let rows = []
+    let n = 0
     let i = 1
     while i <= 12 {
-        let fav = 0
-        if i == 2 { fav = 1 }
-        if i == 5 { fav = 1 }
-        if i == 9 { fav = 1 }
-        rows.push({t: "column", fillw: 1, c: [
-            {t: "row", fillw: 1, h: 56, padx: 16, spacing: 12, aligny: 0.5, c: [
-                txt("Item " + i, 16, 400, m_on_surface),
-                spacer(),
-                icon(ic_heart, 15, pick_if(fav == 1, m_error, m_on_surf_var)),
-            ]},
-            rule(m_outline_var),
-        ]})
+        rows.push(ta_row(i, "Item " + i))
+        if ta_fav(i) { n = n + 1 }
         i = i + 1
     }
     return page(m_surface, [
         m_appbar("Testing Sample", "index"),
-        {t: "row", fillw: 1, padx: 16, pady: 8, c: [
+        {t: "row", fillw: 1, padx: 16, pady: 8, spacing: 8, aligny: 0.5, c: [
+            txt("Tap a row to favourite it", 13, 400, m_on_surf_var),
             spacer(),
             {t: "row", h: 40, radius: 20, bg: m_pri_cont, padx: 16, fitw: 1,
              spacing: 8, aligny: 0.5, tapto: "testing_app/favorites", c: [
                 icon(ic_heart, 13, m_on_pri_cont),
-                txt("Favorites", 14, 500, m_on_pri_cont),
+                txt("Favorites " + n, 14, 500, m_on_pri_cont),
             ]},
         ]},
         {t: "scroll", fillw: 1, c: rows},
-        // The SnackBar the sample shows on each toggle.
+        // The SnackBar the sample shows on each toggle. It says the count now,
+        // because a message that never changes is not feedback.
         {t: "row", bg: m_inv_surf, radius: 4, fillw: 1, h: 48, padx: 16,
-         aligny: 0.5, c: [ txt("Added to favorites.", 14, 400, m_inv_on) ]},
+         aligny: 0.5, c: [
+            txt(n + " in favorites.", 14, 400, m_inv_on),
+        ]},
     ])
 }
 
 fn screen_testing_app_favorites() {
     let rows = []
-    for n in ["Item 2", "Item 5", "Item 9"] {
-        rows.push({t: "column", fillw: 1, c: [
-            {t: "row", fillw: 1, h: 56, padx: 16, spacing: 12, aligny: 0.5, c: [
-                txt(n, 16, 400, m_on_surface),
-                spacer(),
-                icon(ic_heart, 15, m_error),
-            ]},
-            rule(m_outline_var),
+    let i = 1
+    while i <= 12 {
+        if ta_fav(i) { rows.push(ta_row(i, "Item " + i)) }
+        i = i + 1
+    }
+    if rows.len() == 0 {
+        rows.push({t: "column", fillw: 1, pad: 32, alignx: 0.5, c: [
+            para("Nothing favourited yet.", 14, 400, m_on_surf_var),
         ]})
     }
     return page(m_surface, [
@@ -3331,7 +3505,6 @@ fn screen_testing_app_favorites() {
         {t: "scroll", fillw: 1, c: rows},
     ])
 }
-
 
 // ---- tool.splash
 // tool — flutter/samples/tool
@@ -3449,7 +3622,8 @@ fn screen_web_embedding() {
 
 // dir, label, status, route
 //
-// status  2  the screen does the thing — live host data, or it actually moves
+// status  2  the screen responds — live host data, motion, or controls that
+//            change what you see when you tap them
 //         1  drawn, not working — the geometry and tokens are transcribed from
 //            the sample, the behaviour behind them is not
 //         0  a note. No port; it says what the counterpart here is
@@ -3459,17 +3633,17 @@ fn screen_web_embedding() {
 // capability was being counted as done. The split below is an outside review's
 // (gpt-5.6-terra) classification, not mine.
 let fs_samples = [
-    ["material_3_demo", "Material 3 Demo", 1, "material_3_demo"],
-    ["cupertino_gallery", "Cupertino Gallery", 1, "cupertino_gallery"],
-    ["date_planner", "Date Planner", 1, "date_planner"],
-    ["platform_design", "Platform Design", 1, "platform_design"],
+    ["material_3_demo", "Material 3 Demo", 2, "material_3_demo"],
+    ["cupertino_gallery", "Cupertino Gallery", 2, "cupertino_gallery"],
+    ["date_planner", "Date Planner", 2, "date_planner"],
+    ["platform_design", "Platform Design", 2, "platform_design"],
     ["animations", "Animations", 2, "animations"],
-    ["form_app", "Form App", 1, "form_app"],
+    ["form_app", "Form App", 2, "form_app"],
     ["navigation_and_routing", "Navigation and Routing", 2, "navigation_and_routing"],
-    ["compass_app", "Compass App", 1, "compass_app"],
-    ["desktop_photo_search", "Desktop Photo Search", 1, "desktop_photo_search"],
+    ["compass_app", "Compass App", 2, "compass_app"],
+    ["desktop_photo_search", "Desktop Photo Search", 2, "desktop_photo_search"],
     ["dynamic_theme", "Dynamic Theme", 1, "dynamic_theme"],
-    ["testing_app", "Testing App", 1, "testing_app"],
+    ["testing_app", "Testing App", 2, "testing_app"],
     ["add_to_app", "Add to App", 2, "add_to_app"],
     ["analysis_defaults", "Analysis Defaults", 0, "analysis_defaults"],
     ["android_splash_screen", "Android Splash Screen", 0, "android_splash_screen"],
@@ -3530,17 +3704,18 @@ fn screen_index() {
     return page(m_surface, [
         {t: "column", bg: m_surf_cont, fillw: 1, padx: 16, pady: 16, spacing: 4, c: [
             txt("flutter/samples", 28, 400, m_on_surface),
-            para("All 27 directories have a screen. Three of them work; most "
-                + "are the sample drawn accurately and not wired up; six are "
-                + "notes, not ports.", 14, 400, m_on_surf_var),
+            para("All 27 directories have a screen. Eleven respond — live "
+                + "data, motion, or controls that do something. Ten are drawn "
+                + "and not wired up. Six are notes, not ports.",
+                14, 400, m_on_surf_var),
         ]},
         {t: "scroll", fillw: 1, pad: 16, spacing: 16, c: [
             {t: "row", fillw: 1, spacing: 8, c: [
-                fs_count_card("3", "work", m_pri_cont, m_on_pri_cont),
-                fs_count_card("18", "drawn only", m_surf_highest, m_on_surface),
+                fs_count_card("11", "respond", m_pri_cont, m_on_pri_cont),
+                fs_count_card("10", "drawn only", m_surf_highest, m_on_surface),
                 fs_count_card("6", "notes", m_surf_cont, m_on_surf_var),
             ]},
-            m_section("Working — live host data, or it moves", working),
+            m_section("Responds — data, motion, or a control that works", working),
             m_section("Drawn, not wired up", drawn),
             m_section("Notes, not ports", notes),
             {t: "column", fillw: 1, tapto: "theme:toggle",

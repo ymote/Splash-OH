@@ -22,6 +22,7 @@ pub mod arkui;
 pub mod bench;
 pub mod catalog;
 pub mod dsl;
+pub mod state;
 pub mod mem;
 pub mod net;
 pub mod taobao;

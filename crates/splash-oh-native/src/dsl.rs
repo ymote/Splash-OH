@@ -304,6 +304,23 @@ fn register_host_capabilities(vm: &mut ScriptVm) {
         vm.bx.heap.new_string_from_str(&out)
     });
     vm.set_injected_global(id!(invoke), f);
+
+    // The other half of an interactive screen: read what a tap wrote.
+    //
+    // A function rather than an object injected into `st`. A missing key on an
+    // object reads as nil, and nil then flows into an argb() or a width and
+    // surfaces somewhere else entirely as a blank box — so the default belongs
+    // where the lookup happens.
+    let g = add_global_fn(
+        vm,
+        &[(id!(key), ScriptValue::NIL), (id!(dflt), ScriptValue::NIL)],
+        |vm, a| {
+            let key = string_prop(vm, a, id!(key)).unwrap_or_default();
+            let dflt = num_prop(vm, a, id!(dflt)).unwrap_or(0.0);
+            ScriptValue::from_f64(crate::state::get_or_seed(&key, dflt))
+        },
+    );
+    vm.set_injected_global(id!(sget), g);
 }
 
 /// Register a native function on the VM and return it as a value ready to inject
