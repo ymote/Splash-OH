@@ -120,6 +120,15 @@ fn dev(args: &[String]) -> i32 {
             return 1;
         }
     }
+    // Already open is a success, not a failure. hdc reports a second attempt as
+    // "TCP Port listen failed", which reads like the tunnel is broken when it is
+    // in fact exactly what was wanted -- and `splash-oh dev` is a command people
+    // will run twice without thinking.
+    if forward_exists(&forward) {
+        println!("tunnel already open: device 127.0.0.1:{port} -> this machine's :{port}");
+        print_dev_steps(&port);
+        return 0;
+    }
     let status = cmd.args(["rport", &forward, &forward]).output();
     match status {
         Ok(o) if String::from_utf8_lossy(&o.stdout).contains("OK") => {
@@ -141,6 +150,27 @@ fn dev(args: &[String]) -> i32 {
         }
     }
 
+    print_dev_steps(&port);
+    0
+}
+
+/// Whether a reverse forward for `forward` is already registered.
+fn forward_exists(forward: &str) -> bool {
+    let mut cmd = std::process::Command::new("hdc");
+    if let Ok(Some(t)) = device_target() {
+        cmd.args(["-t", &t]);
+    }
+    cmd.args(["fport", "ls"])
+        .output()
+        .map(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .lines()
+                .any(|l| l.contains(forward) && l.contains("Reverse"))
+        })
+        .unwrap_or(false)
+}
+
+fn print_dev_steps(port: &str) {
     println!(
         "\n\
 Now, in two terminals:
@@ -157,7 +187,6 @@ Copying files onto the phone instead is not an option: hdc's push resolves
 outside the app's sandbox, so they never arrive where the app can read them.
 Hence a server."
     );
-    0
 }
 
 /// The one attached device, or `None` to let hdc decide.
