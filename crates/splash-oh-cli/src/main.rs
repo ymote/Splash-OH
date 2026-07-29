@@ -105,9 +105,22 @@ fn dev(args: &[String]) -> i32 {
     // connection, so the phone connects to its own 127.0.0.1 and there is no
     // network to configure or firewall to open.
     let forward = format!("tcp:{port}");
-    let status = std::process::Command::new("hdc")
-        .args(["rport", &forward, &forward])
-        .output();
+    // `hdc rport` refuses to guess when the host has any notion of a
+    // connect-key, so name the device. One attached device is the normal case
+    // and worth handling without making anyone set a variable; more than one is
+    // ambiguous and says so.
+    let mut cmd = std::process::Command::new("hdc");
+    match device_target() {
+        Ok(Some(t)) => {
+            cmd.args(["-t", &t]);
+        }
+        Ok(None) => {}
+        Err(msg) => {
+            eprintln!("splash-oh: {msg}");
+            return 1;
+        }
+    }
+    let status = cmd.args(["rport", &forward, &forward]).output();
     match status {
         Ok(o) if String::from_utf8_lossy(&o.stdout).contains("OK") => {
             println!("tunnelled device 127.0.0.1:{port} -> this machine's :{port}");
@@ -145,6 +158,36 @@ outside the app's sandbox, so they never arrive where the app can read them.
 Hence a server."
     );
     0
+}
+
+/// The one attached device, or `None` to let hdc decide.
+///
+/// `DEVICE` wins if set, so a machine with several phones can pick.
+fn device_target() -> Result<Option<String>, String> {
+    if let Ok(d) = std::env::var("DEVICE") {
+        if !d.trim().is_empty() {
+            return Ok(Some(d));
+        }
+    }
+    let out = std::process::Command::new("hdc")
+        .args(["list", "targets"])
+        .output()
+        .map_err(|e| format!("could not run hdc: {e}. Is the toolchains directory on PATH?"))?;
+    let listed: Vec<String> = String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.contains("Empty") && !l.contains('['))
+        .map(str::to_string)
+        .collect();
+    match listed.len() {
+        0 => Err("no device connected. Plug one in and check `hdc list targets`.".into()),
+        1 => Ok(Some(listed[0].clone())),
+        _ => Err(format!(
+            "{} devices connected: {}. Set DEVICE to choose one.",
+            listed.len(),
+            listed.join(", ")
+        )),
+    }
 }
 
 fn new_project(args: &[String]) -> i32 {
