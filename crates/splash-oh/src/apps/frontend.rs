@@ -14,7 +14,8 @@
 //! halves in one tree: real ArkUI widgets built by Rust, with a web surface
 //! positioned into the space they leave.
 
-use crate::webslot::declare_app;
+use crate::caps::Caps;
+use crate::webslot::declare_app_with;
 use splash_oh_native::arkui::Node;
 use splash_oh_native::ui::*;
 
@@ -39,7 +40,27 @@ pub fn build() -> Option<Node> {
     // layout reserves the space; ArkTS puts the real `Web` at these
     // coordinates. Same mechanism as every other slot -- only the source
     // differs, and with it the trust answer.
-    declare_app("/index.html", 0.0, BAR_H, W, body_h);
+    // What this page may do, stated here rather than inherited. It reads
+    // device facts, calls its own plugin, asks about permissions and fetches
+    // one weather host -- and cannot touch the keystore, the camera, Bluetooth
+    // or the filesystem, because it was never given them.
+    let caps = Caps::none()
+        .tools(&[
+            "slot.ready",
+            "echo",
+            "log",
+            "device.*",
+            "demo.*",
+            "plugin.list",
+            "permission.request",
+            "http.get",
+            "fs.list",
+        ])
+        // One directory, so the path rule has something to allow as well as
+        // something to refuse. A scope that only ever denies is not a scope.
+        .fs_scope(&["/data/storage/el2/base/haps/entry/files"])
+        .http_hosts(&["api.open-meteo.com"]);
+    declare_app_with("/index.html", caps, 0.0, BAR_H, W, body_h);
     root = root.child(col(W, body_h, 0x00000000)?);
     Some(root)
 }

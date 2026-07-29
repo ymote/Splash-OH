@@ -402,6 +402,17 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args_raw: String) {
     // but `Registry::add` refuses a duplicate, so the only way to reach here
     // with a clash is for a plugin to have claimed a name before the bridge
     // knew about it, and honouring the plugin is the useful answer then.
+    // What this surface may do, not merely whether it may do anything. An
+    // untrusted slot never gets here; a trusted one still only gets what the
+    // app declared when it created the slot.
+    if let Some(caps) = crate::webslot::caps_for(slot) {
+        if !caps.allows_tool(&tool) {
+            crate::log(&format!("bridge: slot {slot} may not call {tool}"));
+            reply(slot, call_id, err(&format!("not permitted: {tool}")));
+            return;
+        }
+    }
+
     if splash_oh_core::claims(&tool) {
         splash_oh_core::dispatch(
             &tool,
@@ -747,6 +758,10 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args_raw: String) {
                     reply(slot, call_id, err("bad file name"));
                     return;
                 }
+                if let Err(e) = check_host_scope(slot, &url) {
+                    reply(slot, call_id, err(&e));
+                    return;
+                }
                 if let Err(e) = check_https_public(&url) {
                     reply(slot, call_id, err(&e));
                     return;
@@ -1065,6 +1080,10 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args_raw: String) {
         "http.get" => {
             std::thread::spawn(move || {
                 let url = args.text();
+                if let Err(e) = check_host_scope(slot, &url) {
+                    reply(slot, call_id, err(&e));
+                    return;
+                }
                 if let Err(e) = check_https_public(&url) {
                     reply(slot, call_id, err(&e));
                     return;
@@ -1097,7 +1116,14 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args_raw: String) {
                     .ok()
                     .and_then(|v| v.get("path").and_then(|p| p.as_str()).map(String::from))
                     .unwrap_or_else(|| args.text());
-                reply(slot, call_id, list_dir(&path));
+                // The scope, when the slot has one, comes before the OS. A
+                // denial from the sandbox is still reported verbatim -- that is
+                // what this tool is for -- but a path the app never granted
+                // does not get as far as asking.
+                match check_path_scope(slot, &path) {
+                    Ok(()) => reply(slot, call_id, list_dir(&path)),
+                    Err(why) => reply(slot, call_id, err(&why)),
+                }
             });
         }
 
@@ -1140,7 +1166,10 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args_raw: String) {
         "fs.read" => {
             std::thread::spawn(move || {
                 let (path, max) = read_args(args.raw());
-                reply(slot, call_id, read_file(&path, max));
+                match check_path_scope(slot, &path) {
+                    Ok(()) => reply(slot, call_id, read_file(&path, max)),
+                    Err(why) => reply(slot, call_id, err(&why)),
+                }
             });
         }
 
@@ -1296,6 +1325,47 @@ const HTTP_GET_ALLOWED_HOSTS: &[&str] = &[
 /// https-only, public hosts only. Blocks the SSRF shapes -- loopback, private
 /// ranges, link-local, and `.internal` -- that would otherwise let a page use
 /// this app to reach things on the device or the local network.
+/// Narrow a URL against a slot's own host scope, after the global allowlist.
+///
+/// Two gates rather than one: the global list is what this build will ever
+/// reach, the slot's is what this page may. A page cannot widen either.
+fn check_host_scope(slot: u32, url: &str) -> Result<(), String> {
+    let Some(caps) = crate::webslot::caps_for(slot) else {
+        return Ok(());
+    };
+    let host = url
+        .strip_prefix("https://")
+        .unwrap_or(url)
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or("")
+        .split('@')
+        .next_back()
+        .unwrap_or("")
+        .split(':')
+        .next()
+        .unwrap_or("");
+    if caps.allows_host(host) {
+        Ok(())
+    } else {
+        crate::log(&format!("bridge: slot {slot} may not reach {host}"));
+        Err(format!("not permitted: {host}"))
+    }
+}
+
+/// Narrow a filesystem path against a slot's scope.
+fn check_path_scope(slot: u32, path: &str) -> Result<(), String> {
+    let Some(caps) = crate::webslot::caps_for(slot) else {
+        return Ok(());
+    };
+    if caps.allows_path(path) {
+        Ok(())
+    } else {
+        crate::log(&format!("bridge: slot {slot} may not touch {path}"));
+        Err(format!("not permitted: {path}"))
+    }
+}
+
 fn check_https_public(url: &str) -> Result<String, String> {
     let rest = url
         .strip_prefix("https://")

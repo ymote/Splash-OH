@@ -23,6 +23,7 @@ pub mod arkweb;
 pub mod assets;
 pub mod audio;
 pub mod bridge;
+pub mod caps;
 pub mod capture;
 pub mod device;
 pub mod image;
@@ -96,6 +97,7 @@ pub fn mount(env: Env, content: JsObject) -> napi_ohos::Result<()> {
         splash_oh_core::registered()
     ));
     log(&splash_oh_core::self_test());
+    log(&caps::self_test());
     assets::self_test();
     app::init(slot);
     // Hand the capability registry to the renderer's DSL. `platform_channels`
