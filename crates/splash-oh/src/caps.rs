@@ -210,7 +210,7 @@ pub fn self_test() -> String {
     );
 
     if bad.is_empty() {
-        "caps selftest: ok (17 rules, traversal and prefix tricks refused)".to_string()
+        "caps selftest: ok (16 rules, traversal and prefix tricks refused)".to_string()
     } else {
         format!("caps selftest: FAILED: {}", bad.join(", "))
     }
