@@ -211,6 +211,27 @@ pub struct AssetReply {
     pub body: napi_ohos::bindgen_prelude::Buffer,
 }
 
+/// Report where a slot's document actually came from.
+///
+/// Called by ArkTS when a page starts loading in a slot. Trust used to be a
+/// property of the slot alone, which a navigation could invalidate without
+/// anything noticing; this is how Rust finds out.
+#[napi(js_name = "slotOrigin")]
+pub fn slot_origin(slot: u32, origin: String) {
+    webslot::set_observed_origin(slot, &origin);
+}
+
+/// The origin a slot is allowed to be on, or "" if it is an untrusted URL slot.
+///
+/// ArkTS asks so it can refuse the navigation outright rather than let the
+/// document load and be disowned afterwards. Both checks exist on purpose: this
+/// one stops the page arriving, and `is_trusted` stops it being believed if it
+/// does.
+#[napi(js_name = "slotExpectedOrigin")]
+pub fn slot_expected_origin(slot: u32) -> String {
+    webslot::expected_origin(slot).unwrap_or_default()
+}
+
 #[napi(js_name = "webSlots")]
 pub fn web_slots() -> Vec<String> {
     webslot::encoded()

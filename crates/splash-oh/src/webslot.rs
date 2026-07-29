@@ -146,15 +146,85 @@ impl Source {
     }
 }
 
+/// The origin a slot's declared source should produce.
+///
+/// `None` for a `Url` slot, which is untrusted whatever it loads.
+pub fn expected_origin(id: u32) -> Option<String> {
+    SLOTS.with(|s| {
+        s.borrow()
+            .iter()
+            .find(|x| x.id == id)
+            .and_then(|x| match &x.source {
+                Source::App(_) => Some(format!("{}://app", crate::assets::SCHEME)),
+                // Generated markup is installed with WEB_BASE as its baseUrl.
+                Source::Html(_) => Some("https://localhost".to_string()),
+                Source::Url(_) => None,
+            })
+    })
+}
+
+thread_local! {
+    /// The origin each slot has actually been observed on, reported by ArkTS
+    /// when a document starts loading.
+    ///
+    /// Deliberately NOT cleared by `reset`: a rebuild re-declares the slots but
+    /// does not reload their documents, so dropping this would let a slot that
+    /// had navigated away look untainted again on the very next rerender.
+    static OBSERVED: RefCell<Vec<(u32, String)>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Record where a slot's document actually came from.
+pub fn set_observed_origin(id: u32, origin: &str) {
+    OBSERVED.with(|o| {
+        let mut o = o.borrow_mut();
+        match o.iter_mut().find(|(i, _)| *i == id) {
+            Some(e) => e.1 = origin.to_string(),
+            None => o.push((id, origin.to_string())),
+        }
+    });
+}
+
+fn observed_origin(id: u32) -> Option<String> {
+    OBSERVED.with(|o| {
+        o.borrow()
+            .iter()
+            .find(|(i, _)| *i == id)
+            .map(|(_, s)| s.clone())
+    })
+}
+
 /// Is `id` a slot this app generated? Unknown ids are untrusted.
 pub fn is_trusted(id: u32) -> bool {
-    SLOTS.with(|s| {
+    let by_source = SLOTS.with(|s| {
         s.borrow()
             .iter()
             .find(|x| x.id == id)
             .map(|x| x.source.trusted())
             .unwrap_or(false)
-    })
+    });
+    if !by_source {
+        return false;
+    }
+    // The source says trusted. That is not enough on its own, because trust was
+    // recorded per *slot* while `javaScriptProxy` attaches to the *component*:
+    // a trusted page that navigated itself elsewhere kept the bridge, and both
+    // gates agreed. Measured, not theorised -- a document served by
+    // example.com called the `log` tool and Rust wrote its text to hilog.
+    //
+    // So the document's actual origin has to match the one the slot's source
+    // implies. An unobserved slot is allowed through: the first call from a
+    // page can arrive before onPageBegin has reported, and ArkTS also refuses
+    // the navigation that would create the mismatch in the first place.
+    match (expected_origin(id), observed_origin(id)) {
+        (Some(want), Some(got)) if want != got => {
+            crate::log(&format!(
+                "webslot: slot {id} declared {want} but its document is on {got} \
+                 -- refusing to treat it as trusted"
+            ));
+            false
+        }
+        _ => true,
+    }
 }
 
 pub fn slots() -> Vec<WebSlot> {

@@ -50,6 +50,17 @@ const CATALOG_WALK: Array<string> = ['', 'buttons', 'fab', 'checkbox', 'radio', 
  * the frontend bundle's uptime row, and compare it against the wall clock.
  */
 const RERENDER_EVERY_MS: number = 0;
+/**
+ * Navigate slot 1 to this origin after it loads, or '' to leave it alone.
+ *
+ * Answers one question: trust is recorded per *slot*, but `javaScriptProxy` is
+ * attached to the *component*. If a trusted `splash://` page navigates itself
+ * somewhere else, does the bridge go with it? Rust's `is_trusted` reads the
+ * slot's Source, which is still App — so if ArkTS re-injects the proxy into the
+ * new document, both gates say yes and a remote page holds all 48 tools.
+ */
+const NAV_PROBE_URL: string = '';
+const NAV_PROBE_AFTER_MS: number = 12000;
 const WEB_BASE: string = 'https://localhost/';
 /** Which app the single-app mode is showing, so a background-data redraw
  *  rebuilds the right one. */
@@ -166,6 +177,8 @@ struct Index {
   private handlers: Map<string, webview.WebSchemeHandler> = new Map();
   private lastForcedRerender: number = 0;
   private forcedRerenders: number = 0;
+  private navProbeState: number = 0;
+  private startedAt: number = Date.now();
   /** What each slot has actually finished rendering, set from onPageEnd.
    *
    *  Separate from `loaded` because they are different facts and conflating
@@ -713,6 +726,40 @@ struct Index {
         if ((splash.appTakeDirty() as number) === 1) {
           splash.appRerender();
         }
+        if (NAV_PROBE_URL !== '' && this.navProbeState < 3) {
+          const t: number = Date.now() - this.startedAt;
+          if (this.navProbeState === 0 && t > NAV_PROBE_AFTER_MS) {
+            this.navProbeState = 1;
+            console.info('NAVPROBE navigating slot 1 away to ' + NAV_PROBE_URL);
+            try {
+              this.controllerFor('1').loadUrl(NAV_PROBE_URL);
+            } catch (e) {
+              console.error('NAVPROBE navigation threw: ' + String(e));
+            }
+          } else if (this.navProbeState === 1 && t > NAV_PROBE_AFTER_MS + 8000) {
+            this.navProbeState = 2;
+            try {
+              // Gate 1: did ArkTS put the proxy into the new document?
+              this.controllerFor('1').runJavaScript(
+                "(function(){return location.origin+' proxy='+(typeof window.splash_native)})()",
+                (err, r) => { console.info('NAVPROBE gate1 ' + (err ? 'err ' + String(err) : String(r))); });
+              // Gate 2: if it is there, does Rust answer a call from it?
+              this.controllerFor('1').runJavaScript(
+                "(function(){if(!window.splash_native)return 'no-proxy';"
+                // `log` writes page-controlled text into hilog, so a line
+                // appearing there is proof Rust *served* the call rather than
+                // merely proof that invoke() did not throw. Absence of a
+                // refusal log would not have shown that.
+                + "try{window.splash_native.invoke('navprobe','log',"
+                + "JSON.stringify('SPOKE FROM '+location.origin));return 'invoked'}"
+                + "catch(e){return 'threw '+e}})()",
+                (err, r) => { console.info('NAVPROBE gate2 ' + (err ? 'err ' + String(err) : String(r))); });
+            } catch (e) {
+              console.error('NAVPROBE probe threw: ' + String(e));
+            }
+            this.navProbeState = 3;
+          }
+        }
         if (RERENDER_EVERY_MS > 0) {
           const now: number = Date.now();
           if (now - this.lastForcedRerender >= RERENDER_EVERY_MS) {
@@ -1244,6 +1291,37 @@ struct Index {
           // Stops ArkWeb demanding a tap before it will play media.
           .onControllerAttached(() => {
             this.installSchemeHandler(slot.split('|')[0]);
+          })
+          // Refuse to navigate a trusted slot off its own origin.
+          //
+          // Trust is recorded per slot, but javaScriptProxy attaches to the
+          // component -- so a splash:// page that navigated itself to a remote
+          // site kept the bridge, and Rust, checking only the slot, agreed. A
+          // document served by example.com called the `log` tool and Rust wrote
+          // its text to hilog. This is where that stops.
+          //
+          // Returning true cancels the load.
+          .onLoadIntercept((event) => {
+            const id: string = slot.split('|')[0];
+            const want: string = splash.slotExpectedOrigin(Number(id)) as string;
+            if (want === '') {
+              return false;  // a url slot is untrusted whatever it loads
+            }
+            const url: string = event.data.getRequestUrl();
+            if (url.indexOf(want) === 0 || url.indexOf('about:') === 0) {
+              return false;
+            }
+            console.error('NAVGUARD slot ' + id + ' refused navigation to ' + url
+              + ' (expected origin ' + want + ')');
+            return true;
+          })
+          .onPageBegin((event) => {
+            // Report where the document actually came from, so Rust can refuse
+            // to believe a slot whose page is not where it should be.
+            const id: string = slot.split('|')[0];
+            const u: string = event.url as string;
+            const i: number = u.indexOf('/', u.indexOf('://') + 3);
+            splash.slotOrigin(Number(id), i < 0 ? u : u.substring(0, i));
           })
           .mediaPlayGestureAccess(false)
           .position({ x: Number(slot.split('|')[2]), y: Number(slot.split('|')[3]) })
