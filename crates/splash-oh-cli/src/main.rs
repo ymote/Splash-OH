@@ -238,8 +238,7 @@ Created {}
   cd {}
   npm install
   npm run build
-  splash-oh shim
-  SPLASH_FRONTEND_DIR=$PWD/dist ./build.sh
+  ./build.sh          # needs a Splash-OH checkout; see README.md
 
 Edit splash.toml to change the app's name, id and icon.",
                 root.display(),
@@ -282,6 +281,17 @@ fn scaffold(root: &Path) -> std::io::Result<()> {
         include_str!("template/plugin-lib.rs"),
     )?;
     std::fs::write(root.join("README.md"), include_str!("template/README.md"))?;
+    let build = root.join("build.sh");
+    std::fs::write(&build, include_str!("template/build.sh"))?;
+    // Executable, because the README says to run it. A template that generates
+    // instructions it has not made possible is worse than one that says less --
+    // the first version of this wrote no build.sh at all and told people to run
+    // one anyway.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&build, std::fs::Permissions::from_mode(0o755))?;
+    }
     std::fs::write(
         root.join("public/__splash.js"),
         format!(
