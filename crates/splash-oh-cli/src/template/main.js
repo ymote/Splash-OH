@@ -17,7 +17,17 @@ const row = (label, value) => {
   document.querySelector('#rows').append(li)
 }
 
-// A built-in tool.
-call('device.info').then(d => row('device', `${d.productModel} · ${d.osFullName}`))
-// A tool from plugin/ — your own Rust, callable by name.
-call('app.greet', { name: 'world' }).then(r => row('app.greet', r))
+// A built-in tool. Works as soon as the app starts.
+call('device.info')
+  .then(d => row('device', `${d.productModel} · ${d.osFullName}`))
+  .catch(e => row('device', String(e)))
+
+// A tool from plugin/ — your own Rust.
+//
+// This one fails until the plugin is linked into the app shell, which is two
+// edits in the Splash-OH checkout; see "Add a native capability" in README.md.
+// It is here failing rather than absent because a template that only shows
+// what already works does not show you where the seam is.
+call('app.greet', { name: 'world' })
+  .then(r => row('app.greet', r))
+  .catch(() => row('app.greet', 'not linked yet — see README'))
