@@ -96,6 +96,28 @@ pub fn mount(env: Env, content: JsObject) -> napi_ohos::Result<()> {
     log(&splash_oh_core::self_test());
     assets::self_test();
     app::init(slot);
+    // Hand the capability registry to the renderer's DSL. `platform_channels`
+    // and `pedometer` are not "no analogue" samples on this stack — a script
+    // calling the platform and getting a typed answer back is exactly what a
+    // MethodChannel is, and the bridge already carries ~45 of these for web
+    // pages. This exposes the same registry to the Splash DSL.
+    splash_oh_native::set_host_invoke(|tool| match tool {
+        "device.info" => device::info(0),
+        "device.display" => device::display(),
+        "device.battery" => device::battery(),
+        "device.time" => device::time(),
+        "device.notifications" => device::notifications_enabled(),
+        "sensor.list" => sensor::list().unwrap_or_else(|e| e),
+        // 0 is ARKUI/OH's accelerometer id; the pedometer sample reads step
+        // data, which is the same shape of platform call.
+        "sensor.accelerometer" => sensor::sample(0, 400).unwrap_or_else(|e| e),
+        "sensor.steps" => sensor::sample(
+            sensor::type_from_name("pedometer").unwrap_or(266),
+            400,
+        )
+        .unwrap_or_else(|e| e),
+        other => format!("no such tool: {other}"),
+    });
     Ok(())
 }
 

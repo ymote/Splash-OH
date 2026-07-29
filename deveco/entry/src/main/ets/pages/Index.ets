@@ -33,7 +33,7 @@ const START_APP: string = 'catalog';
  */
 const CATALOG_WALK_MS: number = 0;
 /** The sweep's order: the index, then every screen the catalog defines. */
-const CATALOG_WALK: Array<string> = ['index', 'animations/tween_sequence'];
+const CATALOG_WALK: Array<string> = ['index'];
 /** Origin given to generated pages. Content loaded with no baseUrl gets an
  *  opaque origin in ArkWeb and never paints; it needs a real https one. */
 /**

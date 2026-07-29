@@ -60,3 +60,29 @@ pub fn log(msg: &str) {
         }
     }
 }
+
+/// A host capability call: a tool name in, an answer out.
+///
+/// The renderer must not depend on the bridge — that one-directional rule is
+/// the point of the crate split — so the capabilities are reached through a
+/// hook the bridge installs at mount, exactly as `app::set_router` does for
+/// navigation.
+pub type HostInvoke = fn(&str) -> String;
+
+static HOST_INVOKE: std::sync::Mutex<Option<HostInvoke>> = std::sync::Mutex::new(None);
+
+/// Installed once by the crate that owns the capabilities.
+pub fn set_host_invoke(f: HostInvoke) {
+    if let Ok(mut h) = HOST_INVOKE.lock() {
+        *h = Some(f);
+    }
+}
+
+/// Call a capability by name. Answers with a marker when no host is installed,
+/// so a screen renders on a backend that has none rather than failing.
+pub fn host_invoke(tool: &str) -> String {
+    match HOST_INVOKE.lock().ok().and_then(|h| *h) {
+        Some(f) => f(tool),
+        None => "unavailable".to_string(),
+    }
+}

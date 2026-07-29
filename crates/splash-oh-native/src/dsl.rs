@@ -184,6 +184,7 @@ pub fn build(src: &str) -> Option<Node> {
 
     // Give the DSL its network capability, so the card fetches its own data.
     register_net_capabilities(vm);
+    register_host_capabilities(vm);
 
     let value = vm.eval(ScriptMod {
         cargo_manifest_path: String::new(),
@@ -279,6 +280,26 @@ fn register_net_capabilities(vm: &mut ScriptVm) {
         },
     );
     vm.set_injected_global(id!(fetch_weekday), f_wd);
+}
+
+/// Expose the device capabilities to the DSL as a single `invoke(tool)` global.
+///
+/// This is the thing `platform_channels` demonstrates: a UI calling into the
+/// platform and getting a typed answer back. Flutter spells it MethodChannel;
+/// here the script asks the host by name and the host answers, which is the
+/// same contract with a different spelling. The bridge already carries ~45 of
+/// these for web pages (`splash.invoke`); this hands the same registry to the
+/// DSL.
+///
+/// A tool that does not exist answers with a marker rather than failing, so a
+/// screen can render on a backend that has no capabilities at all.
+fn register_host_capabilities(vm: &mut ScriptVm) {
+    let f = add_global_fn(vm, &[(id!(tool), ScriptValue::NIL)], |vm, a| {
+        let tool = string_prop(vm, a, id!(tool)).unwrap_or_default();
+        let out = crate::host_invoke(&tool);
+        vm.bx.heap.new_string_from_str(&out)
+    });
+    vm.set_injected_global(id!(invoke), f);
 }
 
 /// Register a native function on the VM and return it as a value ready to inject
