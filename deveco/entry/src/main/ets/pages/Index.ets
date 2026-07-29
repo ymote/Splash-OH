@@ -20,7 +20,7 @@ import { Taobao, TikTok, Wonderous } from './AppsArkTs';
  */
 /** Start in the browser card, which is the app that exercises the web overlay.
  *  Empty string starts in the benchmark harness instead. */
-const START_APP: string = 'catalog';
+const START_APP: string = 'frontend';
 /**
  * Milliseconds per screen for the catalog screenshot sweep, or 0 to leave the
  * catalog interactive.
@@ -543,11 +543,6 @@ struct Index {
         const url: string = req.getRequestUrl();
         try {
           const a: ESObject = splash.assetGet(url);
-          console.info('SPLASHASSET probe ' + url + ' typeof=' + typeof a
-            + ' mime=' + (a === undefined ? 'n/a' : String(a.mime))
-            + ' status=' + (a === undefined ? 'n/a' : String(a.status))
-            + ' hasBody=' + (a !== undefined && a.body !== undefined)
-            + ' len=' + (a === undefined || a.body === undefined ? -1 : (a.body as Uint8Array).byteLength));
           const mime: string = a.mime as string;
           const status: number = a.status as number;
           // A napi Buffer arrives here as an ArrayBuffer, NOT as a Uint8Array

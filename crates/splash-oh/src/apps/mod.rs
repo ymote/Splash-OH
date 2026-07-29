@@ -337,7 +337,11 @@ pub fn build() -> (Option<Node>, usize, f64) {
             // redraw was the index. Ask for the route that is actually current.
             let _ = sub;
             let route = splash_oh_native::app::current_screen();
-            let route = if route.is_empty() { "index".to_string() } else { route };
+            let route = if route.is_empty() {
+                "index".to_string()
+            } else {
+                route
+            };
             splash_oh_native::dsl::build_flutter(&route, false)
         }
         App::WeChat => unreachable!(),

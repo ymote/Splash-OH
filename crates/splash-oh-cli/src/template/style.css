@@ -1,0 +1,9 @@
+:root { color-scheme: light dark; font-family: system-ui, -apple-system, sans-serif; }
+body { margin: 0; padding: 24px 18px; }
+h1 { font-size: 24px; margin: 0 0 4px; }
+.sub { color: #6b7280; font-size: 13px; margin: 0 0 20px; }
+ul { list-style: none; padding: 0; margin: 0; }
+li { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0;
+     border-bottom: 1px solid rgba(128,128,128,.25); font-size: 14px; min-width: 0; }
+li b { font-family: ui-monospace, monospace; font-size: 12px; font-weight: 500;
+       text-align: right; overflow-wrap: anywhere; }

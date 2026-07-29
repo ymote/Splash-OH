@@ -61,6 +61,48 @@ pub const SCHEME: &str = "splash";
 /// `SPLASH_FRONTEND_DIR` to a `dist/` and whatever is in it ships as-is.
 include!(concat!(env!("OUT_DIR"), "/bundle.rs"));
 
+/// The dev server this build points at, if any.
+///
+/// Set `SPLASH_DEV_SERVER=http://192.168.1.20:5173` at build time and an app
+/// slot navigates there instead of to `splash://app`. The frontend then comes
+/// from the bundler, with its live reload intact, and a CSS edit shows up on
+/// the phone without rebuilding anything.
+///
+/// The embedded bundle is still compiled in, so a build pointed at a server
+/// that is not running is a page that fails to load rather than an app with no
+/// frontend at all.
+///
+/// Not a runtime switch. A release build with no `SPLASH_DEV_SERVER` has no
+/// notion of one, which is the point: a debug convenience that can be turned on
+/// in a shipped app is a way for someone else's server to become your frontend.
+pub fn dev_server() -> Option<&'static str> {
+    match option_env!("SPLASH_DEV_SERVER") {
+        Some(s) if !s.is_empty() => Some(s.trim_end_matches('/')),
+        _ => None,
+    }
+}
+
+/// The origin an app slot's document should be on.
+///
+/// `splash://app` normally; the dev server's origin when this build has one.
+pub fn app_origin() -> String {
+    match dev_server() {
+        Some(url) => origin_of(url),
+        None => format!("{SCHEME}://app"),
+    }
+}
+
+/// `http://host:5173/some/path` -> `http://host:5173`.
+pub fn origin_of(url: &str) -> String {
+    match url.find("://") {
+        Some(i) => match url[i + 3..].find('/') {
+            Some(j) => url[..i + 3 + j].to_string(),
+            None => url.to_string(),
+        },
+        None => url.to_string(),
+    }
+}
+
 /// Resolve a request URL to bytes.
 ///
 /// Returns a 404 asset rather than `None` for an unknown path. ArkWeb has no
@@ -152,10 +194,25 @@ pub fn self_test() {
             ));
         }
     }
+    for (input, want) in [
+        ("http://1.2.3.4:5173", "http://1.2.3.4:5173"),
+        ("http://1.2.3.4:5173/", "http://1.2.3.4:5173"),
+        ("http://1.2.3.4:5173/a/b", "http://1.2.3.4:5173"),
+        ("splash://app/index.html", "splash://app"),
+    ] {
+        if origin_of(input) != want {
+            bad += 1;
+            crate::log(&format!(
+                "assets selftest: origin_of({input:?}) -> {:?}, expected {want:?}",
+                origin_of(input)
+            ));
+        }
+    }
     if bad == 0 {
         crate::log(&format!(
-            "assets selftest: ok ({} paths, traversal refused)",
-            cases.len()
+            "assets selftest: ok ({} paths + origins, traversal refused, dev_server={:?})",
+            cases.len(),
+            dev_server()
         ));
     } else {
         crate::log(&format!("assets selftest: {bad} FAILURES"));

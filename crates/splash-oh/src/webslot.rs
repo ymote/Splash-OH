@@ -155,7 +155,10 @@ pub fn expected_origin(id: u32) -> Option<String> {
             .iter()
             .find(|x| x.id == id)
             .and_then(|x| match &x.source {
-                Source::App(_) => Some(format!("{}://app", crate::assets::SCHEME)),
+                // Follows the dev server when there is one: otherwise the
+                // navigation guard would refuse the very page this build is meant
+                // to load, and the bridge would disown it on arrival.
+                Source::App(_) => Some(crate::assets::app_origin()),
                 // Generated markup is installed with WEB_BASE as its baseUrl.
                 Source::Html(_) => Some("https://localhost".to_string()),
                 Source::Url(_) => None,
@@ -282,7 +285,12 @@ pub fn encoded() -> Vec<String> {
                 Source::Html(_) => String::new(),
                 // A real URL, because this one does navigate: the scheme
                 // handler answers it. Nothing is pushed through loadData.
-                Source::App(p) => format!("{}://app{}", crate::assets::SCHEME, p),
+                // A dev build points this at the bundler instead, so the
+                // page comes from the live-reloading server.
+                Source::App(p) => match crate::assets::dev_server() {
+                    Some(dev) => format!("{dev}{p}"),
+                    None => format!("{}://app{}", crate::assets::SCHEME, p),
+                },
             };
             let kind = match &s.source {
                 Source::Url(_) => "url",
