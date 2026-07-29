@@ -1639,8 +1639,12 @@ pub fn drain() -> Vec<String> {
 /// `splash_native` is the raw proxy ArkWeb injects: synchronous and void. This
 /// wraps it in the promise API a page actually wants, and provides `_resolve`
 /// for ArkTS to call back into.
-pub const SHIM: &str = r#"<script>
-(function(){
+/// The bridge shim as bare JavaScript, with no `<script>` wrapper.
+///
+/// Split out from [`SHIM`] so the asset server can serve it as a real file.
+/// A page that Rust did not generate cannot have the shim prepended to it,
+/// so it has to be fetchable at a URL like any other script.
+pub const SHIM_JS: &str = r#"(function(){
   var n = 0, pending = {};
   window.splash = {
     // ARGS ARE ALWAYS JSON. Whatever is passed is stringified, so a tool
@@ -1702,4 +1706,9 @@ pub const SHIM: &str = r#"<script>
     window.splash_native.invoke('ready', 'slot.ready', '');
   }
 })();
-</script>"#;
+"#;
+
+/// The shim wrapped in a `<script>` tag, for markup Rust generates.
+pub fn shim() -> String {
+    format!("<script>{SHIM_JS}</script>")
+}

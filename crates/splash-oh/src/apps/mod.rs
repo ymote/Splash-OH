@@ -19,6 +19,7 @@
 
 pub mod browser;
 pub mod files;
+pub mod frontend;
 pub mod native;
 
 pub mod weather_web;
@@ -43,6 +44,12 @@ pub enum App {
     /// 482 lines of DSL evaluated on device, and every widget it produces is a
     /// real ArkUI node. No makepad anywhere in the path.
     Catalog,
+    /// The shipped frontend bundle, served over `splash://` by `assets.rs`.
+    ///
+    /// The one app here that is a web page this crate did not generate: it
+    /// arrives as separate files through the scheme handler, the way a real
+    /// frontend build would.
+    Frontend,
     /// Every bridge tool on one screen with live values. The fixture the
     /// bridge is verified against, so a new capability is one row rather than
     /// a new panel bolted onto whichever card was nearest.
@@ -67,6 +74,7 @@ impl App {
             App::WeatherWeb => "weatherweb",
             App::Files => "files",
             App::Native => "native",
+            App::Frontend => "frontend",
             App::Catalog => "catalog",
         }
     }
@@ -79,6 +87,7 @@ impl App {
             "weatherweb" => App::WeatherWeb,
             "files" => App::Files,
             "native" => App::Native,
+            "frontend" => App::Frontend,
             "catalog" => App::Catalog,
             _ => App::WeChat,
         }
@@ -103,6 +112,7 @@ impl App {
             App::WeatherWeb => &["0|root", "1|root", "2|root", "3|root", "0|root", "1|root"],
             App::Files => &["0|root", "1|root", "2|root", "3|root", "4|root", "0|root"],
             App::Native => &["0|root", "0|root", "0|root", "0|root", "0|root", "0|root"],
+            App::Frontend => &["0|root"],
             App::Catalog => &[
                 "0|root",
                 "0|buttons",
@@ -252,6 +262,7 @@ pub fn handle(target: i32) -> bool {
             },
             // No navigation: one page, every tool live on it.
             App::Native => false,
+            App::Frontend => false,
             // The DSL owns the ids: NAV_BASE + row index opens a screen, and
             // NAV_BACK returns to the index. `sub` carries the screen, with 0
             // meaning the index itself.
@@ -314,6 +325,7 @@ pub fn build() -> (Option<Node>, usize, f64) {
         App::WeatherWeb => weather_web::build(tab),
         App::Files => files::build(tab),
         App::Native => native::build(),
+        App::Frontend => frontend::build(),
         App::Catalog => {
             let screen = if sub == 0 {
                 ""
@@ -367,6 +379,7 @@ pub fn build_route(app: App, tab: usize, route: &str) -> (usize, f64) {
         App::WeatherWeb => weather_web::build(tab),
         App::Files => files::build(tab),
         App::Native => native::build(),
+        App::Frontend => frontend::build(),
         App::Catalog => {
             // The tour names screens directly ("0|chips"), so "root" is the
             // index and anything else is the screen id verbatim.

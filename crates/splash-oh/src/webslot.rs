@@ -37,6 +37,15 @@ pub enum Source {
     /// Render markup the app generated. Delivered by `loadData` rather than a
     /// `data:` URL, which has a length limit a real page overruns.
     Html(String),
+    /// A page from the bundle this app ships, served over the `splash://`
+    /// scheme by `assets.rs`. The string is the path within the bundle.
+    ///
+    /// Distinct from `Url` even though it navigates to one, because the trust
+    /// answer is opposite: a `Url` is somebody else's page and gets no bridge,
+    /// while this is the app's own frontend and is exactly what the bridge is
+    /// for. Folding it into `Url` would have made "is this trusted" a question
+    /// about string prefixes.
+    App(String),
 }
 
 /// A web surface the DSL asked for, in vp, relative to the page.
@@ -99,6 +108,11 @@ pub fn declare_html(html: String, x: f32, y: f32, w: f32, h: f32) -> u32 {
     declare_source(Source::Html(html), x, y, w, h)
 }
 
+/// Declare a surface showing a page from the shipped bundle.
+pub fn declare_app(path: &str, x: f32, y: f32, w: f32, h: f32) -> u32 {
+    declare_source(Source::App(path.to_string()), x, y, w, h)
+}
+
 fn declare_source(source: Source, x: f32, y: f32, w: f32, h: f32) -> u32 {
     let id = NEXT_ID.with(|n| {
         let mut n = n.borrow_mut();
@@ -128,7 +142,7 @@ fn declare_source(source: Source, x: f32, y: f32, w: f32, h: f32) -> u32 {
 /// `http.get` on it.
 impl Source {
     pub fn trusted(&self) -> bool {
-        matches!(self, Source::Html(_))
+        matches!(self, Source::Html(_) | Source::App(_))
     }
 }
 
@@ -196,10 +210,14 @@ pub fn encoded() -> Vec<String> {
                 // data:, so the surface stayed white with no error. They are
                 // fetched by id and installed with loadData + a baseUrl.
                 Source::Html(_) => String::new(),
+                // A real URL, because this one does navigate: the scheme
+                // handler answers it. Nothing is pushed through loadData.
+                Source::App(p) => format!("{}://app{}", crate::assets::SCHEME, p),
             };
             let kind = match &s.source {
                 Source::Url(_) => "url",
                 Source::Html(_) => "html",
+                Source::App(_) => "app",
             };
             // `kind` doubles as the trust marker: ArkTS attaches the bridge
             // only to `html` slots. Rust re-checks anyway -- see bridge::invoke.
@@ -215,7 +233,9 @@ pub fn html_for(id: u32) -> String {
         .find(|s| s.id == id)
         .and_then(|s| match &s.source {
             Source::Html(h) => Some(h.clone()),
-            Source::Url(_) => None,
+            // Neither of these is pushed as markup: a URL navigates, and an app
+            // slot navigates to a splash:// URL the scheme handler answers.
+            Source::Url(_) | Source::App(_) => None,
         })
         .unwrap_or_default()
 }
@@ -251,7 +271,7 @@ pub fn web(url: &str, x: f32, y: f32, w: f32, h: f32) -> Option<Node> {
 /// The bridge shim is prepended, so every generated page can call
 /// `splash.invoke(tool, args)` without having to carry the plumbing itself.
 pub fn web_html(html: String, x: f32, y: f32, w: f32, h: f32) -> Option<Node> {
-    let with_shim = format!("{}{}", crate::bridge::SHIM, html);
+    let with_shim = format!("{}{}", crate::bridge::shim(), html);
     self::declare_html(with_shim, x, y, w, h);
     col(w, h, 0x00000000)
 }

@@ -1,6 +1,8 @@
 import { NodeContent, FrameNode } from '@kit.ArkUI';
 import { systemDateTime } from '@kit.BasicServicesKit';
 import { webview } from '@kit.ArkWeb';
+import { WebNetErrorList } from '@ohos.web.netErrorList';
+import { BusinessError } from '@kit.BasicServicesKit';
 import { picker, fileUri } from '@kit.CoreFileKit';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { abilityAccessCtrl, Permissions, PermissionRequestResult } from '@kit.AbilityKit';
@@ -18,7 +20,7 @@ import { Taobao, TikTok, Wonderous } from './AppsArkTs';
  */
 /** Start in the browser card, which is the app that exercises the web overlay.
  *  Empty string starts in the benchmark harness instead. */
-const START_APP: string = 'catalog';
+const START_APP: string = 'frontend';
 /**
  * Milliseconds per screen for the catalog screenshot sweep, or 0 to leave the
  * catalog interactive.
@@ -38,6 +40,16 @@ const CATALOG_WALK: Array<string> = ['', 'buttons', 'fab', 'checkbox', 'radio', 
   'typography', 'color', 'layout', 'bench'];
 /** Origin given to generated pages. Content loaded with no baseUrl gets an
  *  opaque origin in ArkWeb and never paints; it needs a real https one. */
+/**
+ * Force a native rerender this often, or 0 for normal behaviour.
+ *
+ * Exists to make one specific claim measurable: that a web slot now survives a
+ * rebuild. Before slot ids were reset per build, every rerender destroyed the
+ * `Web` component and reloaded its document. Proving the fix needs rerenders to
+ * happen on demand rather than whenever background data lands — set this, watch
+ * the frontend bundle's uptime row, and compare it against the wall clock.
+ */
+const RERENDER_EVERY_MS: number = 0;
 const WEB_BASE: string = 'https://localhost/';
 /** Which app the single-app mode is showing, so a background-data redraw
  *  rebuilds the right one. */
@@ -149,6 +161,11 @@ struct Index {
   /** What each controller was last told to load, so a rebuild that did not
    *  change the URL does not reload the page out from under the user. */
   private loaded: Map<string, string> = new Map();
+  /** One scheme handler per slot id, installed once when its controller
+   *  attaches. Kept out of @State for the same reason the controllers are. */
+  private handlers: Map<string, webview.WebSchemeHandler> = new Map();
+  private lastForcedRerender: number = 0;
+  private forcedRerenders: number = 0;
   /** What each slot has actually finished rendering, set from onPageEnd.
    *
    *  Separate from `loaded` because they are different facts and conflating
@@ -482,6 +499,77 @@ struct Index {
     }
   }
 
+  /**
+   * Install the `splash://` handler on a slot's controller.
+   *
+   * Called from `onControllerAttached`, which is the only window that works.
+   * The scheme is registered before the engine starts (EntryAbility.onCreate),
+   * but a *handler* binds to a controller, and a controller has none until a
+   * `Web` attaches it — while the component's `src` starts navigating as soon
+   * as it exists. `onControllerAttached` is the documented point that is after
+   * the first and before the second, so it is what catches the very first
+   * main-frame request instead of letting it through unanswered.
+   *
+   * Everything served comes from Rust. This function decides nothing about
+   * content; it moves bytes and reports failures.
+   */
+  private installSchemeHandler(id: string): void {
+    if (this.handlers.has(id)) {
+      return;
+    }
+    try {
+      const handler: webview.WebSchemeHandler = new webview.WebSchemeHandler();
+      handler.onRequestStart((req: webview.WebSchemeHandlerRequest,
+                             res: webview.WebResourceHandler): boolean => {
+        const url: string = req.getRequestUrl();
+        try {
+          const a: ESObject = splash.assetGet(url);
+          console.info('SPLASHASSET probe ' + url + ' typeof=' + typeof a
+            + ' mime=' + (a === undefined ? 'n/a' : String(a.mime))
+            + ' status=' + (a === undefined ? 'n/a' : String(a.status))
+            + ' hasBody=' + (a !== undefined && a.body !== undefined)
+            + ' len=' + (a === undefined || a.body === undefined ? -1 : (a.body as Uint8Array).byteLength));
+          const mime: string = a.mime as string;
+          const status: number = a.status as number;
+          // A napi Buffer arrives here as an ArrayBuffer, NOT as a Uint8Array
+          // view over one: it reports a byteLength and has no `.buffer`. An
+          // earlier version sliced `.buffer` to the view and every asset failed
+          // with "cannot read property slice of undefined" -- which reads like
+          // a missing body, but the body was there the whole time.
+          const body: ArrayBuffer = a.body as ArrayBuffer;
+
+          const resp: webview.WebSchemeHandlerResponse = new webview.WebSchemeHandlerResponse();
+          resp.setStatus(status);
+          resp.setStatusText(status === 200 ? 'OK' : 'Not Found');
+          resp.setMimeType(mime);
+          resp.setEncoding('utf-8');
+          // The bundle is compiled into the binary, so it cannot change under
+          // a running app; but a stale cache across an install would look
+          // exactly like a fix that did not take.
+          resp.setHeaderByName('Cache-Control', 'no-store', true);
+          res.didReceiveResponse(resp);
+          res.didReceiveResponseBody(body);
+          res.didFinish();
+          console.info('SPLASHASSET ' + status + ' ' + url + ' (' + body.byteLength + 'B ' + mime + ')');
+        } catch (e) {
+          // Failing loudly matters more here than anywhere else in this file:
+          // a custom scheme has no default resolver, so a request that is
+          // neither answered nor failed is a hang with no console error.
+          const err = e as BusinessError;
+          console.error('SPLASHASSET error ' + url + ': code=' + err.code
+            + ' msg=' + err.message + ' raw=' + String(e));
+          res.didFail(WebNetErrorList.ERR_FAILED);
+        }
+        return true;
+      });
+      this.controllerFor(id).setWebSchemeHandler('splash', handler);
+      this.handlers.set(id, handler);
+      console.info('SPLASHSCHEME handler installed on slot ' + id);
+    } catch (e) {
+      console.error('SPLASHSCHEME handler install failed on slot ' + id + ': ' + JSON.stringify(e));
+    }
+  }
+
   private controllerFor(id: string): webview.WebviewController {
     let c = this.controllers.get(id);
     if (c === undefined) {
@@ -624,6 +712,16 @@ struct Index {
         // to the first tab -- making the tap look like it had done nothing.
         if ((splash.appTakeDirty() as number) === 1) {
           splash.appRerender();
+        }
+        if (RERENDER_EVERY_MS > 0) {
+          const now: number = Date.now();
+          if (now - this.lastForcedRerender >= RERENDER_EVERY_MS) {
+            this.lastForcedRerender = now;
+            splash.appRerender();
+            this.forcedRerenders++;
+            console.info('RERENDERPROBE n=' + this.forcedRerenders
+              + ' slots=' + (splash.webSlots() as Array<string>).join(','));
+          }
         }
         this.syncWebSlots();
         // Still drained, but only ever catches traffic produced before
@@ -1121,6 +1219,9 @@ struct Index {
           // A URL slot navigates directly. A generated slot starts on a real
           // https origin and is then replaced by loadData against that same
           // origin -- see loadSlot for why it cannot be data: or origin-less.
+          // 'html' starts on a real https origin and is filled by loadData;
+          // 'url' and 'app' both navigate straight to their src -- for 'app'
+          // that is a splash:// URL the scheme handler answers.
           src: slot.split('|')[1] === 'html' ? WEB_BASE : slot.split('|')[6],
           controller: this.controllerFor(slot.split('|')[0])
         })
@@ -1134,13 +1235,16 @@ struct Index {
           //
           // Rust re-checks on every call regardless. This check sits next to
           // the untrusted content, which makes it the wrong place to depend on.
-          .javaScriptProxy(slot.split('|')[1] === 'html' ? {
+          .javaScriptProxy(slot.split('|')[1] !== 'url' ? {
             object: this.bridgeFor(slot.split('|')[0]),
             name: 'splash_native',
             methodList: ['invoke'],
             controller: this.controllerFor(slot.split('|')[0]),
           } : undefined)
           // Stops ArkWeb demanding a tap before it will play media.
+          .onControllerAttached(() => {
+            this.installSchemeHandler(slot.split('|')[0]);
+          })
           .mediaPlayGestureAccess(false)
           .position({ x: Number(slot.split('|')[2]), y: Number(slot.split('|')[3]) })
           .width(Number(slot.split('|')[4]))

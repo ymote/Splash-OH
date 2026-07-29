@@ -1,0 +1,20 @@
+:root { color-scheme: dark; }
+body {
+  margin: 0; padding: 20px 18px;
+  font: 15px/1.5 -apple-system, "HarmonyOS Sans", system-ui, sans-serif;
+  background: #14161a; color: #e6e8ec;
+}
+h1 { font-size: 22px; margin: 0 0 2px; letter-spacing: -.01em; }
+/* app.js reads this exact colour back to decide whether the sheet arrived. */
+.sub { color: rgb(0, 128, 96); margin: 0 0 16px; font-size: 13px; }
+code { font-family: ui-monospace, monospace; }
+img { display: block; margin: 0 0 16px; }
+ul { list-style: none; margin: 0; padding: 0; }
+li {
+  display: flex; justify-content: space-between; gap: 12px;
+  padding: 9px 0; border-bottom: 1px solid #262a31; font-size: 14px;
+}
+li span { font-family: ui-monospace, monospace; font-size: 12px; text-align: right; }
+.ok   { color: #4ade80; }
+.bad  { color: #f87171; }
+.note { color: #94a3b8; }

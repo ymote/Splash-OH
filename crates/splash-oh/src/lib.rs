@@ -20,6 +20,7 @@ pub use splash_oh_native::{app, arkui, bench, catalog, dsl, log, mem, net};
 
 pub mod apps;
 pub mod arkweb;
+pub mod assets;
 pub mod audio;
 pub mod bridge;
 pub mod capture;
@@ -81,6 +82,7 @@ pub fn mount(env: Env, content: JsObject) -> napi_ohos::Result<()> {
         return Ok(());
     }
 
+    assets::self_test();
     app::init(slot);
     Ok(())
 }
@@ -183,6 +185,32 @@ pub fn wechat_render() -> Vec<f64> {
 /// ArkTS positions a real `Web` component at each of these, above the
 /// `ContentSlot`. There is no `ARKUI_NODE_WEB`, so this is the only way a
 /// Splash tree can contain a webview -- see `webslot.rs`.
+/// One asset from the shipped bundle, for the `splash://` scheme handler.
+///
+/// ArkTS owns `customizeSchemes`/`setWebSchemeHandler` because those are ArkTS
+/// APIs; it owns none of the policy. It asks here for a URL and streams back
+/// whatever comes out, including the 404 -- a custom scheme has no default
+/// resolver, so a request this declines to answer is not a miss, it is a hang.
+#[napi(js_name = "assetGet")]
+pub fn asset_get(url: String) -> AssetReply {
+    let a = assets::get(&url);
+    AssetReply {
+        mime: a.mime.to_string(),
+        status: a.status as u32,
+        body: a.body.into(),
+    }
+}
+
+/// What `assetGet` hands back. `body` crosses as a napi Buffer, which ArkTS
+/// receives as a Uint8Array -- see Index.ets for why the ArrayBuffer behind it
+/// has to be sliced to the view rather than passed whole.
+#[napi(object)]
+pub struct AssetReply {
+    pub mime: String,
+    pub status: u32,
+    pub body: napi_ohos::bindgen_prelude::Buffer,
+}
+
 #[napi(js_name = "webSlots")]
 pub fn web_slots() -> Vec<String> {
     webslot::encoded()

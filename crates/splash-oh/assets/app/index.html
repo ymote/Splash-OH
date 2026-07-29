@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Splash-OH asset protocol</title>
+<!-- Every one of these is a separate request the scheme handler must answer.
+     Nothing here is inlined, on purpose: a single self-contained document
+     would prove loadData still works, not that subresources resolve. -->
+<link rel="stylesheet" href="/app.css">
+<script src="/__splash.js"></script>
+</head>
+<body>
+<h1>Asset protocol</h1>
+<p class="sub">served from Rust over <code>splash://</code></p>
+
+<img src="/logo.svg" width="48" height="48" alt="">
+
+<ul id="results">
+  <li id="r-css">stylesheet<span>…</span></li>
+  <li id="r-img">image<span>…</span></li>
+  <li id="r-chunk">code-split chunk<span>…</span></li>
+  <li id="r-404">404 path<span>…</span></li>
+  <li id="r-bridge">bridge invoke<span>…</span></li>
+  <li id="r-state">survives rerender<span>…</span></li>
+</ul>
+
+<script src="/app.js"></script>
+</body>
+</html>

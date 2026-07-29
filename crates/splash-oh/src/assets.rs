@@ -1,0 +1,205 @@
+//! Serving a frontend bundle to a webview, from Rust.
+//!
+//! # The gap this closes
+//!
+//! Every page in this app used to be a single HTML string handed to
+//! `loadData(html, 'text/html', 'UTF-8', 'https://localhost/')`. That is fine
+//! for markup Rust generates and hopeless for a frontend anyone builds: the
+//! moment `index.html` asks for `/assets/index-a3f2.js`, a font, or a
+//! code-split chunk, the request resolves against `https://localhost/` and
+//! there is nothing there to answer it.
+//!
+//! ArkWeb has a real custom-protocol API, and it is the same shape as Tauri's:
+//!
+//! ```text
+//! WebviewController.customizeSchemes([{schemeName: 'splash', ...}])  register
+//! controller.setWebSchemeHandler('splash', handler)                  install
+//! handler.onRequestStart((req, res) => boolean)                      serve
+//! ```
+//!
+//! ArkTS owns those three calls because they are ArkTS APIs. What it does not
+//! own is *what gets served*: it asks this module for a URL and streams back
+//! whatever comes out.
+//!
+//! # Where the bytes come from
+//!
+//! Compiled in, via `include_str!`/`include_bytes!` from `assets/app/`.
+//!
+//! The obvious alternative — push a `dist/` into the app sandbox and serve from
+//! there — does not work, and the reason is already written down in
+//! `bridge.rs`: `hdc`'s file push resolves outside the app's mount namespace,
+//! so the file never arrives where the app can read it. A dev loop that
+//! hot-swaps a bundle needs a different mechanism than a push, and inventing
+//! one is not this module's job.
+//!
+//! # The shim
+//!
+//! A page Rust generated gets the bridge shim prepended to its markup. A page
+//! Rust did not generate cannot, so the shim is served here as
+//! `/__splash.js` and the page includes it like any other script. That is a
+//! contract the frontend has to honour, and it is deliberately explicit: the
+//! alternative is rewriting someone else's HTML on the way past.
+
+/// A served response.
+pub struct Asset {
+    pub mime: &'static str,
+    pub body: Vec<u8>,
+    pub status: u16,
+}
+
+/// The scheme this app answers for. Registered by ArkTS before the web engine
+/// starts; the two sides have to agree and a mismatch is silent.
+pub const SCHEME: &str = "splash";
+
+/// Files compiled into the binary. A real bundler output would land here.
+///
+/// Listed rather than globbed so a file that fails to make it into the build is
+/// a compile error rather than a 404 discovered on a device.
+const BUNDLE: &[(&str, &str, &[u8])] = &[
+    (
+        "/index.html",
+        "text/html",
+        include_bytes!("../assets/app/index.html"),
+    ),
+    (
+        "/app.js",
+        "text/javascript",
+        include_bytes!("../assets/app/app.js"),
+    ),
+    (
+        "/app.css",
+        "text/css",
+        include_bytes!("../assets/app/app.css"),
+    ),
+    (
+        "/chunk.js",
+        "text/javascript",
+        include_bytes!("../assets/app/chunk.js"),
+    ),
+    (
+        "/logo.svg",
+        "image/svg+xml",
+        include_bytes!("../assets/app/logo.svg"),
+    ),
+];
+
+/// Resolve a request URL to bytes.
+///
+/// Returns a 404 asset rather than `None` for an unknown path. ArkWeb has no
+/// default resolver for a custom scheme, so declining to handle a request does
+/// not produce a normal 404 — it produces a request that nothing ever answers,
+/// which the page sees as a hang rather than a miss.
+pub fn get(url: &str) -> Asset {
+    let path = normalise(url);
+
+    if path == "/__splash.js" {
+        return Asset {
+            mime: "text/javascript",
+            body: crate::bridge::SHIM_JS.as_bytes().to_vec(),
+            status: 200,
+        };
+    }
+
+    for (p, mime, body) in BUNDLE {
+        if *p == path {
+            return Asset {
+                mime,
+                body: body.to_vec(),
+                status: 200,
+            };
+        }
+    }
+
+    crate::log(&format!("assets: 404 {path}"));
+    Asset {
+        mime: "text/plain",
+        body: format!("not found: {path}").into_bytes(),
+        status: 404,
+    }
+}
+
+/// `splash://app/a/b?q=1#frag` -> `/a/b`.
+///
+/// Traversal is not resolved, it is rejected: any path containing a `..`
+/// segment becomes `/`, which then serves the index rather than reaching
+/// upward. There is no filesystem behind this today, but there will be, and a
+/// normaliser that silently resolves `..` is how that becomes a bug later.
+fn normalise(url: &str) -> String {
+    let rest = url.split_once("://").map(|(_, r)| r).unwrap_or(url);
+    // Drop the authority ("app"), keep the path.
+    let path = match rest.find('/') {
+        Some(i) => &rest[i..],
+        None => "/",
+    };
+    let path = path.split(['?', '#']).next().unwrap_or("/");
+    if path.split('/').any(|seg| seg == "..") {
+        crate::log(&format!("assets: rejected traversal in {url:?}"));
+        return "/index.html".to_string();
+    }
+    if path.is_empty() || path == "/" {
+        return "/index.html".to_string();
+    }
+    path.to_string()
+}
+
+/// Check path handling on the device, and log the result.
+///
+/// The `#[cfg(test)]` cases below cannot be executed anywhere useful: the crate
+/// only builds for `aarch64-unknown-linux-ohos`, so `cargo test` produces a
+/// binary the host cannot run, and pushing it to the phone fails because
+/// SELinux refuses to exec from `/data/local/tmp`. Tests that compile but never
+/// run are assertions, not evidence — and traversal rejection is exactly the
+/// kind of check that must not be taken on trust.
+///
+/// So the same cases also run at startup, where the code actually lives. Called
+/// from `mount`.
+pub fn self_test() {
+    let cases: &[(&str, &str)] = &[
+        ("splash://app/", "/index.html"),
+        ("splash://app", "/index.html"),
+        ("splash://app/app.js", "/app.js"),
+        ("splash://app/app.js?v=2", "/app.js"),
+        ("splash://app/a/b.css#x", "/a/b.css"),
+        // Traversal is refused, not resolved.
+        ("splash://app/../secret", "/index.html"),
+        ("splash://app/a/../../etc/passwd", "/index.html"),
+    ];
+    let mut bad = 0;
+    for (input, want) in cases {
+        let got = normalise(input);
+        if got != *want {
+            bad += 1;
+            crate::log(&format!(
+                "assets selftest: {input:?} -> {got:?}, expected {want:?}"
+            ));
+        }
+    }
+    if bad == 0 {
+        crate::log(&format!(
+            "assets selftest: ok ({} paths, traversal refused)",
+            cases.len()
+        ));
+    } else {
+        crate::log(&format!("assets selftest: {bad} FAILURES"));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalise;
+
+    #[test]
+    fn paths_normalise() {
+        assert_eq!(normalise("splash://app/"), "/index.html");
+        assert_eq!(normalise("splash://app"), "/index.html");
+        assert_eq!(normalise("splash://app/app.js"), "/app.js");
+        assert_eq!(normalise("splash://app/app.js?v=2"), "/app.js");
+        assert_eq!(normalise("splash://app/a/b.css#x"), "/a/b.css");
+    }
+
+    #[test]
+    fn traversal_is_refused_not_resolved() {
+        assert_eq!(normalise("splash://app/../secret"), "/index.html");
+        assert_eq!(normalise("splash://app/a/../../etc/passwd"), "/index.html");
+    }
+}
