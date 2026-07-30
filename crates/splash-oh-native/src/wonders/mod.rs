@@ -20,45 +20,74 @@ pub mod timeline_data;
 
 /// Every tap target on a screen, in one overlay.
 ///
-/// Two things had to be true at once. `NODE_POSITION` moves where a node draws
-/// and ArkUI keeps hit-testing it where it was laid out, so a target has to be
-/// placed by layout — a spacer above it, a spacer beside it. But a full-frame
-/// column per target means the last one added covers all the others, and only
-/// it ever receives anything.
+/// Three facts, each of which hid the next.
 ///
-/// So all of a screen's targets go into a single full-frame column, stacked in
-/// order of y with the gaps between them as spacers. Both were found on the
-/// device: positioned targets drew correctly and never fired, and once each had
-/// its own overlay only the last one worked.
+/// 1. `NODE_POSITION` moves where a node draws and ArkUI keeps hit-testing it
+///    where it was laid out, so a positioned target draws right and never
+///    fires.
+/// 2. Giving each target its own full-frame Column to lay it out means the last
+///    one added covers all the others, and only it receives anything.
+/// 3. Putting them all in one Column in a single vertical flow drops any two
+///    that share a y — which is exactly the home pager's left and right halves.
 ///
-/// `targets` is `(x, y, w, h, id)`, and does not need to be sorted.
+/// So: one full-frame Column, targets grouped into rows by y, and within a row
+/// laid out left to right with spacers. All three were found on the device, the
+/// third from a log line reporting the dropped target by id.
+///
+/// `targets` is `(x, y, w, h, id)` and need not be sorted.
 pub fn hits(
     frame_w: f32,
     frame_h: f32,
     targets: &[(f32, f32, f32, f32, i32)],
 ) -> Option<crate::arkui::Node> {
     use crate::ui::{col, row, spacer, tap_col};
-    let mut ts: Vec<&(f32, f32, f32, f32, i32)> = targets.iter().collect();
-    ts.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+
+    let mut ts: Vec<(f32, f32, f32, f32, i32)> = targets.to_vec();
+    ts.sort_by(|a, b| {
+        a.1.partial_cmp(&b.1)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal))
+    });
+
+    // Group into bands: anything starting before the current band ends joins it.
+    let mut bands: Vec<Vec<(f32, f32, f32, f32, i32)>> = Vec::new();
+    for t in ts {
+        match bands.last_mut() {
+            Some(b) if t.1 < b.iter().map(|x| x.1 + x.3).fold(f32::MIN, f32::max) => b.push(t),
+            _ => bands.push(vec![t]),
+        }
+    }
 
     let mut column = col(frame_w, frame_h, 0x00000000)?;
-    let mut y = 0.0f32;
-    for (tx, ty, tw, th, id) in ts {
-        // Targets that overlap in y cannot both be laid out in one flow; the
-        // later one is dropped rather than silently shifting the rest down.
-        if *ty < y {
-            continue;
+    let mut cursor = 0.0f32;
+    for band in bands {
+        let top = band.iter().map(|t| t.1).fold(f32::MAX, f32::min);
+        let bottom = band.iter().map(|t| t.1 + t.3).fold(f32::MIN, f32::max);
+        if top > cursor {
+            column = column.child(spacer(frame_w, top - cursor)?);
         }
-        if *ty > y {
-            column = column.child(spacer(frame_w, ty - y)?);
+        let mut line = row(frame_w, bottom - top, 0x00000000)?;
+        let mut x = 0.0f32;
+        for (tx, _, tw, th, id) in band {
+            // A band whose members overlap horizontally cannot be laid out in
+            // one row; the overflow pushes the whole row past the frame and
+            // then nothing in it is reachable. Skipping loudly beats a screen
+            // where every tap silently misses.
+            if tx + tw > frame_w + 0.5 || tx < x {
+                crate::log(&format!(
+                    "wonders/hits: target {id} does not fit its band (x {tx}..{}) — skipped",
+                    tx + tw
+                ));
+                continue;
+            }
+            if tx > x {
+                line = line.child(spacer(tx - x, th)?);
+            }
+            line = line.child(tap_col(tw, th, 0x00000000, id)?);
+            x = tx + tw;
         }
-        let mut line = row(frame_w, *th, 0x00000000)?;
-        if *tx > 0.0 {
-            line = line.child(spacer(*tx, *th)?);
-        }
-        line = line.child(tap_col(*tw, *th, 0x00000000, *id)?);
         column = column.child(line);
-        y = ty + th;
+        cursor = bottom;
     }
     Some(column)
 }
