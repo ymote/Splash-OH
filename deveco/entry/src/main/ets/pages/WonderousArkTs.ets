@@ -16,8 +16,9 @@
  */
 
 import { typeNode, FrameNode, UIContext } from '@kit.ArkUI';
+import { http } from '@kit.NetworkKit';
 import { WONDERS, EDITORIAL, PIECES, ARTIFACTS, TIMELINES, SUGGESTIONS, CORPUS,
-  COLLECTIBLES, WonderT, PieceT, ArtifactT, EventT, FoundT } from './WonderousData';
+  COLLECTIBLES, PLACES, WonderT, PieceT, ArtifactT, EventT, FoundT } from './WonderousData';
 
 const APP: string = 'wonders';
 const SHEET: number = 0xFFF8ECE5;
@@ -108,6 +109,18 @@ export const S_SEARCH: number = 6;
 export const S_ARTIFACT: number = 7;
 export const S_PHOTO: number = 8;
 export const S_FOUND: number = 9;
+export const S_VIDEO: number = 10;
+export const S_MAPS: number = 11;
+
+/** A Met record, the rows the artifact screen shows. */
+interface MetRecord {
+  culture: string;
+  title: string;
+  date: string;
+  period: string;
+  country: string;
+  medium: string;
+}
 
 const INTRO: string[][] = [
   ['Journey to the past', 'Navigate the intersection of time, art, and culture.'],
@@ -156,6 +169,43 @@ export class WonderousArkTs {
   showing: number = 0;
   /** Set when a tap changed state, so the host knows to rebuild. */
   onTap: (t: number) => void = (t: number) => {};
+  /** What the host should composite behind the current web-backed viewer. */
+  webSrc: string = '';
+  private met: Map<string, MetRecord> = new Map<string, MetRecord>();
+  private inflight: Set<string> = new Set<string>();
+
+  /**
+   * Fetch an artifact's record from the Met, as `artifact_api_service.dart`
+   * does at run time. Five of the six rows on the detail screen exist only in
+   * that response, so shipping them instead is not an option if the screen is
+   * to say what the app's says.
+   */
+  private fetchMet(id: string): void {
+    if (this.met.has(id) || this.inflight.has(id)) {
+      return;
+    }
+    this.inflight.add(id);
+    const req = http.createHttp();
+    req.request('https://collectionapi.metmuseum.org/public/collection/v1/objects/' + id,
+      { method: http.RequestMethod.GET, connectTimeout: 8000, readTimeout: 8000 },
+      (err: Error, data: http.HttpResponse) => {
+        this.inflight.delete(id);
+        if (err === null && data.responseCode === 200) {
+          const o: Record<string, Object> =
+            JSON.parse(data.result as string) as Record<string, Object>;
+          const pick = (k: string): string => {
+            const v: Object = o[k];
+            return typeof v === 'string' ? v as string : '';
+          };
+          this.met.set(id, {
+            culture: pick('culture'), title: pick('title'), date: pick('objectDate'),
+            period: pick('period'), country: pick('country'), medium: pick('medium'),
+          });
+          this.onTap(0);
+        }
+        req.destroy();
+      });
+  }
 
   constructor(ctx: UIContext) {
     this.u = new W(ctx);
@@ -186,6 +236,10 @@ export class WonderousArkTs {
       root = this.artifact(wonder);
     } else if (screen === S_PHOTO) {
       root = this.photoViewer(wonder);
+    } else if (screen === S_VIDEO) {
+      root = this.webViewer(wonder, true);
+    } else if (screen === S_MAPS) {
+      root = this.webViewer(wonder, false);
     } else {
       root = this.foundScreen();
     }
@@ -281,6 +335,40 @@ export class WonderousArkTs {
     b.appendChild(this.u.img(APP + '/_common/collectibles/' + COLLECTIBLES[i].icon + '.png',
       size * 0.55, size * 0.55, 0, ImageFit.Contain));
     return b;
+  }
+
+  /**
+   * Turn a drag into a direction.
+   *
+   * The Rust arm measures this in the shim because ArkUI reports no swipe; the
+   * same is true here, so the same thing is done in ArkTS. Threshold 30, the
+   * app's own, and each axis that clears it counts -- a diagonal moves a row
+   * and a column, which is what `EightWaySwipeDetector` does.
+   */
+  private swipeOn(n: FrameNode, onDir: (dx: number, dy: number) => void): void {
+    let x0: number = 0;
+    let y0: number = 0;
+    n.commonEvent.setOnTouch((e: TouchEvent) => {
+      const t: TouchObject = e.touches[0];
+      if (e.type === TouchType.Down) {
+        x0 = t.windowX;
+        y0 = t.windowY;
+      } else if (e.type === TouchType.Up) {
+        const dx: number = t.windowX - x0;
+        const dy: number = t.windowY - y0;
+        let sx: number = 0;
+        let sy: number = 0;
+        if (Math.abs(dx) >= 30) {
+          sx = dx < 0 ? -1 : 1;
+        }
+        if (Math.abs(dy) >= 30) {
+          sy = dy < 0 ? -1 : 1;
+        }
+        if (sx !== 0 || sy !== 0) {
+          onDir(sx, sy);
+        }
+      }
+    });
   }
 
   /** Route a tap. Mirrors the Rust arm's `handle`. */
@@ -473,6 +561,11 @@ export class WonderousArkTs {
     root.appendChild(this.u.at(
       this.u.img(APP + '/_common/icons/icon-next-large.png', 26, 26, 0, ImageFit.Contain),
       (w - 26) / 2, h * 0.94));
+    this.swipeOn(root, (dx: number, dy: number) => {
+      if (dx !== 0) {
+        this.tap(dx < 0 ? T_NEXT : T_PREV);
+      }
+    });
     root.appendChild(this.hits(w, h, [
       [12, h * 0.045, 62, 62, T_MENU],
       [0, h * 0.14, w * 0.35, h * 0.6, T_PREV],
@@ -578,6 +671,29 @@ export class WonderousArkTs {
 
     const s = this.u.scroll(w, h);
     const sheet = this.u.col(w, 0, SHEET);
+    // The band fades out over the first 700 of scroll and the masthead slides
+    // at .3 of it, fading over 150 of that slide. Same numbers as the Rust arm,
+    // which took them from editorial_screen.dart.
+    let bandRef: FrameNode | null = null;
+    let capRef: FrameNode | null = null;
+    // The Rust arm reads the Scroll's own offset back, having found that
+    // accumulating the per-event deltas drifted well ahead of it inside a
+    // single drag. typeNode.Scroll exposes no such getter, so here the deltas
+    // are summed and clamped at zero -- close enough for a fade, and the one
+    // place the two arms do not share a mechanism.
+    let scrolled: number = 0;
+    s.attribute.onDidScroll((xOff: number, yOff: number) => {
+      scrolled = Math.max(scrolled + yOff, 0);
+      const y: number = scrolled;
+      if (bandRef !== null) {
+        bandRef.commonAttribute.opacity(Math.min(Math.max(1 - y / 700, 0), 1));
+      }
+      if (capRef !== null) {
+        const slide: number = Math.max(y * 0.3, 0);
+        capRef.commonAttribute.translate({ x: 0, y: slide })
+          .opacity(Math.min(Math.max(1 - slide / 150, 0), 1));
+      }
+    });
 
     // The band: background and mid-ground only, as `_TopIllustration` builds.
     const band = this.u.stack(w, bandH, wo.fg);
@@ -589,6 +705,7 @@ export class WonderousArkTs {
     for (let i = 0; i < ps.length && i < 2; i++) {
       band.appendChild(this.piece(wo, ps[i], w, bandH));
     }
+    bandRef = band;
     sheet.appendChild(band);
 
     // The masthead: a rule, the sub-title, a rule, the name, the region.
@@ -602,6 +719,7 @@ export class WonderousArkTs {
     cap.appendChild(this.u.text(wo.title, Math.min(Math.max(w * 0.10, 26), 40), GREY_STRONG,
       w - 48, 60, DISPLAY, TextAlign.Center));
     cap.appendChild(this.u.text(e.region, 12, CAPTION_C, w - 48, 22, BODY_FONT, TextAlign.Center));
+    capRef = cap;
     sheet.appendChild(cap);
 
     const body = this.u.col(cw, 0, 0x00000000);
@@ -646,6 +764,7 @@ export class WonderousArkTs {
         play.attribute.borderRadius(27);
         play.appendChild(this.u.text('▶', 20, SHEET, 54, 54, undefined, TextAlign.Center));
         frame.appendChild(this.u.at(play, (cw - 54) / 2, (vh - 54) / 2));
+        frame.commonAttribute.onClick(() => { this.screen = S_VIDEO; this.onTap(0); });
         body.appendChild(frame);
         body.appendChild(this.u.text(e.videoCaption, 13, CAPTION_C, cw, 60, BODY_ITALIC));
         bodyH += vh + 70;
@@ -701,6 +820,26 @@ export class WonderousArkTs {
     root.appendChild(this.u.at(this.u.col(Math.max(ox, 0), ih, scrim), 0, oy));
     root.appendChild(this.u.at(
       this.u.col(Math.max(w - ox - iw, 0), ih, scrim), ox + iw, oy));
+    this.swipeOn(root, (dx: number, dy: number) => {
+      const g: number = 5;
+      let next: number = this.photoSel;
+      if (dx !== 0) {
+        const cand: number = next + (dx > 0 ? -1 : 1);
+        if (Math.floor(cand / g) === Math.floor(next / g) && cand >= 0 && cand < g * g) {
+          next = cand;
+        }
+      }
+      if (dy !== 0) {
+        const cand2: number = next + (dy > 0 ? -g : g);
+        if (cand2 >= 0 && cand2 < g * g) {
+          next = cand2;
+        }
+      }
+      if (next !== this.photoSel) {
+        this.photoSel = next;
+        this.onTap(0);
+      }
+    });
     // The gallery collectible, on the cell the app hides it in, over the scrim.
     const hid: number[] = this.forWonder(wi);
     if (sel === this.galleryCell(wi) && hid.length > 0 && !this.found[hid[0]]) {
@@ -758,6 +897,11 @@ export class WonderousArkTs {
       bg.commonAttribute.opacity(i === sel ? 1 : 0);
       root.appendChild(this.u.at(bg, -w * 0.125, -h * 0.05));
     }
+    this.swipeOn(root, (dx: number, dy: number) => {
+      if (dx !== 0) {
+        this.tap(dx < 0 ? T_ART_NEXT : T_ART_PREV);
+      }
+    });
     // One dot per piece, the current one twice as wide.
     const dd: number = 6;
     const dtot: number = (n + 1) * dd + (n - 1) * 10;
@@ -1040,6 +1184,43 @@ export class WonderousArkTs {
     return root;
   }
 
+  /**
+   * The film and the map.
+   *
+   * Web surfaces on the Rust side and web surfaces here: the content is YouTube
+   * and OpenStreetMap, which are pages whichever language asks for them. This
+   * builds the native chrome and sets `webSrc`; the host composites the Web,
+   * because ArkWeb cannot live inside a node tree.
+   */
+  private webViewer(wi: number, video: boolean): FrameNode {
+    const w = this.w;
+    const h = this.h;
+    const wo: WonderT = WONDERS[wi];
+    const p: (string | number)[] = PLACES[wi];
+    const root = this.u.stack(w, h, video ? 0xFF000000 : 0xFF1E1B18);
+    if (video) {
+      this.webSrc = 'https://m.youtube.com/watch?v=' + (p[0] as string);
+    } else {
+      const lat: number = p[1] as number;
+      const lng: number = p[2] as number;
+      const d: number = 0.004;
+      this.webSrc = 'https://www.openstreetmap.org/export/embed.html?bbox='
+        + (lng - d) + ',' + (lat - d) + ',' + (lng + d) + ',' + (lat + d)
+        + '&layer=mapnik&marker=' + lat + ',' + lng;
+    }
+    const close = this.u.stack(46, 46, 0x59000000);
+    close.attribute.borderRadius(23);
+    close.appendChild(this.u.img(APP + '/_common/icons/icon-close.png', 20, 20, 0,
+      ImageFit.Contain));
+    root.appendChild(this.u.at(close, 24, h * 0.03));
+    if (!video) {
+      root.appendChild(this.u.at(
+        this.u.text(wo.title, 13, SHEET, w, 24, SERIF_UI, TextAlign.Center), 0, h - 44));
+    }
+    root.appendChild(this.hits(w, h, [[14, h * 0.02, 66, 66, T_VIEWER_CLOSE]]));
+    return root;
+  }
+
   private artifact(wi: number): FrameNode {
     const w = this.w;
     const h = this.h;
@@ -1056,8 +1237,18 @@ export class WonderousArkTs {
     y += 54;
     root.appendChild(this.u.at(this.u.col(w - 56, 1, 0x33272625), 28, y));
     y += 18;
-    const art: ArtifactT = ARTIFACTS[wi][0];
-    const rows: string[][] = [['Date', art.date], ['Culture', art.culture]];
+    const art: ArtifactT = ARTIFACTS[wi][this.artSel % ARTIFACTS[wi].length];
+    this.fetchMet(art.id);
+    const live: MetRecord | undefined = this.met.get(art.id);
+    const rows: string[][] = [];
+    if (live !== undefined) {
+      if (live.date !== '') { rows.push(['Date', live.date]); }
+      if (live.period !== '') { rows.push(['Period', live.period]); }
+      if (live.country !== '') { rows.push(['Geography', live.country]); }
+      if (live.medium !== '') { rows.push(['Medium', live.medium]); }
+    } else {
+      rows.push(['Date', art.date]);
+    }
     for (let i = 0; i < rows.length; i++) {
       root.appendChild(this.u.at(
         this.u.text(rows[i][0], 11, 0xFF9D9995, w - 56, 18, SERIF_UI), 28, y));
