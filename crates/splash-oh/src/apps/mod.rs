@@ -21,6 +21,7 @@ pub mod browser;
 pub mod files;
 pub mod frontend;
 pub mod native;
+pub mod wonders;
 
 pub mod weather_web;
 
@@ -67,6 +68,8 @@ pub enum App {
     /// arrives as separate files through the scheme handler, the way a real
     /// frontend build would.
     Frontend,
+    /// Wonderous, rebuilt from the Flutter app with native components.
+    Wonders,
     /// Every bridge tool on one screen with live values. The fixture the
     /// bridge is verified against, so a new capability is one row rather than
     /// a new panel bolted onto whichever card was nearest.
@@ -92,6 +95,7 @@ impl App {
             App::Files => "files",
             App::Native => "native",
             App::Frontend => "frontend",
+            App::Wonders => "wonders",
             App::Catalog => "catalog",
             App::Flutter => "flutter",
             App::Weather => "weather",
@@ -108,6 +112,7 @@ impl App {
             "files" => App::Files,
             "native" => App::Native,
             "frontend" => App::Frontend,
+            "wonders" => App::Wonders,
             "catalog" => App::Catalog,
             "flutter" => App::Flutter,
             "weather" => App::Weather,
@@ -136,6 +141,7 @@ impl App {
             App::Files => &["0|root", "1|root", "2|root", "3|root", "4|root", "0|root"],
             App::Native => &["0|root", "0|root", "0|root", "0|root", "0|root", "0|root"],
             App::Frontend => &["0|root"],
+            App::Wonders => &["0|root"],
             App::Flutter => &["0|root"],
             App::Weather => &["0|root"],
             App::PlanWeather => &["0|root"],
@@ -189,6 +195,9 @@ pub fn current_app() -> App {
 
 /// Route a click. Returns true if the state changed and a rebuild is needed.
 pub fn handle(target: i32) -> bool {
+    if current_app() == App::Wonders {
+        return wonders::handle(target);
+    }
     NAV.with(|n| {
         let mut nav = n.borrow_mut();
         // Each app owns a range of ids, so one handler can serve all of them.
@@ -319,6 +328,7 @@ pub fn handle(target: i32) -> bool {
             // No navigation: one page, every tool live on it.
             App::Native => false,
             App::Frontend => false,
+            App::Wonders => false,
             // The DSL owns the ids: NAV_BASE + row index opens a screen, and
             // NAV_BACK returns to the index. `sub` carries the screen, with 0
             // meaning the index itself.
@@ -382,11 +392,16 @@ pub fn build() -> (Option<Node>, usize, f64) {
         App::Files => files::build(tab),
         App::Native => native::build(),
         App::Frontend => frontend::build(),
+        App::Wonders => wonders::build(),
         App::Weather => splash_oh_native::dsl::build_weather(),
         App::PlanWeather => splash_oh_native::dsl::build_planweather(),
         App::Flutter => {
             let route = splash_oh_native::app::current_screen();
-            let route = if route.is_empty() { "index".to_string() } else { route };
+            let route = if route.is_empty() {
+                "index".to_string()
+            } else {
+                route
+            };
             splash_oh_native::flutter::build(&route)
         }
         App::Catalog => {
@@ -458,6 +473,7 @@ pub fn build_route(app: App, tab: usize, route: &str) -> (usize, f64) {
         App::Files => files::build(tab),
         App::Native => native::build(),
         App::Frontend => frontend::build(),
+        App::Wonders => wonders::build(),
         App::Catalog => {
             // The tour names screens directly ("0|chips"), so "root" is the
             // index and anything else is the route verbatim.

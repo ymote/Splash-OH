@@ -31,6 +31,7 @@ pub mod tiktok;
 pub mod ui;
 pub mod wechat;
 pub mod wonderous;
+pub mod wonders;
 
 /// hilog, so this is debuggable on device without stdout (an OHOS app has none).
 ///

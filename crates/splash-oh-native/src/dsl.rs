@@ -394,7 +394,10 @@ fn register_net_capabilities(vm: &mut ScriptVm) {
     // and "上海" with language=en returns nothing.
     let f_geo = add_global_fn(
         vm,
-        &[(id!(name), ScriptValue::NIL), (id!(field), ScriptValue::NIL)],
+        &[
+            (id!(name), ScriptValue::NIL),
+            (id!(field), ScriptValue::NIL),
+        ],
         |vm, a| {
             let name = string_prop(vm, a, id!(name)).unwrap_or_default();
             let field = string_prop(vm, a, id!(field)).unwrap_or_default();
@@ -406,7 +409,10 @@ fn register_net_capabilities(vm: &mut ScriptVm) {
 
     let f_geonum = add_global_fn(
         vm,
-        &[(id!(name), ScriptValue::NIL), (id!(field), ScriptValue::NIL)],
+        &[
+            (id!(name), ScriptValue::NIL),
+            (id!(field), ScriptValue::NIL),
+        ],
         |vm, a| {
             let name = string_prop(vm, a, id!(name)).unwrap_or_default();
             let field = string_prop(vm, a, id!(field)).unwrap_or_default();
