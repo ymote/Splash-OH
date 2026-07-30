@@ -19,6 +19,7 @@
 #include <arkui/native_node.h>
 #include <arkui/native_interface.h>
 #include <arkui/ui_input_event.h>
+#include <arkui/native_animate.h>
 #include <arkui/native_type.h>
 
 #include <network/netstack/net_http.h>
@@ -173,6 +174,44 @@ int splash_set_gradient(ArkUI_NodeHandle n, int attr, int dir,
     item.size = 3;
     item.object = &cs;
     return g_api->setAttribute(n, (ArkUI_NodeAttributeType)attr, &item);
+}
+
+// ---- animation ------------------------------------------------------------
+// ArkUI animates a *state change*: you hand animateTo a closure, set attributes
+// inside it, and the system tweens whatever moved. The closure has to run on
+// the C side, so Rust passes a plain function pointer and an opaque argument.
+//
+// The UI context comes from any mounted node, so no ArkTS is involved here
+// either.
+
+static ArkUI_NativeAnimateAPI_1 *g_anim = nullptr;
+
+int splash_animate(ArkUI_NodeHandle anchor, int duration_ms, int curve,
+                   void (*update)(void *), void *user) {
+    if (!anchor || !update) return -1;
+    if (!g_anim) {
+        OH_ArkUI_GetModuleInterface(ARKUI_NATIVE_ANIMATE, ArkUI_NativeAnimateAPI_1, g_anim);
+    }
+    ArkUI_ContextHandle ctx = OH_ArkUI_GetContextByNode(anchor);
+    if (!g_anim || !ctx) {
+        // No animation available: still apply the change, just without the
+        // tween. A missing animation must never mean a missing update.
+        update(user);
+        return -1;
+    }
+    ArkUI_AnimateOption *opt = OH_ArkUI_AnimateOption_Create();
+    if (!opt) {
+        update(user);
+        return -1;
+    }
+    OH_ArkUI_AnimateOption_SetDuration(opt, duration_ms);
+    OH_ArkUI_AnimateOption_SetCurve(opt, (ArkUI_AnimationCurve)curve);
+    ArkUI_ContextCallback cb;
+    cb.userData = user;
+    cb.callback = update;
+    int rc = g_anim->animateTo(ctx, opt, &cb, nullptr);
+    OH_ArkUI_AnimateOption_Dispose(opt);
+    return rc;
 }
 
 // ---- mounting into the page ----------------------------------------------

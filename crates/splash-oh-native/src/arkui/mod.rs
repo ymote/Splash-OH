@@ -32,6 +32,13 @@ extern "C" {
     ) -> c_int;
     fn splash_content_add(content: NodeContentHandle, root: NodeHandle) -> c_int;
     fn splash_register_event(n: NodeHandle, event_type: c_int, id: i32) -> c_int;
+    fn splash_animate(
+        anchor: NodeHandle,
+        duration_ms: c_int,
+        curve: c_int,
+        update: extern "C" fn(*mut std::ffi::c_void),
+        user: *mut std::ffi::c_void,
+    ) -> c_int;
 }
 
 /// ArkUI enum values, evaluated by the C++ compiler against the real headers
@@ -406,4 +413,39 @@ impl Drop for Node {
         self.children.clear();
         unsafe { splash_dispose_node(self.raw) };
     }
+}
+
+/// `ArkUI_AnimationCurve::ARKUI_CURVE_EASE_OUT`, which is what Wonderous uses
+/// for the moves this animates.
+pub const CURVE_EASE_OUT: i32 = 3;
+
+/// Run `f`, tweening whatever it changes.
+///
+/// `anchor` only has to be some node that is mounted — it is where the UI
+/// context is read from, not what gets animated. Everything `f` touches moves.
+///
+/// If the animation module is unavailable `f` still runs, unanimated: a screen
+/// that does not tween is a much smaller problem than one that does not update.
+///
+/// # Safety
+/// `anchor` must be a live, mounted node handle.
+pub unsafe fn animate<F: FnOnce()>(anchor: NodeHandle, duration_ms: i32, curve: i32, f: F) {
+    extern "C" fn trampoline(user: *mut std::ffi::c_void) {
+        // The shim guarantees this runs exactly once, before splash_animate
+        // returns: on every path where the animation cannot be set up it calls
+        // the closure itself. (If ArkUI were to accept the callback and then
+        // never run it, this would leak one boxed closure and nothing worse.)
+        let b: Box<Box<dyn FnOnce()>> = unsafe { Box::from_raw(user as *mut _) };
+        (*b)();
+    }
+    let boxed: Box<Box<dyn FnOnce()>> = Box::new(Box::new(f));
+    unsafe {
+        splash_animate(
+            anchor,
+            duration_ms,
+            curve,
+            trampoline,
+            Box::into_raw(boxed) as *mut std::ffi::c_void,
+        )
+    };
 }
