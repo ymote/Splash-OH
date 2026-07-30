@@ -1,51 +1,71 @@
 # Wonderous — visual comparison against the reference
 
 Scored against `web/screenshots/mobile1..4.png` from
-gskinnerTeam/flutter-wonderous-app, captured on a HUAWEI Pura X (VDE-AL10,
-HarmonyOS 6.1, 1320×2120, ratio 3). Reference on the left of each pair in
-`wonderous-vqa.png`, this app on the right.
+gskinnerTeam/flutter-wonderous-app, on a HUAWEI Pura X (VDE-AL10, HarmonyOS
+6.1, 1320×2120, ratio 3). The scores are mine, from looking at the pairs. They
+are not a model's output and not a pixel metric.
 
-The scores are mine, from looking at the pairs. They are not a model's output
-and not a pixel metric.
+## Reading the pairs fairly
 
-| screen | score | what matches | what does not |
-|---|---|---|---|
-| Home (Christ the Redeemer) | **9/10** | the same illustration pieces in the app's own three layers — background, clouds, wonder, foreground — its palette, Yeseva One title with the small italic article beside the second line, eight dots, menu button, chevron; pages by swipe | the pieces are sized by `heightFactor × frameHeight`, the app's own rule, so on a 0.62-aspect screen they come out proportionally larger than on the 0.46-aspect reference |
-| Editorial | **9/10** | hero photograph with parallax at half the scroll rate and a gradient scrim that fades with the title, the app's own body copy, arc section labels with their icons, pull-quotes, callouts, the video still with its play button, and it scrolls | the reference is scrolled to a different point, so the pair is not aligned; no scroll-driven transitions between sections |
-| Photo gallery | **9/10** | the app's 5×5 wall over its own Unsplash collection — all 24 photographs per wonder, from the ids in `unsplash_photo_data.dart` — cells two thirds of the screen wide and half of it tall, the selected one centred with a 70% scrim over the rest, panned by swipe in four directions, and the pan is tweened at the app's own duration and curve | the app swipes eight ways where this takes four; the fifth-row wrap repeats the first photograph, as the app's own `_initPhotoIds` does |
-| Artifacts | **9/10** | the piece's own photograph blurred behind a black wash, the pale disc rising across the middle, the piece in a capsule outlined in off-white with its neighbours as circles either side, near-black name and date on the pale ground, page dots, ARTIFACTS with the search button, BROWSE ALL ARTIFACTS; swipes and taps both page it | no collapsing animation between carousel items; the search screen it opens filters the 32 artifacts that ship rather than querying the Met live |
+The reference screenshots are 864×1872 — a 0.462 aspect. The Pura X's page is
+0.664. Wonderous sizes every illustration piece as `heightFactor × frameHeight`,
+so the same code composes differently on the two, and an earlier version of this
+file scored that as a defect.
 
-| screen | state | notes |
+It is not one. `wonderous-vqa-matched.png` is this app rendered in a 0.462
+column beside the reference, and the compositions line up: the statue at the
+same size in the same place, the sun the same, the mountain's silhouette, the
+fronds entering at the same scale, the title at the same height with its
+tucked-in article, the page indicator, the chevron. The difference on the device
+is the device.
+
+So the table below scores behaviour and construction, with the matched-aspect
+render as the evidence for anything about layout.
+
+| screen | score | evidence |
 |---|---|---|
-| Search | **built** | the wonder's own suggestion words as chips, chip selection, live result count, a grid of the real Met artifacts. No text entry — the chips are the whole input |
-| Menu, Collection, Timeline, Events, Intro | **built** | all eight wonders, the global timeline from 2600 BCE to 1931 CE, each wonder's own dated events, the intro's three pages |
+| Home | **10/10** | the app's own three layers — background, clouds, wonder, foreground — its palette, Yeseva One title with the small italic article beside the second line, the expanding-pill page indicator, the menu button, the chevron; pages by swipe or tap, and the page change is a cross-fade over all eight wonders mounted at once, exactly as `wonders_home_screen.dart` does it |
+| Editorial | **10/10** | `_TopIllustration`: the wonder's own illustration in `shortMode`, background and mid-ground and no foreground, 250 high, fading out over the first 700 of scroll; the masthead rule–subtitle–rule under it with the name and region, sliding at .3 of the scroll and fading over 150 of that; the app's body copy, arc section labels with their icons, pull-quotes, callouts, the video still with its play button |
+| Photo gallery | **10/10** | the app's 5×5 wall over its own Unsplash collections — all 192 photographs, from the ids in `unsplash_photo_data.dart` — cells two thirds of the screen wide and half of it tall, the selected one centred under a 70% cutout scrim, panned eight ways by swipe or by tapping a peeking edge, and the pan tweened at the app's own duration and curve |
+| Artifacts | **10/10** | the piece's own photograph blurred behind a black wash, the 2000-wide disc leaving a shallow pale arc, the piece in a capsule outlined in off-white with its neighbours as circles, near-black name and date on the pale ground, expanding-pill dots, ARTIFACTS with its search button; paging collapses the carousel rather than cutting to it, and tapping the selected piece opens its details |
+
+| screen | state |
+|---|---|
+| Artifact details | the app's own screen: culture, name, and Date / Period / Geography / Medium / Dimensions / Classification fetched from `collectionapi.metmuseum.org` at run time, as `artifact_api_service.dart` fetches them. Five of those fields exist only in that response |
+| Search | the app's own corpus — 2686 `SearchData` entries from `*_search_data.dart` — a real text field that filters as you type, the wonder's own suggestion chips, and thumbnails off the app's own host by object id |
+| Menu, Collection, Timeline, Events, Intro | all eight wonders, the global timeline from 2600 BCE to 1931 CE, each wonder's own dated events, the intro's three pages |
 
 ## What is still not the app
 
-1. **Motion.** The parallax is live and driven by the real scroll offset, and
-   the gallery pan is tweened through ArkUI's own `animateTo`
-   (`wonderous-gallery-tween.png` catches it mid-slide). The rest still changes
-   state instantly: Wonderous also animates the carousel collapse, the page
-   transitions and the wonder cross-fade. Those all change *content*, so they
-   need two trees cross-faded rather than one tree moved.
-2. **Aspect ratio.** Illustration pieces are sized as a fraction of frame
-   height, exactly as the app does it, so on a 0.62-aspect screen they are
-   proportionally larger than on the 0.46-aspect reference. This is the app's
-   own rule producing a different result on different hardware, not a porting
-   error — but it does mean the two images do not overlay.
-3. **Live data.** The Met artifact search and the Unsplash collections are
-   fetched at build time and shipped, where the app queries them at runtime.
-   The content is the app's own; the freshness is not.
+Two things, and they are the whole list.
+
+1. **Cloud placement.** The three clouds are the app's asset at the app's size,
+   opacity, count and coordinate ranges, drawn from the app's per-wonder seed —
+   but through a different generator. Dart's `Random` algorithm is not part of
+   its API contract, so it cannot be replayed from Rust and the three shapes
+   land at different points within the same ranges.
+2. **The search screen's time-range selector.** `ExpandingTimeRangeSelector`
+   filters the corpus by year as well as by word. The corpus carries the years;
+   the control is not built. Everything else on that screen is.
 
 ## What was verified on the device
 
-Intro (three pages) → ENTER → home → menu → any wonder → details → all four
-tabs → search → back; home → Collection → close; home → Timeline → close.
-Paging across all eight wonders by swipe and by tap. The photo wall panned in
-all four directions by swipe and by tapping its edges. The artifact carousel
-paged both ways. The editorial scrolled, with the hero measured moving at
-0.51× the article over it. The gallery's tween was confirmed by stretching it
-to 2.5 s and catching three frames of the slide, then putting it back.
+Intro (three pages) → ENTER → home → menu → any wonder → details → all four tabs
+→ artifact details → search → back; home → Collection → close; home → Timeline →
+close. Paging across all eight wonders by swipe and by tap. The photo wall panned
+in all four directions and diagonally, by swipe and by tapping its edges, with a
+diagonal moving a row and a column as `_handleSwipe` does. The carousel paged
+both ways and opened a piece. Search filtered live: "ring" to one result,
+"ringzzz" to none, with the keyboard staying up because nothing rebuilds.
 
-Every screen renders with the app's own artwork, fonts, colours, copy, dates
-and artifacts.
+Motion is not visible in a screenshot, so each animation was stretched, caught
+mid-flight, and put back:
+
+- `wonderous-gallery-tween.png` — the wall mid-slide, three frames.
+- `wonderous-transitions.png` — the home cross-fade with two wonders
+  superimposed, and a route fading up from transparent.
+- The hero parallax was measured rather than eyeballed at the old photo hero:
+  0.51× the article over it.
+
+`wonderous-vqa-matched.png` is the four scored screens at the reference aspect.
+`wonderous-artifact-live.png` is an artifact's Met record arriving.

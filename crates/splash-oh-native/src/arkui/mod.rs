@@ -19,6 +19,7 @@ extern "C" {
     fn splash_set_i32_string(n: NodeHandle, attr: c_int, v: i32, s: *const c_char) -> c_int;
     fn splash_set_f32(n: NodeHandle, attr: c_int, v: f32) -> c_int;
     fn splash_get_f32(n: NodeHandle, attr: c_int, index: c_int, out: *mut f32) -> c_int;
+    fn splash_get_string(n: NodeHandle, attr: c_int, out: *mut c_char, cap: c_int) -> c_int;
     fn splash_set_i32(n: NodeHandle, attr: c_int, v: i32) -> c_int;
     fn splash_set_u32(n: NodeHandle, attr: c_int, v: u32) -> c_int;
     fn splash_set_f32v(n: NodeHandle, attr: c_int, v: *const f32, count: c_int) -> c_int;
@@ -85,6 +86,7 @@ mod raw {
         pub static splash_a_progress_value: i32;
         pub static splash_a_progress_total: i32;
         pub static splash_a_input_placeholder: i32;
+        pub static splash_a_input_text: i32;
         pub static splash_a_width_percent: i32;
         pub static splash_a_height_percent: i32;
         pub static splash_a_font_family: i32;
@@ -128,6 +130,8 @@ mod raw {
         pub static splash_t_refresh: i32;
         pub static splash_e_click: i32;
         pub static splash_e_touch: i32;
+        pub static splash_e_appear: i32;
+        pub static splash_e_input_change: i32;
         pub static splash_e_did_scroll: i32;
     }
 }
@@ -168,7 +172,7 @@ pub mod attr {
         font_size => splash_a_font_size, font_weight => splash_a_font_weight,
         text_align => splash_a_text_align, button_label => splash_a_button_label,
         progress_value => splash_a_progress_value, progress_total => splash_a_progress_total,
-        input_placeholder => splash_a_input_placeholder,
+        input_placeholder => splash_a_input_placeholder, input_text => splash_a_input_text,
         checkbox_select => splash_a_checkbox_select,
         checkbox_color => splash_a_checkbox_color,
         radio_checked => splash_a_radio_checked,
@@ -203,7 +207,8 @@ pub mod attr {
 /// Event ids.
 pub mod event {
     use super::raw;
-    arkui_consts! { click => splash_e_click, touch => splash_e_touch, did_scroll => splash_e_did_scroll }
+    arkui_consts! { click => splash_e_click, touch => splash_e_touch, appear => splash_e_appear,
+    input_change => splash_e_input_change, did_scroll => splash_e_did_scroll }
 }
 
 /// Initialise the node API. Safe to call repeatedly.
@@ -233,6 +238,39 @@ impl Node {
             raw,
             children: Vec::new(),
         })
+    }
+
+    /// Set an i32 attribute on a handle this `Node` does not own.
+    ///
+    /// # Safety
+    /// `raw` must be a live node handle.
+    pub unsafe fn set_i32_raw(raw: NodeHandle, a: i32, v: i32) {
+        unsafe { splash_set_i32(raw, a, v) };
+    }
+
+    /// Set a string attribute on a handle this `Node` does not own.
+    ///
+    /// # Safety
+    /// `raw` must be a live node handle.
+    pub unsafe fn set_string_raw(raw: NodeHandle, a: i32, v: &str) {
+        if let Ok(c) = std::ffi::CString::new(v) {
+            unsafe { splash_set_string(raw, a, c.as_ptr()) };
+        }
+    }
+
+    /// Read a string attribute, or `None` if it has none.
+    ///
+    /// # Safety
+    /// `raw` must be a live node handle.
+    pub unsafe fn get_string(raw: NodeHandle, a: i32) -> Option<String> {
+        let mut buf = [0u8; 512];
+        let n = unsafe {
+            splash_get_string(raw, a, buf.as_mut_ptr() as *mut c_char, buf.len() as c_int)
+        };
+        if n < 0 {
+            return None;
+        }
+        String::from_utf8(buf[..n as usize].to_vec()).ok()
     }
 
     /// Read one f32 out of an attribute, or `None` if it has none.

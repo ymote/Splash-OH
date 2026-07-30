@@ -115,6 +115,22 @@ int splash_get_f32(ArkUI_NodeHandle n, int attr, int index, float *out) {
     return 0;
 }
 
+// Read a string attribute into the caller's buffer. Returns the length, or -1.
+//
+// The counterpart of splash_get_f32, and it exists for the search field: the
+// text lives on the node, and an on-change event only says that it moved.
+int splash_get_string(ArkUI_NodeHandle n, int attr, char *out, int cap) {
+    if (!g_api || !n || !out || cap <= 0) return -1;
+    const ArkUI_AttributeItem *item =
+        g_api->getAttribute(n, (ArkUI_NodeAttributeType)attr);
+    if (!item || !item->string) return -1;
+    int len = (int)std::strlen(item->string);
+    if (len > cap - 1) len = cap - 1;
+    std::memcpy(out, item->string, (size_t)len);
+    out[len] = 0;
+    return len;
+}
+
 int splash_set_i32(ArkUI_NodeHandle n, int attr, int32_t v) {
     if (!g_api || !n) return -1;
     ArkUI_NumberValue nv[1];
@@ -283,11 +299,18 @@ static void splash_handle_touch(ArkUI_NodeEvent *e, int32_t target) {
     g_touch_down = false;
     const float dx = x - g_touch_x0, dy = y - g_touch_y0;
     const float adx = dx < 0 ? -dx : dx, ady = dy < 0 ? -dy : dy;
-    if (adx < SPLASH_SWIPE_THRESHOLD && ady < SPLASH_SWIPE_THRESHOLD) return;
-    // The dominant axis wins, so a sloppy diagonal still pages one way.
-    int32_t dir = adx >= ady ? (dx < 0 ? SPLASH_SWIPE_LEFT : SPLASH_SWIPE_RIGHT)
-                             : (dy < 0 ? SPLASH_SWIPE_UP : SPLASH_SWIPE_DOWN);
-    g_rust_handler(target + dir, (int32_t)NODE_TOUCH_EVENT);
+    // Eight-way, like EightWaySwipeDetector: each axis that clears the
+    // threshold is reported, so a diagonal is a horizontal move and a vertical
+    // one. Taking only the dominant axis turned every diagonal into half a
+    // move, which on the photo wall is a visible difference from the app.
+    if (adx >= SPLASH_SWIPE_THRESHOLD) {
+        g_rust_handler(target + (dx < 0 ? SPLASH_SWIPE_LEFT : SPLASH_SWIPE_RIGHT),
+                       (int32_t)NODE_TOUCH_EVENT);
+    }
+    if (ady >= SPLASH_SWIPE_THRESHOLD) {
+        g_rust_handler(target + (dy < 0 ? SPLASH_SWIPE_UP : SPLASH_SWIPE_DOWN),
+                       (int32_t)NODE_TOUCH_EVENT);
+    }
 }
 
 static void splash_event_trampoline(ArkUI_NodeEvent *e) {
@@ -423,6 +446,7 @@ SPLASH_CONST(splash_a_button_label, NODE_BUTTON_LABEL)
 SPLASH_CONST(splash_a_progress_value, NODE_PROGRESS_VALUE)
 SPLASH_CONST(splash_a_progress_total, NODE_PROGRESS_TOTAL)
 SPLASH_CONST(splash_a_input_placeholder, NODE_TEXT_INPUT_PLACEHOLDER)
+SPLASH_CONST(splash_a_input_text,        NODE_TEXT_INPUT_TEXT)
 SPLASH_CONST(splash_a_image_src,   NODE_IMAGE_SRC)
 SPLASH_CONST(splash_a_image_fit,   NODE_IMAGE_OBJECT_FIT)
 SPLASH_CONST(splash_a_checkbox_select,   NODE_CHECKBOX_SELECT)
@@ -492,3 +516,5 @@ SPLASH_CONST(splash_t_refresh,  ARKUI_NODE_REFRESH)
 SPLASH_CONST(splash_t_list,     ARKUI_NODE_LIST)
 SPLASH_CONST(splash_e_click,    NODE_ON_CLICK)
 SPLASH_CONST(splash_e_touch,    NODE_TOUCH_EVENT)
+SPLASH_CONST(splash_e_appear,   NODE_EVENT_ON_APPEAR)
+SPLASH_CONST(splash_e_input_change, NODE_TEXT_INPUT_ON_CHANGE)

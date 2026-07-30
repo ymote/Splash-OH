@@ -32,6 +32,12 @@ use crate::arkui::{attr, ty, Node};
 const APP: &str = "wonders";
 
 /// Place one piece, and give back its node.
+/// `piece`, for callers outside this module — the editorial's short-mode band
+/// places the same pieces by the same rule in a much shorter frame.
+pub fn piece_node(w: &Wonder, p: &Piece, frame_w: f32, frame_h: f32) -> Option<Node> {
+    piece(w, p, frame_w, frame_h)
+}
+
 fn piece(w: &Wonder, p: &Piece, frame_w: f32, frame_h: f32) -> Option<Node> {
     let h = (frame_h * p.height_factor).max(p.min_h);
     let width = h * p.aspect;
