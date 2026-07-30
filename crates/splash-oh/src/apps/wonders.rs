@@ -31,15 +31,44 @@ pub fn page() -> (f32, f32) {
     }
 }
 
+/// Which screen is showing: `None` on the home pager, `Some(tab)` inside a
+/// wonder's details.
+static TAB: AtomicUsize = AtomicUsize::new(usize::MAX);
+
+fn tab() -> Option<usize> {
+    match TAB.load(Ordering::Relaxed) {
+        usize::MAX => None,
+        t => Some(t),
+    }
+}
+
 /// Handle a tap. `true` if it was ours and the tree should be rebuilt.
 pub fn handle(target: i32) -> bool {
     let n = wonders::data::WONDERS.len();
+    if target >= wonders::tabbar::TAB_BASE
+        && target < wonders::tabbar::TAB_BASE + wonders::tabbar::TABS.len() as i32
+    {
+        TAB.store(
+            (target - wonders::tabbar::TAB_BASE) as usize,
+            Ordering::Relaxed,
+        );
+        return true;
+    }
     match target {
-        wonders::home::NEXT_TAP => {
+        wonders::tabbar::HOME_TAP => {
+            TAB.store(usize::MAX, Ordering::Relaxed);
+            true
+        }
+        // The chevron and the title both open the details, as they do in the app.
+        wonders::home::DETAILS_TAP => {
+            TAB.store(0, Ordering::Relaxed);
+            true
+        }
+        wonders::home::NEXT_TAP if tab().is_none() => {
             set((current() + 1) % n);
             true
         }
-        wonders::home::PREV_TAP => {
+        wonders::home::PREV_TAP if tab().is_none() => {
             set((current() + n - 1) % n);
             true
         }
@@ -49,7 +78,10 @@ pub fn handle(target: i32) -> bool {
 
 pub fn build() -> Option<Node> {
     let (w, h) = page();
-    wonders::home::build(current(), w, h)
+    match tab() {
+        Some(t) => wonders::details::build(current(), t, w, h),
+        None => wonders::home::build(current(), w, h),
+    }
 }
 
 static INDEX: AtomicUsize = AtomicUsize::new(0);

@@ -67,6 +67,14 @@ pub fn build(index: usize, w: f32, h: f32) -> Option<Node> {
         tap_col(w * 0.35, h * 0.72, 0x00000000, NEXT_TAP)?
             .f32v_attr(attr::position(), &[w * 0.65, h * 0.12]),
     );
+    // Opening the details. A click registered straight on the chevron's Stack
+    // never arrived; a tap_col does, which is the same construct the paging
+    // zones use. The strip covers the title and the chevron together, matching
+    // the app -- there both the name and the arrow push the details screen.
+    root = root.child(
+        tap_col(w, h * 0.14, 0x00000000, DETAILS_TAP)?
+            .f32v_attr(attr::position(), &[0.0, h * 0.86]),
+    );
     Some(root)
 }
 
