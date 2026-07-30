@@ -120,6 +120,7 @@ pub fn mount(env: Env, content: JsObject) -> napi_ohos::Result<()> {
             webslot::declare(src, x, y, w, h)
         }
     });
+    splash_oh_native::set_web_declare_html(webslot::declare_html);
     splash_oh_native::set_host_invoke(|tool| match tool {
         "device.info" => device::info(0),
         "device.display" => device::display(),

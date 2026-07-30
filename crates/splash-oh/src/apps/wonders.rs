@@ -103,6 +103,11 @@ enum Screen {
     Artifact,
     Timeline,
     Search(Option<usize>),
+    /// The three fullscreen viewers, each remembering the details tab it was
+    /// opened from so closing returns there.
+    Photo(usize),
+    Video,
+    Maps,
 }
 
 static SCREEN: Mutex<Screen> = Mutex::new(Screen::Intro(0));
@@ -285,6 +290,43 @@ pub fn handle(target: i32) -> bool {
             };
             wonders::details::move_photo_sel(dx, dy)
         }
+        // The three viewers, and the taps that open them.
+        wonders::details::PHOTO_OPEN if on_details => {
+            go(Screen::Photo(wonders::details::photo_sel()));
+            true
+        }
+        wonders::details::VIDEO_TAP if on_details => {
+            go(Screen::Video);
+            true
+        }
+        wonders::viewers::MAP_TAP if on_details => {
+            go(Screen::Maps);
+            true
+        }
+        wonders::viewers::VIEWER_CLOSE => {
+            // Back to the tab it was opened from.
+            let tab = match screen() {
+                Screen::Photo(_) => 1,
+                Screen::Maps | Screen::Video => 0,
+                _ => 0,
+            };
+            TAB.store(tab, Ordering::Relaxed);
+            go(Screen::Details(tab));
+            true
+        }
+        wonders::viewers::VIEWER_PREV | wonders::viewers::VIEWER_NEXT => {
+            if let Screen::Photo(i) = screen() {
+                let n = wonders::details::GALLERY_PHOTOS;
+                let d = if target == wonders::viewers::VIEWER_NEXT {
+                    1
+                } else {
+                    n - 1
+                };
+                go(Screen::Photo((i + d) % n));
+                return true;
+            }
+            false
+        }
         wonders::details::ARTIFACT_OPEN => {
             go(Screen::Artifact);
             true
@@ -418,6 +460,9 @@ fn build_screen(w: f32, h: f32) -> Option<Node> {
         Screen::Artifact => wonders::screens::artifact(current(), w, h),
         Screen::Details(_) => wonders::details::build(current(), tab().unwrap_or(0), w, h),
         Screen::Home => wonders::home::build(current(), w, h),
+        Screen::Photo(i) => wonders::viewers::photo_viewer(current(), i, w, h),
+        Screen::Video => wonders::viewers::video_viewer(current(), w, h),
+        Screen::Maps => wonders::viewers::maps_viewer(current(), w, h),
     }
 }
 

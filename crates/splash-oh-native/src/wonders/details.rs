@@ -256,6 +256,8 @@ pub fn build(index: usize, tab: usize, w: f32, h: f32) -> Option<Node> {
         let (hx, hy) = ((w - iw) / 2.0, (body_h - ih) / 2.0);
         targets.push((0.0, 0.0, w, hy, PHOTO_UP));
         targets.push((0.0, hy, hx, ih, PHOTO_LEFT));
+        // The selected cell opens full screen, as tapping it does in the app.
+        targets.push((hx, hy, iw, ih, PHOTO_OPEN));
         targets.push((hx + iw, hy, w - hx - iw, ih, PHOTO_RIGHT));
         targets.push((0.0, hy + ih, w, hy - 8.0, PHOTO_DOWN));
     }
@@ -348,6 +350,9 @@ fn editorial(wonder: &Wonder, index: usize, w: f32, h: f32) -> Option<Node> {
         text_height(e.construction2, 15.0, cw),
     );
     b = b.push(section(cw, "arc-location.png", "geography.png"), sec_h);
+    // `_MapsSection`: an inline map under the location heading, which opens
+    // the fullscreen one.
+    b = b.push(super::viewers::map_block(index, cw), cw / 1.65 + 16.0);
     b = b.push(
         para(e.location1, 15.0, BODY, cw),
         text_height(e.location1, 15.0, cw),
@@ -504,7 +509,8 @@ fn video(wonder: &Wonder, e: &super::editorial_data::Editorial, w: f32) -> Optio
             .f32v_attr(attr::position(), &[(w - 54.0) / 2.0, (vh - 54.0) / 2.0])
             .child(text("\u{25B6}", 20.0, SHEET, 54.0, 54.0)?.i32_attr(attr::text_align(), 1)),
     );
-    c = c.child(frame);
+    // The still is a button in the app; tapping it plays the film.
+    c = c.child(frame.on_event(crate::arkui::event::click(), VIDEO_TAP));
     c = c.child(
         text(e.video_caption, 13.0, CAPTION, w, 60.0)?
             .string_attr(attr::font_family(), BODY_ITALIC)
@@ -523,7 +529,7 @@ fn video(wonder: &Wonder, e: &super::editorial_data::Editorial, w: f32) -> Optio
 pub const GRID: usize = 5;
 /// The 24 photographs each wonder ships, repeated to fill the 25th cell,
 /// exactly as `_initPhotoIds` does.
-const GALLERY_PHOTOS: usize = 24;
+pub const GALLERY_PHOTOS: usize = 24;
 /// `_index` starts in the middle: `round(25 / 2)` is 13.
 static PHOTO_SEL: AtomicUsize = AtomicUsize::new(13);
 /// The 25 cells and the step between them, kept so a pan can move them where
@@ -704,6 +710,10 @@ pub const BROWSE_TAP: i32 = 7372;
 /// Tapping the selected piece opens its details; tapping past it pages.
 /// `_handleArtifactTap` makes the same distinction.
 pub const ARTIFACT_OPEN: i32 = 7373;
+/// The editorial's film still, and the centre cell of the photo wall. Both
+/// looked like buttons and did nothing until the viewers existed.
+pub const VIDEO_TAP: i32 = 7374;
+pub const PHOTO_OPEN: i32 = 7375;
 
 /// Where the centre artifact sits, so the tap targets and the arch agree.
 ///
