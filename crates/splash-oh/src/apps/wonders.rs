@@ -108,6 +108,8 @@ enum Screen {
     Photo(usize),
     Video,
     Maps,
+    /// The screen that shows off a collectible the moment it is found.
+    Found,
 }
 
 static SCREEN: Mutex<Screen> = Mutex::new(Screen::Intro(0));
@@ -226,6 +228,14 @@ pub fn handle(target: i32) -> bool {
         );
         return true;
     }
+    // Finding one: mark it, then show it off.
+    if target >= wonders::collectibles::COLLECT_BASE
+        && target < wonders::collectibles::COLLECT_BASE + 24
+    {
+        wonders::collectibles::discover((target - wonders::collectibles::COLLECT_BASE) as usize);
+        go(Screen::Found);
+        return true;
+    }
     if target >= wonders::search::CHIP_BASE
         && target < wonders::search::CHIP_BASE + wonders::search::CHIPS as i32
     {
@@ -301,6 +311,12 @@ pub fn handle(target: i32) -> bool {
         }
         wonders::viewers::MAP_TAP if on_details => {
             go(Screen::Maps);
+            true
+        }
+        wonders::collectibles::FOUND_CLOSE => {
+            // Back to where it was found.
+            let t = tab().unwrap_or(0);
+            go(Screen::Details(t));
             true
         }
         wonders::viewers::VIEWER_CLOSE => {
@@ -463,6 +479,7 @@ fn build_screen(w: f32, h: f32) -> Option<Node> {
         Screen::Photo(i) => wonders::viewers::photo_viewer(current(), i, w, h),
         Screen::Video => wonders::viewers::video_viewer(current(), w, h),
         Screen::Maps => wonders::viewers::maps_viewer(current(), w, h),
+        Screen::Found => wonders::collectibles::found_screen(w, h),
     }
 }
 

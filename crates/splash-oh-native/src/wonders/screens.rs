@@ -214,6 +214,9 @@ pub fn menu(current: usize, w: f32, h: f32) -> Option<Node> {
 /// The collection: every wonder's artifact tile on a dark grid, which is what
 /// `collection_screen.dart` shows once anything has been found.
 pub fn collection(w: f32, h: f32) -> Option<Node> {
+    use super::collectibles;
+    use super::places::COLLECTIBLES;
+    let found = collectibles::found_count();
     let mut root = stack(w, h, GREY_STRONG)?;
     root = root.child(
         text("COLLECTION", 13.0, ACCENT, w, 26.0)?
@@ -222,61 +225,77 @@ pub fn collection(w: f32, h: f32) -> Option<Node> {
             .f32v_attr(attr::position(), &[0.0, h * 0.06]),
     );
     root = root.child(
-        text("Artifacts you have discovered", 14.0, 0x99F8ECE5, w, 24.0)?
-            .string_attr(attr::font_family(), BODY_FONT)
-            .i32_attr(attr::text_align(), 1)
-            .f32v_attr(attr::position(), &[0.0, h * 0.10]),
+        text(
+            &format!("{found} of {} discovered", COLLECTIBLES.len()),
+            14.0,
+            0x99F8ECE5,
+            w,
+            24.0,
+        )?
+        .string_attr(attr::font_family(), BODY_FONT)
+        .i32_attr(attr::text_align(), 1)
+        .f32v_attr(attr::position(), &[0.0, h * 0.10]),
     );
 
+    // Four across. A found one shows the piece; a lost one shows its silhouette
+    // and nothing else, which is what makes the wall worth filling in.
+    let cols = 4usize;
     let pad = 20.0;
-    let gap = 10.0;
-    let cell = (w - pad * 2.0 - gap * 2.0) / 3.0;
+    let cell = (w - pad * 2.0 - 8.0 * (cols as f32 - 1.0)) / cols as f32;
     let top = h * 0.16;
-    for (i, wo) in WONDERS.iter().enumerate() {
-        let (cx, cy) = (i % 3, i / 3);
-        let x = pad + (cell + gap) * cx as f32;
-        let y = top + (cell + 34.0) * cy as f32;
-        root = root.child(
-            stack(cell, cell, 0xFF1E1B18)?
-                .radius(6.0)
-                .f32v_attr(attr::position(), &[x, y])
-                .child(photo(
-                    APP,
-                    &format!("{}/photo-3.jpg", wo.dir),
-                    cell,
-                    cell,
-                    6.0,
-                )?),
-        );
-        root = root.child(
-            text(wo.title, 11.0, 0x99F8ECE5, cell, 26.0)?
-                .string_attr(attr::font_family(), BODY_FONT)
-                .i32_attr(attr::text_align(), 1)
-                .f32v_attr(attr::position(), &[x, y + cell + 5.0]),
-        );
+    for (i, c) in COLLECTIBLES.iter().enumerate() {
+        let (gx, gy) = (i % cols, i / cols);
+        let x = pad + (cell + 8.0) * gx as f32;
+        let y = top + (cell + 26.0) * gy as f32;
+        if collectibles::is_found(i) {
+            if let Some(n) = Node::new(ty::image()) {
+                root = root.child(
+                    n.width(cell)
+                        .height(cell)
+                        .radius(6.0)
+                        .bg(0x14F8ECE5)
+                        .string_attr(
+                            attr::image_src(),
+                            &super::corpus::thumb_url(c.artifact_id.parse().unwrap_or(0)),
+                        )
+                        .i32_attr(attr::image_fit(), 1)
+                        .f32v_attr(attr::position(), &[x, y]),
+                );
+            }
+            root = root.child(
+                text(c.title, 9.0, 0x99F8ECE5, cell, 18.0)?
+                    .string_attr(attr::font_family(), BODY_FONT)
+                    .i32_attr(attr::text_align(), 1)
+                    .f32v_attr(attr::position(), &[x, y + cell + 2.0]),
+            );
+        } else {
+            root = root.child(
+                stack(cell, cell, 0x0DF8ECE5)?
+                    .radius(6.0)
+                    .f32v_attr(attr::position(), &[x, y])
+                    .child(icon(
+                        APP,
+                        &format!("_common/collectibles/{}.png", c.icon),
+                        cell * 0.34,
+                    )?),
+            );
+        }
     }
 
     root = root.child(
         stack(46.0, 46.0, 0x33F8ECE5)?
             .radius(23.0)
-            .f32v_attr(attr::position(), &[w - 66.0, h * 0.045])
+            .f32v_attr(attr::position(), &[w - 66.0, h * 0.035])
             .child(icon(APP, "_common/icons/icon-close.png", 20.0)?),
     );
     root = root.child(super::hits(
         w,
         h,
-        &[(w - 76.0, h * 0.035, 66.0, 66.0, COLLECTION_CLOSE)],
+        &[(w - 76.0, h * 0.025, 66.0, 66.0, COLLECTION_CLOSE)],
     )?);
     Some(root)
 }
 
-/// One artifact, full screen — `artifact_details_screen.dart`.
-///
-/// The piece on a pale ground with its culture, its name, and the Met's own
-/// record of it: date, period, geography, medium, dimensions, classification.
-/// Those six come from the API, not from anything that ships, so until the
-/// response lands the screen shows what it has and fills in the rest when it
-/// arrives.
 pub fn artifact(index: usize, w: f32, h: f32) -> Option<Node> {
     let list = super::artifact_data::ARTIFACTS[index % 8];
     if list.is_empty() {
