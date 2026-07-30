@@ -10,6 +10,73 @@ use super::tabbar;
 use crate::arkui::{attr, ty, Node};
 use crate::ui::*;
 
+/// The hero's photograph and its title block, kept so a scroll can move them
+/// without rebuilding the tree.
+///
+/// Wonderous collapses the hero as the article scrolls: the image drifts up at
+/// half the scroll rate — parallax — and the title fades toward the top. That
+/// is per-frame, so rebuilding the whole screen for each event is not an
+/// option; these two handles get their attributes set directly.
+static HERO_IMAGE: AtomicUsize = AtomicUsize::new(0);
+static HERO_TITLE: AtomicUsize = AtomicUsize::new(0);
+static HERO_SCROLL: AtomicUsize = AtomicUsize::new(0);
+static HERO_H: std::sync::Mutex<f32> = std::sync::Mutex::new(0.0);
+
+/// The photograph is drawn half again as tall as the frame that clips it, so
+/// there is something to slide. At rest it is centred, a quarter of the excess
+/// hidden above and a quarter below; at the end of the travel those swap. Any
+/// less and the bottom edge of the frame would run off the picture.
+const PARALLAX_OVERDRAW: f32 = 1.5;
+/// How much of the hero the title survives — it is gone well before the
+/// picture is, which is what makes the two read as separate planes.
+const TITLE_FADE: f32 = 1.6;
+
+/// Apply the current scroll offset to the hero. Called from the scroll event.
+///
+/// Both handles are cleared whenever the screen is rebuilt, so a stale one is
+/// never written to.
+pub fn apply_parallax() {
+    let hero_h = HERO_H.lock().map(|h| *h).unwrap_or(0.0);
+    let scroll = HERO_SCROLL.load(Ordering::Relaxed);
+    if hero_h <= 0.0 || scroll == 0 {
+        return;
+    }
+    // Ask the Scroll where it is. Accumulating the deltas the event carries
+    // drifts: the sum ran several times ahead of the real offset within one
+    // drag, which pinned the hero at the end of its travel immediately.
+    let Some(y) =
+        (unsafe { Node::get_f32(scroll as crate::arkui::NodeHandle, attr::scroll_offset(), 1) })
+    else {
+        return;
+    };
+    let t = (y / hero_h).clamp(0.0, 1.0);
+    let img = HERO_IMAGE.load(Ordering::Relaxed);
+    let title = HERO_TITLE.load(Ordering::Relaxed);
+
+    if img != 0 {
+        // The Stack has already been carried up by the whole scroll, so pushing
+        // the photograph back *down* by half of it leaves the photograph
+        // climbing the screen at half the rate of the article over it.
+        let travel = hero_h * (PARALLAX_OVERDRAW - 1.0) / 2.0;
+        unsafe {
+            Node::set_f32v_raw(
+                img as crate::arkui::NodeHandle,
+                attr::position(),
+                &[0.0, travel * (2.0 * t - 1.0)],
+            );
+        }
+    }
+    if title != 0 {
+        unsafe {
+            Node::set_f32_attr_raw(
+                title as crate::arkui::NodeHandle,
+                attr::opacity(),
+                (1.0 - t * TITLE_FADE).clamp(0.0, 1.0),
+            );
+        }
+    }
+}
+
 /// A scroll sized to the caller's width.
 ///
 /// `ui::scroll` is hardwired to the benchmark page width, which on the Pura X
@@ -98,6 +165,14 @@ pub fn set_artifact_sel(i: usize) {
 }
 
 pub fn build(index: usize, tab: usize, w: f32, h: f32) -> Option<Node> {
+    // The old tree is about to be dropped. Forget its hero before anything can
+    // write to those handles; only the editorial tab puts them back.
+    HERO_IMAGE.store(0, Ordering::Relaxed);
+    HERO_TITLE.store(0, Ordering::Relaxed);
+    HERO_SCROLL.store(0, Ordering::Relaxed);
+    if let Ok(mut g) = HERO_H.lock() {
+        *g = 0.0;
+    }
     let wonder = &WONDERS[index % WONDERS.len()];
     let bar_h = tabbar::height();
     let mut root = stack(w, h, wonder.bg)?;
@@ -233,24 +308,52 @@ fn editorial(wonder: &Wonder, index: usize, w: f32, h: f32) -> Option<Node> {
 
     let mut s = scroll_w(w, h)?;
     s = s.child(sheet);
+    // The scroll drives the hero. The event is only a tick — the handler reads
+    // the offset back off this node.
+    s = s.on_event(crate::arkui::event::did_scroll(), SCROLL_TICK);
+    HERO_SCROLL.store(s.raw() as usize, Ordering::Relaxed);
     Some(s)
 }
+
+/// The id the editorial's Scroll reports under.
+pub const SCROLL_TICK: i32 = 7399;
 
 /// The collapsing hero: a photo, the name in the display face, the region and
 /// the dates beneath it.
 fn hero(wonder: &Wonder, e: &super::editorial_data::Editorial, w: f32) -> Option<Node> {
     let hh = w * 1.05;
-    let mut st = stack(w, hh, wonder.fg)?;
-    st = st.child(photo(
+    // Clipped, because the photograph inside is deliberately taller than the
+    // frame it sits in and would otherwise paint over the article.
+    let mut st = stack(w, hh, wonder.fg)?.i32_attr(attr::clip(), 1);
+    let img = photo(
         APP,
         &format!("{}/photo-1.jpg", wonder.dir),
         w,
-        hh,
+        hh * PARALLAX_OVERDRAW,
         0.0,
-    )?);
+    )?
+    .f32v_attr(
+        attr::position(),
+        &[0.0, -hh * (PARALLAX_OVERDRAW - 1.0) / 2.0],
+    );
+    HERO_IMAGE.store(img.raw() as usize, Ordering::Relaxed);
+    if let Ok(mut g) = HERO_H.lock() {
+        *g = hh;
+    }
+    st = st.child(img);
 
-    // A scrim, so the title holds over any photograph.
-    st = st.child(col(w, hh * 0.5, 0x99000000)?.f32v_attr(attr::position(), &[0.0, hh * 0.5]));
+    // The scrim and the title are one layer, because they fade together: the
+    // scrim exists only to hold the title over the photograph.
+    //
+    // ARKUI_LINEAR_GRADIENT_DIRECTION_BOTTOM. A flat rectangle of black left a
+    // hard horizontal seam straight across the pyramids once the hero started
+    // moving under it.
+    let mut veil = stack(w, hh, 0x00000000)?;
+    veil = veil.child(
+        col(w, hh * 0.62, 0x00000000)?
+            .gradient(3, &[0x00000000, 0x66000000, 0xB3000000], &[0.0, 0.55, 1.0])
+            .f32v_attr(attr::position(), &[0.0, hh * 0.38]),
+    );
 
     let size = (w * 0.10).clamp(26.0, 40.0);
     let mut cap = col(w, 130.0, 0x00000000)?.f32v_attr(attr::position(), &[0.0, hh - 140.0]);
@@ -270,7 +373,9 @@ fn hero(wonder: &Wonder, e: &super::editorial_data::Editorial, w: f32) -> Option
             .string_attr(attr::font_family(), SERIF_UI)
             .i32_attr(attr::text_align(), 1),
     );
-    st = st.child(cap);
+    veil = veil.child(cap);
+    HERO_TITLE.store(veil.raw() as usize, Ordering::Relaxed);
+    st = st.child(veil);
     Some(st)
 }
 

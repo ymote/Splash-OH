@@ -43,7 +43,11 @@ pub fn hits(
     frame_h: f32,
     targets: &[(f32, f32, f32, f32, i32)],
 ) -> Option<crate::arkui::Node> {
+    use crate::arkui::attr;
     use crate::ui::{col, row, spacer, tap_col};
+
+    /// `ARKUI_HIT_TEST_MODE_NONE`: this node never takes the touch itself.
+    const HIT_NONE: i32 = 3;
 
     let mut ts: Vec<(f32, f32, f32, f32, i32)> = targets.to_vec();
     ts.sort_by(|a, b| {
@@ -69,15 +73,21 @@ pub fn hits(
         targets.len(),
         bands.len()
     ));
-    let mut column = col(frame_w, frame_h, 0x00000000)?;
+    // 4. The overlay is full-frame, so by default it eats every gesture aimed
+    //    at whatever is underneath — the details screen would not scroll at
+    //    all. `NONE` means "I don't take the touch, my children still can", so
+    //    the frame and the padding between bands stay transparent to the
+    //    Scroll behind them and only the targets themselves take a touch.
+    let mut column = col(frame_w, frame_h, 0x00000000)?.i32_attr(attr::hit_test(), HIT_NONE);
     let mut cursor = 0.0f32;
     for band in bands {
         let top = band.iter().map(|t| t.1).fold(f32::MAX, f32::min);
         let bottom = band.iter().map(|t| t.1 + t.3).fold(f32::MIN, f32::max);
         if top > cursor {
-            column = column.child(spacer(frame_w, top - cursor)?);
+            column =
+                column.child(spacer(frame_w, top - cursor)?.i32_attr(attr::hit_test(), HIT_NONE));
         }
-        let mut line = row(frame_w, bottom - top, 0x00000000)?;
+        let mut line = row(frame_w, bottom - top, 0x00000000)?.i32_attr(attr::hit_test(), HIT_NONE);
         let mut x = 0.0f32;
         for (tx, _, tw, th, id) in band {
             // A band whose members overlap horizontally cannot be laid out in
@@ -92,7 +102,7 @@ pub fn hits(
                 continue;
             }
             if tx > x {
-                line = line.child(spacer(tx - x, th)?);
+                line = line.child(spacer(tx - x, th)?.i32_attr(attr::hit_test(), HIT_NONE));
             }
             line = line.child(tap_col(tw, th, 0x00000000, id)?);
             x = tx + tw;

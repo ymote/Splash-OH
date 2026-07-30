@@ -283,7 +283,7 @@ pub fn rebuild() {
         if h.is_null() {
             None
         } else {
-            crate::arkui::Node::get_f32(h, crate::arkui::attr::scroll_offset(), 1)
+            unsafe { crate::arkui::Node::get_f32(h, crate::arkui::attr::scroll_offset(), 1) }
         }
     } else {
         None
@@ -316,7 +316,9 @@ pub fn rebuild() {
     if let Some(y) = offset {
         let h = crate::dsl::scroll_node();
         if !h.is_null() && y > 0.0 {
-            crate::arkui::Node::set_f32v_raw(h, crate::arkui::attr::scroll_offset(), &[0.0, y]);
+            unsafe {
+                crate::arkui::Node::set_f32v_raw(h, crate::arkui::attr::scroll_offset(), &[0.0, y])
+            };
         }
     }
 }
