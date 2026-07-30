@@ -202,31 +202,53 @@ int splash_set_gradient(ArkUI_NodeHandle n, int attr, int dir,
 
 static ArkUI_NativeAnimateAPI_1 *g_anim = nullptr;
 
+// The caller's closure owns memory on the Rust side and must be run exactly
+// once, whatever happens here. Every early return therefore runs it, and the
+// animateTo path runs it afterwards if ArkUI did not -- otherwise a rejected
+// animateTo would both leak the closure and silently skip the state change it
+// was carrying.
+struct SplashAnimCall {
+    void (*update)(void *);
+    void *user;
+    bool ran;
+};
+
+static void splash_anim_thunk(void *p) {
+    SplashAnimCall *c = (SplashAnimCall *)p;
+    if (!c || c->ran) return;
+    c->ran = true;
+    c->update(c->user);
+}
+
 int splash_animate(ArkUI_NodeHandle anchor, int duration_ms, int curve,
                    void (*update)(void *), void *user) {
-    if (!anchor || !update) return -1;
+    if (!update) return -1;
+    SplashAnimCall call;
+    call.update = update;
+    call.user = user;
+    call.ran = false;
+
     if (!g_anim) {
         OH_ArkUI_GetModuleInterface(ARKUI_NATIVE_ANIMATE, ArkUI_NativeAnimateAPI_1, g_anim);
     }
-    ArkUI_ContextHandle ctx = OH_ArkUI_GetContextByNode(anchor);
-    if (!g_anim || !ctx) {
+    ArkUI_ContextHandle ctx = anchor ? OH_ArkUI_GetContextByNode(anchor) : nullptr;
+    ArkUI_AnimateOption *opt = (g_anim && ctx) ? OH_ArkUI_AnimateOption_Create() : nullptr;
+    if (!opt) {
         // No animation available: still apply the change, just without the
         // tween. A missing animation must never mean a missing update.
-        update(user);
-        return -1;
-    }
-    ArkUI_AnimateOption *opt = OH_ArkUI_AnimateOption_Create();
-    if (!opt) {
-        update(user);
+        splash_anim_thunk(&call);
         return -1;
     }
     OH_ArkUI_AnimateOption_SetDuration(opt, duration_ms);
     OH_ArkUI_AnimateOption_SetCurve(opt, (ArkUI_AnimationCurve)curve);
     ArkUI_ContextCallback cb;
-    cb.userData = user;
-    cb.callback = update;
+    cb.userData = &call;
+    cb.callback = splash_anim_thunk;
     int rc = g_anim->animateTo(ctx, opt, &cb, nullptr);
     OH_ArkUI_AnimateOption_Dispose(opt);
+    // animateTo runs the closure synchronously; if it declined to, run it here
+    // so the update still lands and the box is still reclaimed.
+    splash_anim_thunk(&call);
     return rc;
 }
 

@@ -1,7 +1,7 @@
 //! Dates and events, from each wonder's `*_data.dart`.
 //!
 //! `start_yr`/`end_yr` are the construction span the timeline plots; the events
-//! are the fifteen entries the app lists per wonder, with their years. Negative
+//! are the entries the app lists per wonder -- six each -- with their years. Negative
 //! years are BCE.
 
 pub struct Event {
