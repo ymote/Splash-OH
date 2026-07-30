@@ -50,6 +50,7 @@ enum Screen {
     Menu,
     Collection,
     Artifact,
+    Timeline,
 }
 
 static SCREEN: Mutex<Screen> = Mutex::new(Screen::Intro(0));
@@ -112,6 +113,18 @@ pub fn handle(target: i32) -> bool {
             go(Screen::Home);
             true
         }
+        wonders::screens::MENU_COLLECTION => {
+            go(Screen::Collection);
+            true
+        }
+        wonders::screens::MENU_TIMELINE => {
+            go(Screen::Timeline);
+            true
+        }
+        wonders::timeline::TIMELINE_CLOSE => {
+            go(Screen::Home);
+            true
+        }
         wonders::screens::COLLECTION_CLOSE | wonders::screens::ARTIFACT_CLOSE => {
             go(Screen::Home);
             true
@@ -145,6 +158,7 @@ pub fn build() -> Option<Node> {
         Screen::Intro(p) => wonders::screens::intro(p, w, h),
         Screen::Menu => wonders::screens::menu(current(), w, h),
         Screen::Collection => wonders::screens::collection(w, h),
+        Screen::Timeline => wonders::timeline::build(current(), w, h),
         Screen::Artifact => wonders::screens::artifact(current(), w, h),
         Screen::Details(_) => wonders::details::build(current(), tab().unwrap_or(0), w, h),
         Screen::Home => wonders::home::build(current(), w, h),

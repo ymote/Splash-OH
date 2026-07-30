@@ -56,33 +56,20 @@ pub fn build(index: usize, w: f32, h: f32) -> Option<Node> {
     root = root.child(illustration_with(wonder, w, h, None)?);
     root = root.child(title_block(wonder, index, w, h)?);
     root = root.child(menu_button(h)?);
-    root = root.child(super::hit(w, h, 12.0, h * 0.045, 62.0, 62.0, MENU_TAP)?);
     root = root.child(chevron(w, h)?);
-    // Paging zones, above the artwork and below the controls, so the menu and
-    // the chevron still get their own taps.
-    root = root.child(super::hit(
+    // Every tap target in one overlay: the menu, the two paging halves, and
+    // the strip along the bottom that opens the details. One overlay because a
+    // full-frame column per target means only the last one ever fires.
+    root = root.child(super::hits(
         w,
         h,
-        0.0,
-        h * 0.12,
-        w * 0.35,
-        h * 0.6,
-        PREV_TAP,
+        &[
+            (12.0, h * 0.045, 62.0, 62.0, MENU_TAP),
+            (0.0, h * 0.14, w * 0.35, h * 0.6, PREV_TAP),
+            (w * 0.65, h * 0.14, w * 0.35, h * 0.6, NEXT_TAP),
+            (0.0, h * 0.80, w, h * 0.17, DETAILS_TAP),
+        ],
     )?);
-    root = root.child(super::hit(
-        w,
-        h,
-        w * 0.65,
-        h * 0.12,
-        w * 0.35,
-        h * 0.6,
-        NEXT_TAP,
-    )?);
-    // Opening the details. A click registered straight on the chevron's Stack
-    // never arrived; a tap_col does, which is the same construct the paging
-    // zones use. The strip covers the title and the chevron together, matching
-    // the app -- there both the name and the arrow push the details screen.
-    root = root.child(super::hit(w, h, 0.0, h * 0.80, w, h * 0.17, DETAILS_TAP)?);
     Some(root)
 }
 
