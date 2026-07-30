@@ -200,6 +200,14 @@ pub fn build_weather() -> Option<Node> {
     build(WEATHER)
 }
 
+/// Evaluate the card lowered from a SEMANTIC PLAN by expand_oh.py — the same
+/// plan that expand.py lowers to makepad Splash DSL. Additive: exists purely to
+/// test whether one backend-agnostic plan can drive two renderers.
+pub fn build_planweather() -> Option<Node> {
+    const PLANWEATHER: &str = include_str!("../assets/planweather.splash");
+    build(PLANWEATHER)
+}
+
 /// The YouTube app's native chrome bar. The video content is an ArkTS `Web`
 /// component (see pages/Index.ets) — OpenHarmony's WebView cannot live in the
 /// native ArkUI node tree, so Splash-OH renders the app shell and the Web sits

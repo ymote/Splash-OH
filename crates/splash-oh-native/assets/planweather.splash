@@ -1,0 +1,186 @@
+// GENERATED from a semantic plan by expand_oh.py — do not edit.
+//
+// The SAME plan that expand.py lowers to makepad Splash DSL, lowered here to the
+// OpenHarmony dialect: plain {t:...} records, argb() colours (hex evaluates to 0
+// in this VM), w/h attributes, and fetch_* against explicit URLs.
+
+fn argb(a, r, g, b) { return ((a * 256 + r) * 256 + g) * 256 + b }
+
+let W       = 402
+let H       = 1700
+let PANELW  = 370
+let PANW_IN = 338
+let TILEW   = 164
+let GAP     = 10
+
+let WX = "https://api.open-meteo.com/v1/forecast?latitude=35.0211&longitude=135.7538&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,uv_index_max,sunrise,sunset&timezone=Asia/Tokyo&forecast_days=7"
+let AQ = "https://air-quality-api.open-meteo.com/v1/air-quality?latitude=35.0211&longitude=135.7538&current=us_aqi&timezone=Asia/Tokyo"
+
+// Weekday labels. The plan does not carry them and the model never sees them —
+// same rule as sys.dayname on the makepad side.
+let DAYS = ["Today", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+fn dayname(n) {
+    if n <= 0 { return DAYS[0] }
+    return DAYS[(weekday_today() + n - 1) % 7 + 1]
+}
+
+// EPA band colour for an AQI reading.
+fn aqi_color(v) {
+    if v <= 50 { return argb(200, 0, 228, 0) }
+    if v <= 100 { return argb(200, 255, 255, 0) }
+    if v <= 150 { return argb(200, 255, 126, 0) }
+    if v <= 200 { return argb(200, 255, 0, 0) }
+    if v <= 300 { return argb(200, 143, 63, 151) }
+    if v <= 1000000000 { return argb(200, 126, 0, 35) }
+    return argb(200, 126, 0, 35)
+}
+
+// DEGRADED stand-in for TempBar's gradient: one colour per row, picked from the
+// day's high. A true gradient needs a shader this backend does not have.
+fn bar_color(t) {
+    if t <= 10 { return argb(220,  30,  92, 255) }
+    if t <= 20 { return argb(220,   0, 217, 192) }
+    if t <= 27 { return argb(220, 198, 224,  22) }
+    if t <= 32 { return argb(220, 255, 196,   0) }
+    if t <= 36 { return argb(220, 255, 138,   0) }
+    return argb(220, 224,  27,  27)
+}
+
+{t: "scroll", w: W, h: H, c: [
+  {t: "column", w: W, bg: argb(120, 8, 10, 16), pad: 16, align: 1, c: [
+    {t: "column", w: PANELW, align: 1, c: [
+        {t: "text", text: "Kyoto", size: 30, weight: 4, color: argb(236, 235, 239, 247), w: 370, h: 30 * 1.3 + 8},
+        {t: "text", text: fetch_fmt(WX, "current.temperature_2m", -1, "°"), size: 76, weight: 2, color: argb(255, 255, 255, 255), w: 370, h: 76 * 1.3 + 8},
+        {t: "row", w: PANELW, h: 60, align: 1, c: [
+            {t: "image", src: "resource://RAWFILE/weather/cloudy.svg", w: 46, h: 46, fit: 1},
+            {t: "column", w: 8, h: 4},
+            {t: "text", text: "Cloudy", size: 18, weight: 4, color: argb(236, 235, 239, 247), w: 200, h: 18 * 1.3 + 8}
+        ]},
+        {t: "text", text: "↑" + fetch_fmt(WX, "daily.temperature_2m_max", 0, "°") + "   ↓" + fetch_fmt(WX, "daily.temperature_2m_min", 0, "°") + "   ≈" + fetch_fmt(WX, "current.apparent_temperature", -1, "°"), size: 14, weight: 4, color: argb(196, 209, 216, 230), w: 370, h: 14 * 1.3 + 8}
+    ]},
+    {t: "column", w: PANELW, bg: argb(165, 19, 23, 33), radius: 20, pad: 16, c: [
+        {t: "row", w: PANW_IN, h: 44, align: 1, c: [
+            {t: "text", text: "Today", size: 15, weight: 5, color: argb(236, 235, 239, 247), w: 86, h: 15 * 1.3 + 8},
+            {t: "image", src: "resource://RAWFILE/weather/cloudy.svg", w: 26, h: 26, fit: 1},
+            {t: "column", w: 8, h: 4},
+            {t: "text", text: fetch_fmt(WX, "daily.temperature_2m_min", 0, "°"), size: 15, weight: 4, color: argb(196, 209, 216, 230), w: 46, h: 15 * 1.3 + 8},
+            {t: "stack", w: 90, h: 6, c: [
+                {t: "column", w: 90, h: 6, bg: argb(60, 255, 255, 255), radius: 3},
+                {t: "column", w: 90, h: 6, bg: bar_color(fetch_num(WX, "daily.temperature_2m_max", 0)), radius: 3}
+            ]},
+            {t: "column", w: 8, h: 4},
+            {t: "text", text: fetch_fmt(WX, "daily.temperature_2m_max", 0, "°"), size: 15, weight: 5, color: argb(255, 255, 255, 255), w: 46, h: 15 * 1.3 + 8}
+        ]},
+        {t: "row", w: PANW_IN, h: 44, align: 1, c: [
+            {t: "text", text: fetch_weekday(WX, "daily.time", 1), size: 15, weight: 5, color: argb(236, 235, 239, 247), w: 86, h: 15 * 1.3 + 8},
+            {t: "image", src: "resource://RAWFILE/weather/partly.svg", w: 26, h: 26, fit: 1},
+            {t: "column", w: 8, h: 4},
+            {t: "text", text: fetch_fmt(WX, "daily.temperature_2m_min", 1, "°"), size: 15, weight: 4, color: argb(196, 209, 216, 230), w: 46, h: 15 * 1.3 + 8},
+            {t: "stack", w: 90, h: 6, c: [
+                {t: "column", w: 90, h: 6, bg: argb(60, 255, 255, 255), radius: 3},
+                {t: "column", w: 90, h: 6, bg: bar_color(fetch_num(WX, "daily.temperature_2m_max", 1)), radius: 3}
+            ]},
+            {t: "column", w: 8, h: 4},
+            {t: "text", text: fetch_fmt(WX, "daily.temperature_2m_max", 1, "°"), size: 15, weight: 5, color: argb(255, 255, 255, 255), w: 46, h: 15 * 1.3 + 8}
+        ]},
+        {t: "row", w: PANW_IN, h: 44, align: 1, c: [
+            {t: "text", text: fetch_weekday(WX, "daily.time", 2), size: 15, weight: 5, color: argb(236, 235, 239, 247), w: 86, h: 15 * 1.3 + 8},
+            {t: "image", src: "resource://RAWFILE/weather/rain.svg", w: 26, h: 26, fit: 1},
+            {t: "column", w: 8, h: 4},
+            {t: "text", text: fetch_fmt(WX, "daily.temperature_2m_min", 2, "°"), size: 15, weight: 4, color: argb(196, 209, 216, 230), w: 46, h: 15 * 1.3 + 8},
+            {t: "stack", w: 90, h: 6, c: [
+                {t: "column", w: 90, h: 6, bg: argb(60, 255, 255, 255), radius: 3},
+                {t: "column", w: 90, h: 6, bg: bar_color(fetch_num(WX, "daily.temperature_2m_max", 2)), radius: 3}
+            ]},
+            {t: "column", w: 8, h: 4},
+            {t: "text", text: fetch_fmt(WX, "daily.temperature_2m_max", 2, "°"), size: 15, weight: 5, color: argb(255, 255, 255, 255), w: 46, h: 15 * 1.3 + 8}
+        ]},
+        {t: "row", w: PANW_IN, h: 44, align: 1, c: [
+            {t: "text", text: fetch_weekday(WX, "daily.time", 3), size: 15, weight: 5, color: argb(236, 235, 239, 247), w: 86, h: 15 * 1.3 + 8},
+            {t: "image", src: "resource://RAWFILE/weather/cloudy.svg", w: 26, h: 26, fit: 1},
+            {t: "column", w: 8, h: 4},
+            {t: "text", text: fetch_fmt(WX, "daily.temperature_2m_min", 3, "°"), size: 15, weight: 4, color: argb(196, 209, 216, 230), w: 46, h: 15 * 1.3 + 8},
+            {t: "stack", w: 90, h: 6, c: [
+                {t: "column", w: 90, h: 6, bg: argb(60, 255, 255, 255), radius: 3},
+                {t: "column", w: 90, h: 6, bg: bar_color(fetch_num(WX, "daily.temperature_2m_max", 3)), radius: 3}
+            ]},
+            {t: "column", w: 8, h: 4},
+            {t: "text", text: fetch_fmt(WX, "daily.temperature_2m_max", 3, "°"), size: 15, weight: 5, color: argb(255, 255, 255, 255), w: 46, h: 15 * 1.3 + 8}
+        ]},
+        {t: "row", w: PANW_IN, h: 44, align: 1, c: [
+            {t: "text", text: fetch_weekday(WX, "daily.time", 4), size: 15, weight: 5, color: argb(236, 235, 239, 247), w: 86, h: 15 * 1.3 + 8},
+            {t: "image", src: "resource://RAWFILE/weather/sunny.svg", w: 26, h: 26, fit: 1},
+            {t: "column", w: 8, h: 4},
+            {t: "text", text: fetch_fmt(WX, "daily.temperature_2m_min", 4, "°"), size: 15, weight: 4, color: argb(196, 209, 216, 230), w: 46, h: 15 * 1.3 + 8},
+            {t: "stack", w: 90, h: 6, c: [
+                {t: "column", w: 90, h: 6, bg: argb(60, 255, 255, 255), radius: 3},
+                {t: "column", w: 90, h: 6, bg: bar_color(fetch_num(WX, "daily.temperature_2m_max", 4)), radius: 3}
+            ]},
+            {t: "column", w: 8, h: 4},
+            {t: "text", text: fetch_fmt(WX, "daily.temperature_2m_max", 4, "°"), size: 15, weight: 5, color: argb(255, 255, 255, 255), w: 46, h: 15 * 1.3 + 8}
+        ]},
+        {t: "row", w: PANW_IN, h: 44, align: 1, c: [
+            {t: "text", text: fetch_weekday(WX, "daily.time", 5), size: 15, weight: 5, color: argb(236, 235, 239, 247), w: 86, h: 15 * 1.3 + 8},
+            {t: "image", src: "resource://RAWFILE/weather/partly.svg", w: 26, h: 26, fit: 1},
+            {t: "column", w: 8, h: 4},
+            {t: "text", text: fetch_fmt(WX, "daily.temperature_2m_min", 5, "°"), size: 15, weight: 4, color: argb(196, 209, 216, 230), w: 46, h: 15 * 1.3 + 8},
+            {t: "stack", w: 90, h: 6, c: [
+                {t: "column", w: 90, h: 6, bg: argb(60, 255, 255, 255), radius: 3},
+                {t: "column", w: 90, h: 6, bg: bar_color(fetch_num(WX, "daily.temperature_2m_max", 5)), radius: 3}
+            ]},
+            {t: "column", w: 8, h: 4},
+            {t: "text", text: fetch_fmt(WX, "daily.temperature_2m_max", 5, "°"), size: 15, weight: 5, color: argb(255, 255, 255, 255), w: 46, h: 15 * 1.3 + 8}
+        ]},
+        {t: "row", w: PANW_IN, h: 44, align: 1, c: [
+            {t: "text", text: fetch_weekday(WX, "daily.time", 6), size: 15, weight: 5, color: argb(236, 235, 239, 247), w: 86, h: 15 * 1.3 + 8},
+            {t: "image", src: "resource://RAWFILE/weather/cloudy.svg", w: 26, h: 26, fit: 1},
+            {t: "column", w: 8, h: 4},
+            {t: "text", text: fetch_fmt(WX, "daily.temperature_2m_min", 6, "°"), size: 15, weight: 4, color: argb(196, 209, 216, 230), w: 46, h: 15 * 1.3 + 8},
+            {t: "stack", w: 90, h: 6, c: [
+                {t: "column", w: 90, h: 6, bg: argb(60, 255, 255, 255), radius: 3},
+                {t: "column", w: 90, h: 6, bg: bar_color(fetch_num(WX, "daily.temperature_2m_max", 6)), radius: 3}
+            ]},
+            {t: "column", w: 8, h: 4},
+            {t: "text", text: fetch_fmt(WX, "daily.temperature_2m_max", 6, "°"), size: 15, weight: 5, color: argb(255, 255, 255, 255), w: 46, h: 15 * 1.3 + 8}
+        ]}
+    ]},
+    {t: "column", w: PANELW, bg: argb(165, 19, 23, 33), radius: 20, pad: 16, c: [
+        {t: "text", text: "Air Quality", size: 12, weight: 5, color: argb(196, 209, 216, 230), w: 338, h: 12 * 1.3 + 8},
+        {t: "column", w: 4, h: 8},
+        {t: "column", w: PANW_IN, h: 26, bg: aqi_color(fetch_num(AQ, "current.us_aqi", -1)), radius: 13},
+        {t: "column", w: 4, h: 8},
+        {t: "text", text: fetch_fmt(AQ, "current.us_aqi", -1, ""), size: 18, weight: 6, color: argb(255, 255, 255, 255), w: 338, h: 18 * 1.3 + 8}
+    ]},
+    {t: "column", w: PANELW, bg: argb(165, 19, 23, 33), radius: 20, pad: 16, c: [
+        {t: "text", text: "Sunrise / Sunset", size: 12, weight: 5, color: argb(196, 209, 216, 230), w: 338, h: 12 * 1.3 + 8},
+        {t: "column", w: 4, h: 6},
+        {t: "text", text: "Sun & Moon unavailable on this backend", size: 15, weight: 4, color: argb(196, 209, 216, 230), w: 338, h: 15 * 1.3 + 8}
+    ]},
+    {t: "row", w: PANELW, h: 92, c: [
+        {t: "column", w: TILEW, h: 80, bg: argb(80, 140, 151, 178), radius: 14, pad: 12, c: [
+            {t: "text", text: "AIR QUALITY", size: 12, weight: 5, color: argb(196, 209, 216, 230), w: 140, h: 12 * 1.3 + 8},
+            {t: "column", w: 4, h: 4},
+            {t: "text", text: fetch_fmt(AQ, "current.us_aqi", -1, ""), size: 18, weight: 6, color: argb(255, 255, 255, 255), w: 140, h: 18 * 1.3 + 8}
+        ]},
+            {t: "column", w: GAP, h: 4},
+        {t: "column", w: TILEW, h: 80, bg: argb(80, 140, 151, 178), radius: 14, pad: 12, c: [
+            {t: "text", text: "UV INDEX", size: 12, weight: 5, color: argb(196, 209, 216, 230), w: 140, h: 12 * 1.3 + 8},
+            {t: "column", w: 4, h: 4},
+            {t: "text", text: fetch_fmt(WX, "daily.uv_index_max", 0, ""), size: 18, weight: 6, color: argb(255, 255, 255, 255), w: 140, h: 18 * 1.3 + 8}
+        ]}
+    ]},
+    {t: "row", w: PANELW, h: 92, c: [
+        {t: "column", w: TILEW, h: 80, bg: argb(80, 140, 151, 178), radius: 14, pad: 12, c: [
+            {t: "text", text: "HUMIDITY", size: 12, weight: 5, color: argb(196, 209, 216, 230), w: 140, h: 12 * 1.3 + 8},
+            {t: "column", w: 4, h: 4},
+            {t: "text", text: fetch_fmt(WX, "current.relative_humidity_2m", -1, "%"), size: 18, weight: 6, color: argb(255, 255, 255, 255), w: 140, h: 18 * 1.3 + 8}
+        ]},
+            {t: "column", w: GAP, h: 4},
+        {t: "column", w: TILEW, h: 80, bg: argb(80, 140, 151, 178), radius: 14, pad: 12, c: [
+            {t: "text", text: "WIND", size: 12, weight: 5, color: argb(196, 209, 216, 230), w: 140, h: 12 * 1.3 + 8},
+            {t: "column", w: 4, h: 4},
+            {t: "text", text: fetch_fmt(WX, "current.wind_speed_10m", -1, " km/h"), size: 18, weight: 6, color: argb(255, 255, 255, 255), w: 140, h: 18 * 1.3 + 8}
+        ]}
+    ]}
+  ]}
+]}

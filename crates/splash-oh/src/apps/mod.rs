@@ -47,6 +47,7 @@ pub enum App {
     /// seconds, so "show me the weather card" meant screenshotting inside a
     /// 2.5s window.
     Weather,
+    PlanWeather,
     /// The flutter/samples catalog, built in Rust straight into ArkUI nodes.
     ///
     /// Distinct from `Catalog`, which walks the vendored `.splash` kit. Both
@@ -94,6 +95,7 @@ impl App {
             App::Catalog => "catalog",
             App::Flutter => "flutter",
             App::Weather => "weather",
+            App::PlanWeather => "planweather",
         }
     }
     pub fn from_id(s: &str) -> App {
@@ -109,6 +111,7 @@ impl App {
             "catalog" => App::Catalog,
             "flutter" => App::Flutter,
             "weather" => App::Weather,
+            "planweather" => App::PlanWeather,
             _ => App::WeChat,
         }
     }
@@ -135,6 +138,7 @@ impl App {
             App::Frontend => &["0|root"],
             App::Flutter => &["0|root"],
             App::Weather => &["0|root"],
+            App::PlanWeather => &["0|root"],
             App::Catalog => &[
                 "0|root",
                 "0|buttons",
@@ -191,6 +195,8 @@ pub fn handle(target: i32) -> bool {
         match nav.app {
             // The weather card is a picture of a forecast; nothing on it taps.
             App::Weather => false,
+            // Same — the plan-lowered card is static; the plan declares no actions.
+            App::PlanWeather => false,
             // The flutter catalog routes by name and changes state by name, so
             // its ids resolve through two interning tables rather than a match
             // on constants. `app.screen` is the route, which is what
@@ -377,6 +383,7 @@ pub fn build() -> (Option<Node>, usize, f64) {
         App::Native => native::build(),
         App::Frontend => frontend::build(),
         App::Weather => splash_oh_native::dsl::build_weather(),
+        App::PlanWeather => splash_oh_native::dsl::build_planweather(),
         App::Flutter => {
             let route = splash_oh_native::app::current_screen();
             let route = if route.is_empty() { "index".to_string() } else { route };
@@ -423,6 +430,7 @@ pub fn build_route(app: App, tab: usize, route: &str) -> (usize, f64) {
         // The benchmark never tours this one — it has no ArkTS twin to compare
         // against — so its only route is the index.
         App::Weather => splash_oh_native::dsl::build_weather(),
+        App::PlanWeather => splash_oh_native::dsl::build_planweather(),
         App::Flutter => splash_oh_native::flutter::build("index"),
         App::Taobao => {
             splash_oh_native::taobao::build(tab, if route == "detail" { Some(0) } else { None })
