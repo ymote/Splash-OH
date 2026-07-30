@@ -887,6 +887,26 @@ struct Index {
    */
   /** Ten screens, built in ArkTS. Reports ms and node count per screen. */
   private benchDone: boolean = false;
+  private wa: WonderousArkTs | null = null;
+  private waRoot: FrameNode | null = null;
+
+  /** Build the current ArkTS screen and put it on screen. */
+  private wonderousArkMount(): void {
+    const wa = this.wa;
+    if (wa === null) {
+      return;
+    }
+    const node = wa.build(wa.screen, wa.wonder, wa.tab, wa.page, 406.15, 805.23);
+    if (node === null) {
+      return;
+    }
+    if (this.waRoot !== null) {
+      this.content.removeFrameNode(this.waRoot);
+      this.waRoot.dispose();
+    }
+    this.content.addFrameNode(node);
+    this.waRoot = node;
+  }
 
   private wonderousArkBench(): void {
     const shape: string = dataIsWellFormed();
@@ -929,6 +949,11 @@ struct Index {
         root.dispose();
       }
     }
+    // Then mount it for real, so the arm is a usable app and not only a
+    // timing harness: the same tree, driven by taps, rebuilt on each.
+    this.wa = wa;
+    wa.onTap = () => { this.wonderousArkMount(); };
+    this.wonderousArkMount();
     console.info('SplashOH: wonderous/arkts: TOTAL ' + totalMs.toFixed(2) + ' ms, '
       + totalNodes + ' nodes');
   }

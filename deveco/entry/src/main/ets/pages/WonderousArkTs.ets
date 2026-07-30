@@ -106,6 +106,8 @@ export const S_COLLECTION: number = 4;
 export const S_TIMELINE: number = 5;
 export const S_SEARCH: number = 6;
 export const S_ARTIFACT: number = 7;
+export const S_PHOTO: number = 8;
+export const S_FOUND: number = 9;
 
 const INTRO: string[][] = [
   ['Journey to the past', 'Navigate the intersection of time, art, and culture.'],
@@ -115,12 +117,45 @@ const INTRO: string[][] = [
 
 const TABS: string[] = ['icon-info.png', 'icon-wallpaper.png', 'icon-collection.png', 'icon-timeline.png'];
 
+/** Tap ids, the same meanings the Rust arm gives them. */
+export const T_INTRO_NEXT: number = 7300;
+export const T_MENU: number = 7103;
+export const T_PREV: number = 7101;
+export const T_NEXT: number = 7102;
+export const T_DETAILS: number = 7104;
+export const T_TAB: number = 7200;
+export const T_HOME: number = 7210;
+export const T_MENU_CLOSE: number = 7310;
+export const T_MENU_BASE: number = 7320;
+export const T_COLLECTION: number = 7341;
+export const T_TIMELINE: number = 7342;
+export const T_CLOSE: number = 7340;
+export const T_BROWSE: number = 7372;
+export const T_ART_PREV: number = 7370;
+export const T_ART_NEXT: number = 7371;
+export const T_ART_OPEN: number = 7373;
+export const T_PHOTO_OPEN: number = 7375;
+export const T_COLLECT: number = 7460;
+export const T_FOUND_CLOSE: number = 7490;
+export const T_VIEWER_CLOSE: number = 7450;
+
 export class WonderousArkTs {
   private u: W;
   private w: number = 0;
   private h: number = 0;
   /** Nodes in the last tree built, and how long building it took. */
   nodes: number = 0;
+  /** Where the app is. The Rust arm keeps the same four. */
+  screen: number = S_INTRO;
+  wonder: number = 0;
+  tab: number = 0;
+  page: number = 0;
+  photoSel: number = 13;
+  artSel: number = 0;
+  found: boolean[] = new Array<boolean>(24).fill(false);
+  showing: number = 0;
+  /** Set when a tap changed state, so the host knows to rebuild. */
+  onTap: (t: number) => void = (t: number) => {};
 
   constructor(ctx: UIContext) {
     this.u = new W(ctx);
@@ -147,11 +182,157 @@ export class WonderousArkTs {
       root = this.timeline(wonder);
     } else if (screen === S_SEARCH) {
       root = this.search(wonder);
-    } else {
+    } else if (screen === S_ARTIFACT) {
       root = this.artifact(wonder);
+    } else if (screen === S_PHOTO) {
+      root = this.photoViewer(wonder);
+    } else {
+      root = this.foundScreen();
     }
     this.nodes = this.u.count;
     return root;
+  }
+
+  /**
+   * Every tap target on a screen, in one overlay.
+   *
+   * The same construction the Rust arm settled on and for the same reasons: a
+   * positioned node is hit-tested where it was laid out rather than where it
+   * draws, one full-frame column per target means only the last one fires, and
+   * a single vertical flow drops any two targets that share a y. So: one
+   * full-frame column, targets grouped into bands by y, laid out left to right
+   * within a band with spacers.
+   */
+  private hits(fw: number, fh: number, targets: number[][]): FrameNode {
+    const sorted: number[][] = targets.slice().sort((a: number[], b: number[]) =>
+      a[1] === b[1] ? a[0] - b[0] : a[1] - b[1]);
+    const column = this.u.col(fw, fh, 0x00000000);
+    column.commonAttribute.hitTestBehavior(HitTestMode.None);
+    let cursor: number = 0;
+    let i: number = 0;
+    while (i < sorted.length) {
+      let bottom: number = sorted[i][1] + sorted[i][3];
+      let j: number = i + 1;
+      while (j < sorted.length && sorted[j][1] < bottom) {
+        bottom = Math.max(bottom, sorted[j][1] + sorted[j][3]);
+        j++;
+      }
+      const top: number = sorted[i][1];
+      if (top > cursor) {
+        const sp = this.u.col(fw, top - cursor, 0x00000000);
+        sp.attribute.hitTestBehavior(HitTestMode.None);
+        column.appendChild(sp);
+      }
+      const line = this.u.row(fw, bottom - top, 0x00000000);
+      line.attribute.hitTestBehavior(HitTestMode.None);
+      let x: number = 0;
+      for (let k = i; k < j; k++) {
+        const t: number[] = sorted[k];
+        if (t[0] + t[2] > fw + 0.5 || t[0] < x) {
+          continue;
+        }
+        if (t[0] > x) {
+          const sp2 = this.u.col(t[0] - x, t[3], 0x00000000);
+          sp2.attribute.hitTestBehavior(HitTestMode.None);
+          line.appendChild(sp2);
+        }
+        const cell = this.u.col(t[2], t[3], 0x00000000);
+        const id: number = t[4];
+        cell.attribute.onClick(() => { this.tap(id); });
+        line.appendChild(cell);
+        x = t[0] + t[2];
+      }
+      column.appendChild(line);
+      cursor = bottom;
+      i = j;
+    }
+    return column;
+  }
+
+  /** The three collectibles a wonder hides, by index into COLLECTIBLES. */
+  private forWonder(wi: number): number[] {
+    const out: number[] = [];
+    for (let i = 0; i < COLLECTIBLES.length; i++) {
+      if (COLLECTIBLES[i].wonder === wi) {
+        out.push(i);
+      }
+    }
+    return out;
+  }
+
+  /** Which cell of the 5x5 wall hides one — a different corner per wonder. */
+  private galleryCell(wi: number): number {
+    if (wi === 4 || wi === 2) {
+      return 0;
+    }
+    if (wi === 3 || wi === 0) {
+      return 4;
+    }
+    if (wi === 7 || wi === 5) {
+      return 24;
+    }
+    return 20;
+  }
+
+  /** The little icon a lost collectible is drawn as. */
+  private badge(i: number, size: number): FrameNode {
+    const b = this.u.stack(size, size, 0x33F8ECE5);
+    b.attribute.borderRadius(size / 2);
+    b.appendChild(this.u.img(APP + '/_common/collectibles/' + COLLECTIBLES[i].icon + '.png',
+      size * 0.55, size * 0.55, 0, ImageFit.Contain));
+    return b;
+  }
+
+  /** Route a tap. Mirrors the Rust arm's `handle`. */
+  tap(t: number): void {
+    const n: number = WONDERS.length;
+    if (t >= T_MENU_BASE && t < T_MENU_BASE + n) {
+      this.wonder = t - T_MENU_BASE;
+      this.screen = S_HOME;
+    } else if (t >= T_TAB && t < T_TAB + 4) {
+      this.tab = t - T_TAB;
+      this.screen = S_DETAILS;
+    } else if (t >= T_COLLECT && t < T_COLLECT + 24) {
+      this.found[t - T_COLLECT] = true;
+      this.showing = t - T_COLLECT;
+      this.screen = S_FOUND;
+    } else if (t === T_INTRO_NEXT) {
+      if (this.page < 2) {
+        this.page++;
+      } else {
+        this.screen = S_HOME;
+      }
+    } else if (t === T_MENU) {
+      this.screen = S_MENU;
+    } else if (t === T_NEXT) {
+      this.wonder = (this.wonder + 1) % n;
+    } else if (t === T_PREV) {
+      this.wonder = (this.wonder + n - 1) % n;
+    } else if (t === T_DETAILS) {
+      this.tab = 0;
+      this.photoSel = 13;
+      this.artSel = 0;
+      this.screen = S_DETAILS;
+    } else if (t === T_HOME || t === T_MENU_CLOSE || t === T_CLOSE) {
+      this.screen = S_HOME;
+    } else if (t === T_COLLECTION) {
+      this.screen = S_COLLECTION;
+    } else if (t === T_TIMELINE) {
+      this.screen = S_TIMELINE;
+    } else if (t === T_BROWSE) {
+      this.screen = S_SEARCH;
+    } else if (t === T_ART_NEXT || t === T_ART_PREV) {
+      const list: ArtifactT[] = ARTIFACTS[this.wonder];
+      const m: number = list.length;
+      this.artSel = (this.artSel + (t === T_ART_NEXT ? 1 : m - 1)) % m;
+    } else if (t === T_ART_OPEN) {
+      this.screen = S_ARTIFACT;
+    } else if (t === T_PHOTO_OPEN) {
+      this.screen = S_PHOTO;
+    } else if (t === T_VIEWER_CLOSE || t === T_FOUND_CLOSE) {
+      this.screen = S_DETAILS;
+    }
+    this.onTap(t);
   }
 
   // --- the illustration, by the app's own rule -----------------------------
@@ -235,6 +416,7 @@ export class WonderousArkTs {
     btn.appendChild(this.u.text(page === INTRO.length - 1 ? 'ENTER' : 'NEXT', 13, GREY_STRONG,
       w * 0.5, 52, SERIF_UI, TextAlign.Center));
     root.appendChild(this.u.at(btn, w * 0.25, h * 0.89));
+    root.appendChild(this.hits(w, h, [[w * 0.25, h * 0.89, w * 0.5, 52, T_INTRO_NEXT]]));
     return root;
   }
 
@@ -291,6 +473,12 @@ export class WonderousArkTs {
     root.appendChild(this.u.at(
       this.u.img(APP + '/_common/icons/icon-next-large.png', 26, 26, 0, ImageFit.Contain),
       (w - 26) / 2, h * 0.94));
+    root.appendChild(this.hits(w, h, [
+      [12, h * 0.045, 62, 62, T_MENU],
+      [0, h * 0.14, w * 0.35, h * 0.6, T_PREV],
+      [w * 0.65, h * 0.14, w * 0.35, h * 0.6, T_NEXT],
+      [0, h * 0.80, w, h * 0.17, T_DETAILS],
+    ]));
     return root;
   }
 
@@ -339,6 +527,32 @@ export class WonderousArkTs {
     }
     root.appendChild(this.u.at(body, 0, 0));
     root.appendChild(this.u.at(this.tabBar(wi, tab), 0, h - barH));
+    const d: number = 52;
+    const cell: number = (w - d - 20) / 4;
+    const targets: number[][] = [[0, h - barH, d + 20, barH, T_HOME]];
+    for (let i = 0; i < 4; i++) {
+      targets.push([d + 20 + cell * i, h - barH, cell, barH, T_TAB + i]);
+    }
+    if (tab === 1) {
+      const bh: number = h - barH;
+      const iw: number = w * 0.66;
+      const ih: number = bh * 0.5;
+      targets.push([(w - iw) / 2, (bh - ih) / 2, iw, ih, T_PHOTO_OPEN]);
+    }
+    if (tab === 2) {
+      const bh: number = h - barH;
+      const bottomH: number = bh / 2.75;
+      const itemH: number = Math.min(Math.max(bh - 200 - bottomH, 250), 400);
+      const iw: number = itemH * 0.666;
+      const tall: number = iw * 1.5;
+      const ay: number = (bh - tall) / 2 - tall * 0.25;
+      const cx: number = (w - iw) / 2;
+      targets.push([0, ay, cx, tall, T_ART_PREV]);
+      targets.push([cx, ay, iw, tall, T_ART_OPEN]);
+      targets.push([cx + iw, ay, w - cx - iw, tall, T_ART_NEXT]);
+      targets.push([w * 0.14, h - barH - 66, w * 0.72, 52, T_BROWSE]);
+    }
+    root.appendChild(this.hits(w, h, targets));
     return root;
   }
 
@@ -437,6 +651,17 @@ export class WonderousArkTs {
         bodyH += vh + 70;
       }
     }
+    // Two of the wonder's three collectibles, tucked into the article.
+    const hidden: number[] = this.forWonder(wi);
+    for (let k = 1; k < hidden.length; k++) {
+      if (!this.found[hidden[k]]) {
+        const id: number = hidden[k];
+        const b = this.badge(id, 48);
+        b.commonAttribute.onClick(() => { this.tap(T_COLLECT + id); });
+        body.appendChild(b);
+        bodyH += 64;
+      }
+    }
     body.attribute.height(bodyH);
     const wrap = this.u.col(w, bodyH + 68, 0x00000000);
     wrap.attribute.padding({ top: 28, left: pad, bottom: 40, right: pad });
@@ -476,6 +701,14 @@ export class WonderousArkTs {
     root.appendChild(this.u.at(this.u.col(Math.max(ox, 0), ih, scrim), 0, oy));
     root.appendChild(this.u.at(
       this.u.col(Math.max(w - ox - iw, 0), ih, scrim), ox + iw, oy));
+    // The gallery collectible, on the cell the app hides it in, over the scrim.
+    const hid: number[] = this.forWonder(wi);
+    if (sel === this.galleryCell(wi) && hid.length > 0 && !this.found[hid[0]]) {
+      const id: number = hid[0];
+      const b = this.badge(id, 56);
+      b.commonAttribute.onClick(() => { this.tap(T_COLLECT + id); });
+      root.appendChild(this.u.at(b, ox + iw - 76, oy + ih - 76));
+    }
     return root;
   }
 
@@ -617,6 +850,13 @@ export class WonderousArkTs {
     close.attribute.borderRadius(23);
     close.appendChild(this.u.img(APP + '/_common/icons/icon-close.png', 20, 20, 0, ImageFit.Contain));
     root.appendChild(this.u.at(close, w - 66, h * 0.055));
+    const mt: number[][] = [[w - 76, 6, 66, 60, T_MENU_CLOSE]];
+    for (let i = 0; i < WONDERS.length; i++) {
+      mt.push([0, top + rowH * i, w, rowH, T_MENU_BASE + i]);
+    }
+    mt.push([0, ey, w, rowH, T_COLLECTION]);
+    mt.push([0, ey + rowH, w, rowH, T_TIMELINE]);
+    root.appendChild(this.hits(w, h, mt));
     return root;
   }
 
@@ -643,6 +883,11 @@ export class WonderousArkTs {
         cell * 0.34, cell * 0.34, 0, ImageFit.Contain));
       root.appendChild(this.u.at(c, x, y));
     }
+    const close = this.u.stack(46, 46, 0x33F8ECE5);
+    close.attribute.borderRadius(23);
+    close.appendChild(this.u.img(APP + '/_common/icons/icon-close.png', 20, 20, 0, ImageFit.Contain));
+    root.appendChild(this.u.at(close, w - 66, h * 0.035));
+    root.appendChild(this.hits(w, h, [[w - 76, h * 0.025, 66, 66, T_CLOSE]]));
     return root;
   }
 
@@ -688,6 +933,7 @@ export class WonderousArkTs {
     close.attribute.borderRadius(23);
     close.appendChild(this.u.img(APP + '/_common/icons/icon-close.png', 20, 20, 0, ImageFit.Contain));
     root.appendChild(this.u.at(close, w - 66, h * 0.04));
+    root.appendChild(this.hits(w, h, [[w - 76, h * 0.03, 66, 66, T_CLOSE]]));
     return root;
   }
 
@@ -740,6 +986,60 @@ export class WonderousArkTs {
     return root;
   }
 
+  /** One gallery photograph, full screen. */
+  private photoViewer(wi: number): FrameNode {
+    const w = this.w;
+    const h = this.h;
+    const wo: WonderT = WONDERS[wi];
+    const root = this.u.stack(w, h, 0xFF000000);
+    const i: number = this.photoSel % 24;
+    const nm: string = i < 10 ? '0' + i : '' + i;
+    const pic = this.u.img(APP + '/' + wo.dir + '/gallery/' + nm + '.jpg', w, h * 0.72, 0,
+      ImageFit.Contain);
+    pic.commonAttribute.backgroundColor(0xFF000000);
+    root.appendChild(this.u.at(pic, 0, h * 0.14));
+    root.appendChild(this.u.at(
+      this.u.text('' + (i + 1) + ' / 24', 12, 0x99F8ECE5, w, 20, BODY_FONT, TextAlign.Center),
+      0, h - 120));
+    const close = this.u.stack(46, 46, 0x59000000);
+    close.attribute.borderRadius(23);
+    close.appendChild(this.u.img(APP + '/_common/icons/icon-close.png', 20, 20, 0, ImageFit.Contain));
+    root.appendChild(this.u.at(close, 24, h * 0.03));
+    root.appendChild(this.hits(w, h, [[14, h * 0.02, 66, 66, T_VIEWER_CLOSE]]));
+    return root;
+  }
+
+  /** The screen that shows off a collectible the moment it is found. */
+  private foundScreen(): FrameNode {
+    const w = this.w;
+    const h = this.h;
+    const c = COLLECTIBLES[this.showing % COLLECTIBLES.length];
+    let n: number = 0;
+    for (let i = 0; i < this.found.length; i++) {
+      if (this.found[i]) {
+        n++;
+      }
+    }
+    const root = this.u.stack(w, h, 0xF21E1B18);
+    root.appendChild(this.u.at(
+      this.u.img(APP + '/artifacts/' + c.artifactId + '.jpg', w * 0.62, h * 0.42, 8,
+        ImageFit.Contain), w * 0.19, h * 0.16));
+    root.appendChild(this.u.at(
+      this.u.text('COLLECTIBLE FOUND', 12, ACCENT1, w, 22, SERIF_UI, TextAlign.Center),
+      0, h * 0.62));
+    root.appendChild(this.u.at(
+      this.u.text(c.title, 26, SHEET, w - 56, 36, DISPLAY, TextAlign.Center), 0, h * 0.66));
+    root.appendChild(this.u.at(
+      this.u.text('' + n + ' of ' + COLLECTIBLES.length + ' found', 13, 0x99F8ECE5, w, 22,
+        BODY_FONT, TextAlign.Center), 0, h * 0.72));
+    const btn = this.u.col(w * 0.5, 48, GREY_STRONG);
+    btn.attribute.borderRadius(4);
+    btn.appendChild(this.u.text('CONTINUE', 12, SHEET, w * 0.5, 48, SERIF_UI, TextAlign.Center));
+    root.appendChild(this.u.at(btn, w * 0.25, h - 96));
+    root.appendChild(this.hits(w, h, [[w * 0.25, h - 96, w * 0.5, 48, T_FOUND_CLOSE]]));
+    return root;
+  }
+
   private artifact(wi: number): FrameNode {
     const w = this.w;
     const h = this.h;
@@ -770,6 +1070,7 @@ export class WonderousArkTs {
     close.attribute.borderRadius(23);
     close.appendChild(this.u.img(APP + '/_common/icons/icon-close.png', 20, 20, 0, ImageFit.Contain));
     root.appendChild(this.u.at(close, w - 66, h * 0.045));
+    root.appendChild(this.hits(w, h, [[w - 76, h * 0.035, 66, 66, T_VIEWER_CLOSE]]));
     return root;
   }
 }
