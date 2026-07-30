@@ -17,7 +17,14 @@ pub fn build() -> Option<Node> {
 
     // Header.
     let mut head = col_fit(W(), SURF_CONT)?.padding(16.0);
-    head = head.child(text("flutter/samples", 28.0, 400, ON_SURFACE, W() - 32.0, 40.0)?);
+    head = head.child(text(
+        "flutter/samples",
+        28.0,
+        400,
+        ON_SURFACE,
+        W() - 32.0,
+        40.0,
+    )?);
     head = head.child(para(
         &format!(
             "All {} directories have a screen. {responds} respond — live data, \
@@ -37,9 +44,19 @@ pub fn build() -> Option<Node> {
     // Counters, from the table above rather than typed in — the old list said
     // "27 of 27" in text that no longer matched what the rows showed.
     let mut counts = row(W() - 32.0, 76.0, SURFACE)?;
-    counts = counts.child(count_card(&responds.to_string(), "respond", PRI_CONT, ON_PRI_CONT)?);
+    counts = counts.child(count_card(
+        &responds.to_string(),
+        "respond",
+        PRI_CONT,
+        ON_PRI_CONT,
+    )?);
     counts = counts.child(gap_w(8.0)?);
-    counts = counts.child(count_card(&notes.to_string(), "notes", SURF_CONT, ON_SURF_VAR)?);
+    counts = counts.child(count_card(
+        &notes.to_string(),
+        "notes",
+        SURF_CONT,
+        ON_SURF_VAR,
+    )?);
     list = list.child(counts);
     list = list.child(gap(16.0)?);
 

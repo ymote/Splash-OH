@@ -93,33 +93,141 @@ pub struct Screen {
 }
 
 pub const SCREENS: &[Screen] = &[
-    Screen { route: "material_3_demo", label: "Material 3 Demo", responds: true },
-    Screen { route: "cupertino_gallery", label: "Cupertino Gallery", responds: true },
-    Screen { route: "date_planner", label: "Date Planner", responds: true },
-    Screen { route: "platform_design", label: "Platform Design", responds: true },
-    Screen { route: "animations", label: "Animations", responds: true },
-    Screen { route: "form_app", label: "Form App", responds: true },
-    Screen { route: "navigation_and_routing", label: "Navigation and Routing", responds: true },
-    Screen { route: "compass_app", label: "Compass App", responds: true },
-    Screen { route: "desktop_photo_search", label: "Desktop Photo Search", responds: true },
-    Screen { route: "dynamic_theme", label: "Dynamic Theme", responds: true },
-    Screen { route: "testing_app", label: "Testing App", responds: true },
-    Screen { route: "add_to_app", label: "Add to App", responds: true },
-    Screen { route: "asset_transformation", label: "Asset Transformation", responds: true },
-    Screen { route: "background_isolate_channels", label: "Background Isolate Channels", responds: true },
-    Screen { route: "google_maps", label: "Google Maps", responds: true },
-    Screen { route: "pedometer", label: "Pedometer", responds: true },
-    Screen { route: "platform_channels", label: "Platform Channels", responds: true },
-    Screen { route: "platform_view_swift", label: "Platform View Swift", responds: true },
-    Screen { route: "simple_sdf", label: "Simple SDF", responds: true },
-    Screen { route: "simple_shader", label: "Simple Shader", responds: true },
-    Screen { route: "web_embedding", label: "Web Embedding", responds: true },
-    Screen { route: "analysis_defaults", label: "Analysis Defaults", responds: false },
-    Screen { route: "android_splash_screen", label: "Android Splash Screen", responds: false },
-    Screen { route: "docs", label: "docs", responds: false },
-    Screen { route: "ios_app_clip", label: "iOS App Clip", responds: false },
-    Screen { route: "tool", label: "tool", responds: false },
-    Screen { route: "veggieseasons", label: "Veggie Seasons", responds: false },
+    Screen {
+        route: "material_3_demo",
+        label: "Material 3 Demo",
+        responds: true,
+    },
+    Screen {
+        route: "cupertino_gallery",
+        label: "Cupertino Gallery",
+        responds: true,
+    },
+    Screen {
+        route: "date_planner",
+        label: "Date Planner",
+        responds: true,
+    },
+    Screen {
+        route: "platform_design",
+        label: "Platform Design",
+        responds: true,
+    },
+    Screen {
+        route: "animations",
+        label: "Animations",
+        responds: true,
+    },
+    Screen {
+        route: "form_app",
+        label: "Form App",
+        responds: true,
+    },
+    Screen {
+        route: "navigation_and_routing",
+        label: "Navigation and Routing",
+        responds: true,
+    },
+    Screen {
+        route: "compass_app",
+        label: "Compass App",
+        responds: true,
+    },
+    Screen {
+        route: "desktop_photo_search",
+        label: "Desktop Photo Search",
+        responds: true,
+    },
+    Screen {
+        route: "dynamic_theme",
+        label: "Dynamic Theme",
+        responds: true,
+    },
+    Screen {
+        route: "testing_app",
+        label: "Testing App",
+        responds: true,
+    },
+    Screen {
+        route: "add_to_app",
+        label: "Add to App",
+        responds: true,
+    },
+    Screen {
+        route: "asset_transformation",
+        label: "Asset Transformation",
+        responds: true,
+    },
+    Screen {
+        route: "background_isolate_channels",
+        label: "Background Isolate Channels",
+        responds: true,
+    },
+    Screen {
+        route: "google_maps",
+        label: "Google Maps",
+        responds: true,
+    },
+    Screen {
+        route: "pedometer",
+        label: "Pedometer",
+        responds: true,
+    },
+    Screen {
+        route: "platform_channels",
+        label: "Platform Channels",
+        responds: true,
+    },
+    Screen {
+        route: "platform_view_swift",
+        label: "Platform View Swift",
+        responds: true,
+    },
+    Screen {
+        route: "simple_sdf",
+        label: "Simple SDF",
+        responds: true,
+    },
+    Screen {
+        route: "simple_shader",
+        label: "Simple Shader",
+        responds: true,
+    },
+    Screen {
+        route: "web_embedding",
+        label: "Web Embedding",
+        responds: true,
+    },
+    Screen {
+        route: "analysis_defaults",
+        label: "Analysis Defaults",
+        responds: false,
+    },
+    Screen {
+        route: "android_splash_screen",
+        label: "Android Splash Screen",
+        responds: false,
+    },
+    Screen {
+        route: "docs",
+        label: "docs",
+        responds: false,
+    },
+    Screen {
+        route: "ios_app_clip",
+        label: "iOS App Clip",
+        responds: false,
+    },
+    Screen {
+        route: "tool",
+        label: "tool",
+        responds: false,
+    },
+    Screen {
+        route: "veggieseasons",
+        label: "Veggie Seasons",
+        responds: false,
+    },
 ];
 
 // ---- route interning --------------------------------------------------------

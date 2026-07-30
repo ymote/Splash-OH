@@ -307,6 +307,17 @@ SPLASH_CONST(splash_a_radio_checked,     NODE_RADIO_CHECKED)
 SPLASH_CONST(splash_a_toggle_value,      NODE_TOGGLE_VALUE)
 SPLASH_CONST(splash_a_toggle_color,      NODE_TOGGLE_SELECTED_COLOR)
 SPLASH_CONST(splash_a_textpicker_range,  NODE_TEXT_PICKER_OPTION_RANGE)
+// Absolute placement and compositing, for illustrations built from layers.
+// A Stack centres its children; Wonderous positions each piece of a wonder
+// against the frame, so the pieces need coordinates of their own.
+SPLASH_CONST(splash_a_position,     NODE_POSITION)
+SPLASH_CONST(splash_a_text_shadow,  NODE_TEXT_TEXT_SHADOW)
+SPLASH_CONST(splash_a_translate,    NODE_TRANSLATE)
+SPLASH_CONST(splash_a_scale,        NODE_SCALE)
+SPLASH_CONST(splash_a_zindex,       NODE_Z_INDEX)
+SPLASH_CONST(splash_a_clip,         NODE_CLIP)
+SPLASH_CONST(splash_a_stack_align,  NODE_STACK_ALIGN_CONTENT)
+SPLASH_CONST(splash_a_linear_gradient, NODE_LINEAR_GRADIENT)
 
 // Added for the flutter/samples kit, which is authored against the makepad
 // backend's richer attribute set. Percent sizing is how that kit's `fillw`/

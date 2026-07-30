@@ -1,6 +1,7 @@
 import { NodeContent, FrameNode } from '@kit.ArkUI';
 import { systemDateTime } from '@kit.BasicServicesKit';
 import { webview } from '@kit.ArkWeb';
+import font from '@ohos.font';
 import { WebNetErrorList } from '@ohos.web.netErrorList';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { picker, fileUri } from '@kit.CoreFileKit';
@@ -20,7 +21,7 @@ import { Taobao, TikTok, Wonderous } from './AppsArkTs';
  */
 /** Start in the browser card, which is the app that exercises the web overlay.
  *  Empty string starts in the benchmark harness instead. */
-const START_APP: string = 'flutter';
+const START_APP: string = 'wonders';
 /**
  * Milliseconds per screen for the catalog screenshot sweep, or 0 to leave the
  * catalog interactive.
@@ -699,6 +700,26 @@ struct Index {
       // Prove the VM works on this build. The ported apps build in Rust and
       // never evaluate a script, so a broken VM would stay hidden until a
       // .splash card rendered blank.
+      // Wonderous sets its titles in Yeseva One and its body in Raleway. A
+      // font has to be registered with the UI context before any node can name
+      // it, and there is no NDK call for that -- NODE_FONT_FAMILY can only
+      // reference a family that already exists. So the shell registers them and
+      // Rust names them.
+      const fonts: Record<string, string> = {
+        'YesevaOne': 'wonders/fonts/YesevaOne-Regular.ttf',
+        'Raleway': 'wonders/fonts/Raleway-Regular.ttf',
+        'RalewayMedium': 'wonders/fonts/Raleway-Medium.ttf',
+        'RalewayBold': 'wonders/fonts/Raleway-Bold.ttf',
+        'RalewayItalic': 'wonders/fonts/Raleway-Italic.ttf',
+        'TenorSans': 'wonders/fonts/TenorSans-Regular.ttf',
+      };
+      for (const name of Object.keys(fonts)) {
+        try {
+          font.registerFont({ familyName: name, familySrc: $rawfile(fonts[name]) });
+        } catch (e) {
+          console.error('font ' + name + ' did not register: ' + JSON.stringify(e));
+        }
+      }
       splash.dslSelfTest();
       splash.appRender(START_APP);
       // Off by default; set CATALOG_WALK_MS to re-run the screenshot sweep.

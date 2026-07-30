@@ -207,7 +207,11 @@ const NEW_MOON_EPOCH: f64 = 947_182_440.0;
 /// an ephemeris out of the backend.
 fn moon_phase_fraction() -> f64 {
     let f = ((now_unix_secs() as f64 - NEW_MOON_EPOCH) % SYNODIC_SECS) / SYNODIC_SECS;
-    if f < 0.0 { f + 1.0 } else { f }
+    if f < 0.0 {
+        f + 1.0
+    } else {
+        f
+    }
 }
 
 /// `moonphase(field)` -> the current 月相. No network, so it never shows a
@@ -219,20 +223,32 @@ pub fn moonphase(field: &str) -> String {
             let zh = field.trim() != "name";
             // The eight principal phases. The four exact ones name a narrow window
             // around the instant; the rest is crescent or gibbous.
-            let (en, cn) = if f < 0.0335 || f >= 0.9665 { ("New Moon", "新月") }
-                else if f < 0.2165 { ("Waxing Crescent", "蛾眉月") }
-                else if f < 0.2835 { ("First Quarter", "上弦月") }
-                else if f < 0.4665 { ("Waxing Gibbous", "盈凸月") }
-                else if f < 0.5335 { ("Full Moon", "满月") }
-                else if f < 0.7165 { ("Waning Gibbous", "亏凸月") }
-                else if f < 0.7835 { ("Last Quarter", "下弦月") }
-                else { ("Waning Crescent", "残月") };
+            let (en, cn) = if f < 0.0335 || f >= 0.9665 {
+                ("New Moon", "新月")
+            } else if f < 0.2165 {
+                ("Waxing Crescent", "蛾眉月")
+            } else if f < 0.2835 {
+                ("First Quarter", "上弦月")
+            } else if f < 0.4665 {
+                ("Waxing Gibbous", "盈凸月")
+            } else if f < 0.5335 {
+                ("Full Moon", "满月")
+            } else if f < 0.7165 {
+                ("Waning Gibbous", "亏凸月")
+            } else if f < 0.7835 {
+                ("Last Quarter", "下弦月")
+            } else {
+                ("Waning Crescent", "残月")
+            };
             (if zh { cn } else { en }).to_string()
         }
         // Illuminated fraction is (1 - cos(2*pi*phase)) / 2 — 0 at new, 1 at full,
         // correctly non-linear between.
         "illumination" | "illum" => {
-            format!("{}", ((1.0 - (std::f64::consts::TAU * f).cos()) * 50.0).round() as i64)
+            format!(
+                "{}",
+                ((1.0 - (std::f64::consts::TAU * f).cos()) * 50.0).round() as i64
+            )
         }
         _ => format!("{f:.2}"),
     }
@@ -250,7 +266,11 @@ pub fn moonnum(field: &str) -> f64 {
 /// "HH:MM" or an ISO datetime -> minutes since local midnight.
 fn hhmm_minutes(s: &str) -> Option<f64> {
     let t = s.trim();
-    let time = if t.len() >= 16 && t.as_bytes().get(10) == Some(&b'T') { &t[11..16] } else { t };
+    let time = if t.len() >= 16 && t.as_bytes().get(10) == Some(&b'T') {
+        &t[11..16]
+    } else {
+        t
+    };
     let (h, m) = time.split_once(':')?;
     Some(h.trim().parse::<f64>().ok()? * 60.0 + m.trim().parse::<f64>().ok()?)
 }
@@ -274,7 +294,9 @@ pub fn daylight(url: &str) -> f64 {
         let offset = walk(&v, "utc_offset_seconds", -1)?.as_f64()?;
         let local = (now_unix_secs() as f64 + offset).rem_euclid(86_400.0) / 60.0;
         let span = set - rise;
-        if span <= 0.0 { return None; }   // polar day or night
+        if span <= 0.0 {
+            return None;
+        } // polar day or night
         Some((local - rise) / span)
     };
     inner().unwrap_or(0.5)
@@ -289,7 +311,9 @@ pub fn week_extent(url: &str, path: &str, want_max: bool) -> Option<f64> {
     let v = cached_json(url)?;
     let mut acc: Option<f64> = None;
     for i in 0..7 {
-        let Some(n) = walk(&v, path, i).and_then(|x| x.as_f64()) else { continue };
+        let Some(n) = walk(&v, path, i).and_then(|x| x.as_f64()) else {
+            continue;
+        };
         acc = Some(match acc {
             None => n,
             Some(a) if want_max => a.max(n),
@@ -308,14 +332,21 @@ pub fn week_extent(url: &str, path: &str, want_max: bool) -> Option<f64> {
 /// It therefore follows the script of the query.
 pub fn geocode(name: &str, field: &str) -> Option<String> {
     let q = name.trim();
-    let cjk = q.chars().any(|c| matches!(c,
+    let cjk = q.chars().any(|c| {
+        matches!(c,
         '\u{3040}'..='\u{30FF}' | '\u{3400}'..='\u{4DBF}'
-        | '\u{4E00}'..='\u{9FFF}' | '\u{F900}'..='\u{FAFF}'));
+        | '\u{4E00}'..='\u{9FFF}' | '\u{F900}'..='\u{FAFF}')
+    });
     let lang = if cjk { "zh" } else { "en" };
-    let enc: String = q.bytes().map(|b| match b {
-        b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => (b as char).to_string(),
-        _ => format!("%{b:02X}"),
-    }).collect();
+    let enc: String = q
+        .bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                (b as char).to_string()
+            }
+            _ => format!("%{b:02X}"),
+        })
+        .collect();
     let url = format!(
         "https://geocoding-api.open-meteo.com/v1/search?name={enc}&count=1&language={lang}&format=json"
     );
@@ -326,14 +357,25 @@ pub fn geocode(name: &str, field: &str) -> Option<String> {
         "name" => "results.0.name",
         "country" => "results.0.country",
         "timezone" => "results.0.timezone",
-        other => return walk(&v, &format!("results.0.{other}"), -1)
-            .map(|x| x.as_str().map(str::to_string).unwrap_or_else(|| x.to_string())),
+        other => {
+            return walk(&v, &format!("results.0.{other}"), -1).map(|x| {
+                x.as_str()
+                    .map(str::to_string)
+                    .unwrap_or_else(|| x.to_string())
+            })
+        }
     };
     let x = walk(&v, path, -1)?;
-    Some(x.as_str().map(str::to_string).unwrap_or_else(|| x.to_string()))
+    Some(
+        x.as_str()
+            .map(str::to_string)
+            .unwrap_or_else(|| x.to_string()),
+    )
 }
 
 /// Numeric geocode, for the coordinates that anchor a data URL.
 pub fn geocodenum(name: &str, field: &str) -> f64 {
-    geocode(name, field).and_then(|s| s.parse::<f64>().ok()).unwrap_or(-9999.0)
+    geocode(name, field)
+        .and_then(|s| s.parse::<f64>().ok())
+        .unwrap_or(-9999.0)
 }

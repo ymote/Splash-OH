@@ -227,9 +227,7 @@ pub fn set_root(new_root: Option<Node>) {
             Err(e) => crate::log(&format!("app: mount failed: {e}")),
         }
     });
-
 }
-
 
 /// Remove the mounted tree without putting anything back, so another owner can
 /// use the slot.
@@ -318,11 +316,7 @@ pub fn rebuild() {
     if let Some(y) = offset {
         let h = crate::dsl::scroll_node();
         if !h.is_null() && y > 0.0 {
-            crate::arkui::Node::set_f32v_raw(
-                h,
-                crate::arkui::attr::scroll_offset(),
-                &[0.0, y],
-            );
+            crate::arkui::Node::set_f32v_raw(h, crate::arkui::attr::scroll_offset(), &[0.0, y]);
         }
     }
 }
