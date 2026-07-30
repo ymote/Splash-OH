@@ -13,18 +13,16 @@ and not a pixel metric.
 | Home (Christ the Redeemer) | **8/10** | illustration layers, palette, Yeseva One title, the small italic article beside the second line, eight dots, menu button, chevron | sun larger and lower, foliage sits differently, cloud bands thinner — the pieces are sized by `heightFactor × frameHeight` and the Pura X is far shorter relative to its width than the reference device |
 | Editorial | **6/10** | hero photograph, title and region, real body copy, arc section labels with their icons, video still with play button, scrolls | reference is scrolled to a different point so the pair is not aligned; no collapsing hero, no pull-quote block, callouts not visible in this view |
 | Photo gallery | **unverified** | — | the tab did not switch during this run, so the grid was never captured. It is built and renders when reached |
-| Artifacts | **4/10** | dark ground, arch, centred subject, title, BROWSE ALL ARTIFACTS | shows the wonder's own photography instead of a Met artifact; no artifact name or date; no carousel dots; no search control; the title clips |
+| Artifacts | **7/10** | the real Met object with its own photograph, name and date — "Guardian Figure, ca. 1919–1885 B.C." — on the arch, over the wonder's colour, with BROWSE ALL ARTIFACTS | carousel dots are drawn but land under the button; paging between the four artifacts does not respond; no search control |
 
 ## Overall
 
 Not 10/10. Four things separate this from the reference:
 
-1. **Artifact data.** The app pulls artifacts from the Met collection API and
-   shows a named object with a date. This shows the wonder's photography.
+1. **Search.** Not built.
 2. **Parallax and the collapsing hero.** Both animate against scroll offset.
    No scroll-offset event is bound, so they are absent rather than approximated.
-3. **Search.** Not built.
-4. **Aspect ratio.** Illustration pieces are sized as a fraction of frame
+3. **Aspect ratio.** Illustration pieces are sized as a fraction of frame
    height, exactly as the app does it, so on a 0.62-aspect screen they are
    proportionally wider than on the 0.46-aspect reference. This is the app's own
    rule producing a different result on different hardware, not a porting error

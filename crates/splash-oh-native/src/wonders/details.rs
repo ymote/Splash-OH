@@ -87,6 +87,16 @@ impl Stack1 {
     }
 }
 
+use std::sync::atomic::{AtomicUsize, Ordering};
+static ARTIFACT_SEL: AtomicUsize = AtomicUsize::new(0);
+
+pub fn artifact_sel() -> usize {
+    ARTIFACT_SEL.load(Ordering::Relaxed)
+}
+pub fn set_artifact_sel(i: usize) {
+    ARTIFACT_SEL.store(i, Ordering::Relaxed);
+}
+
 pub fn build(index: usize, tab: usize, w: f32, h: f32) -> Option<Node> {
     let wonder = &WONDERS[index % WONDERS.len()];
     let bar_h = tabbar::height();
@@ -94,7 +104,7 @@ pub fn build(index: usize, tab: usize, w: f32, h: f32) -> Option<Node> {
 
     let body = match tab {
         1 => photos(wonder, w, h - bar_h),
-        2 => artifacts(wonder, w, h - bar_h),
+        2 => artifacts(wonder, index, artifact_sel(), w, h - bar_h),
         3 => super::timeline::events(index, w, h - bar_h),
         _ => editorial(wonder, index, w, h - bar_h),
     };
@@ -344,8 +354,22 @@ fn photos(wonder: &Wonder, w: f32, h: f32) -> Option<Node> {
 
 /// One artifact, centred on an arch, with its name and date — the shape of
 /// `artifact_carousel_screen.dart`.
-fn artifacts(wonder: &Wonder, w: f32, h: f32) -> Option<Node> {
+/// Where the arch sits, so `build` can put the carousel's paging halves over it
+/// in the screen's single overlay. Two overlays means the later one wins and
+/// the earlier one is dead — which is how the tab bar silently ate every tap
+/// meant for the carousel.
+fn artifact_arch(w: f32, h: f32) -> (f32, f32) {
+    (h * 0.10, w * 0.60 * 1.42)
+}
+
+fn artifacts(wonder: &Wonder, index: usize, sel: usize, w: f32, h: f32) -> Option<Node> {
+    let list = super::artifact_data::ARTIFACTS[index % 8];
+    if list.is_empty() {
+        return stack(w, h, wonder.bg);
+    }
+    let art = &list[sel % list.len()];
     let mut st = stack(w, h, wonder.bg)?;
+
     st = st.child(
         text("ARTIFACTS", 13.0, SHEET, w, 30.0)?
             .string_attr(attr::font_family(), SERIF_UI)
@@ -353,11 +377,11 @@ fn artifacts(wonder: &Wonder, w: f32, h: f32) -> Option<Node> {
             .f32v_attr(attr::position(), &[0.0, 28.0]),
     );
 
-    // The arch: a tall rounded sheet with the piece centred on it.
-    let aw = w * 0.62;
-    let ah = aw * 1.45;
+    // The arch: a tall rounded sheet with the piece centred on it, as
+    // `artifact_carousel_screen.dart` frames it.
+    let aw = w * 0.60;
+    let (ay, ah) = artifact_arch(w, h);
     let ax = (w - aw) / 2.0;
-    let ay = h * 0.13;
     st = st.child(
         col(aw, ah, SHEET)?
             .radius(aw / 2.0)
@@ -366,41 +390,56 @@ fn artifacts(wonder: &Wonder, w: f32, h: f32) -> Option<Node> {
     st = st.child(
         photo(
             APP,
-            &format!("{}/photo-3.jpg", wonder.dir),
-            aw * 0.72,
-            aw * 0.72,
-            aw * 0.36,
+            &format!("artifacts/{}.jpg", art.id),
+            aw * 0.74,
+            ah * 0.62,
+            8.0,
         )?
-        .f32v_attr(attr::position(), &[ax + aw * 0.14, ay + ah * 0.18]),
+        .f32v_attr(attr::position(), &[ax + aw * 0.13, ay + ah * 0.15]),
     );
 
-    let mut cap = col(w, 120.0, 0x00000000)?.f32v_attr(attr::position(), &[0.0, ay + ah + 26.0]);
+    // Name and date, which is what the reference screen leads with.
+    let mut cap = col(w, 110.0, 0x00000000)?.f32v_attr(attr::position(), &[0.0, ay + ah + 14.0]);
     cap = cap.child(
-        text(wonder.title, 30.0, SHEET, w, 44.0)?
+        text(art.title, 26.0, SHEET, w - 40.0, 40.0)?
             .string_attr(attr::font_family(), DISPLAY)
+            .i32_attr(attr::text_align(), 1)
+            .f32v_attr(attr::padding(), &[0.0, 20.0, 0.0, 20.0]),
+    );
+    cap = cap.child(
+        text(art.date, 15.0, 0xCCF8ECE5, w, 26.0)?
+            .string_attr(attr::font_family(), BODY_FONT)
             .i32_attr(attr::text_align(), 1),
     );
-    cap = cap.child(
-        text(
-            EDITORIAL[WONDERS
-                .iter()
-                .position(|x| x.dir == wonder.dir)
-                .unwrap_or(0)]
-            .region,
-            15.0,
-            0xCCF8ECE5,
-            w,
-            26.0,
-        )?
-        .string_attr(attr::font_family(), BODY_FONT)
-        .i32_attr(attr::text_align(), 1),
-    );
     st = st.child(cap);
+
+    // Carousel dots, one per highlight artifact.
+    let (d, gap) = (7.0, 10.0);
+    let total = list.len() as f32 * d + (list.len() as f32 - 1.0) * gap;
+    let mut dots = row(w, 24.0, 0x00000000)?
+        .f32v_attr(attr::position(), &[0.0, ay + ah + 118.0])
+        .f32v_attr(attr::padding(), &[8.0, 0.0, 0.0, (w - total) / 2.0]);
+    for i in 0..list.len() {
+        dots = dots.child(
+            col(
+                d,
+                d,
+                if i == sel % list.len() {
+                    ACCENT
+                } else {
+                    0x59E4935D
+                },
+            )?
+            .radius(d / 2.0)
+            .f32v_attr(attr::margin(), &[0.0, gap / 2.0, 0.0, gap / 2.0]),
+        );
+    }
+    st = st.child(dots);
 
     st = st.child(
         col(w * 0.72, 52.0, GREY_STRONG)?
             .radius(4.0)
-            .f32v_attr(attr::position(), &[w * 0.14, h - 96.0])
+            .f32v_attr(attr::position(), &[w * 0.14, h - 88.0])
             .child(
                 text("BROWSE ALL ARTIFACTS", 13.0, SHEET, w * 0.72, 52.0)?
                     .string_attr(attr::font_family(), SERIF_UI)
@@ -410,6 +449,9 @@ fn artifacts(wonder: &Wonder, w: f32, h: f32) -> Option<Node> {
     );
     Some(st)
 }
+
+pub const ARTIFACT_PREV: i32 = 7370;
+pub const ARTIFACT_NEXT: i32 = 7371;
 
 // ---------------------------------------------------------------------------
 // Events
