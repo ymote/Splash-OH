@@ -128,6 +128,31 @@ pub fn web_declare(src: &str, x: f32, y: f32, w: f32, h: f32) -> u32 {
     }
 }
 
+/// Reserve a web surface showing markup this app generated, rather than a URL
+/// it navigates to.
+///
+/// The difference matters for anything embedded from another origin. Navigating
+/// straight to a YouTube embed gives the player no page origin and it refuses
+/// with error 153; the same iframe inside a page the shell loads has one, and
+/// plays.
+pub type WebDeclareHtml = fn(String, f32, f32, f32, f32) -> u32;
+
+static WEB_DECLARE_HTML: std::sync::Mutex<Option<WebDeclareHtml>> = std::sync::Mutex::new(None);
+
+pub fn set_web_declare_html(f: WebDeclareHtml) {
+    if let Ok(mut w) = WEB_DECLARE_HTML.lock() {
+        *w = Some(f);
+    }
+}
+
+/// Reserve a markup surface. Returns 0 when no host is installed.
+pub fn web_declare_html(html: String, x: f32, y: f32, w: f32, h: f32) -> u32 {
+    match WEB_DECLARE_HTML.lock().ok().and_then(|w| *w) {
+        Some(f) => f(html, x, y, w, h),
+        None => 0,
+    }
+}
+
 /// Drop every slot declared by the previous build.
 ///
 /// A slot is declared while the tree is being walked, so the registry has to be

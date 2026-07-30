@@ -17,6 +17,7 @@ pub mod editorial_data;
 pub mod home;
 pub mod illustration;
 pub mod met;
+pub mod places;
 pub mod screens;
 pub mod search;
 pub mod search_data;
@@ -24,6 +25,7 @@ pub mod short;
 pub mod tabbar;
 pub mod timeline;
 pub mod timeline_data;
+pub mod viewers;
 
 /// The id a screen root reports the moment ArkUI mounts it.
 ///
