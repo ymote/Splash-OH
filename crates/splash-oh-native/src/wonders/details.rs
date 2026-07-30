@@ -124,6 +124,21 @@ pub fn build(index: usize, tab: usize, w: f32, h: f32) -> Option<Node> {
     let cell = (w - d - 20.0) / tabbar::TABS.len() as f32;
     let mut targets: Vec<(f32, f32, f32, f32, i32)> =
         vec![(0.0, h - bar_h, d + 20.0, bar_h, tabbar::HOME_TAP)];
+    // One band, cells edge to edge.
+    //
+    // KNOWN DEFECT: the "photos" cell does not receive taps. The other three
+    // and the portrait do. Established on device, in this order:
+    //   * the overlay does build all five targets, contiguous and correctly
+    //     sized — logged as `hit 7201: x 164..256`;
+    //   * sweeping the bar shows tab 0 answering to vp 133 and tab 2 from vp
+    //     286, so roughly 150 vp in the middle is dead, wider than one cell;
+    //   * it is not the child index — removing the portrait from the band, so
+    //     photos becomes the second child of four, changes nothing;
+    //   * it is not adjacency — a 2 vp gap between cells changes nothing;
+    //   * separate bands per cell fix it and turn the bar into a diagonal
+    //     staircase, which is worse than the defect.
+    // Left as it is, and recorded, rather than shipped with a layout no one
+    // could tap on purpose.
     for i in 0..tabbar::TABS.len() {
         targets.push((
             d + 20.0 + cell * i as f32,
