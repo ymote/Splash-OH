@@ -199,13 +199,13 @@ int splash_register_event(ArkUI_NodeHandle n, int event_type, int32_t id) {
 // target id, so Rust never has to know ArkUI_NodeEvent's layout.
 static void (*g_rust_handler)(int32_t target_id, int32_t event_type) = nullptr;
 
-// Scroll offsets, kept here so a Rust handler can read the last one without
-// the event's layout leaking across the boundary.
+// Only the target id and the event type cross into Rust, so ArkUI_NodeEvent's
+// layout never leaks across the boundary.
 //
 // Nothing is read out of the event payload. A scroll handler that accumulated
 // the per-event deltas here drifted badly against the real position; the Scroll
-// node will report its own offset through NODE_SCROLL_OFFSET, which is what
-// callers use.
+// node reports its own offset through NODE_SCROLL_OFFSET, which is what callers
+// use instead.
 static void splash_event_trampoline(ArkUI_NodeEvent *e) {
     if (!e || !g_rust_handler) return;
     g_rust_handler(OH_ArkUI_NodeEvent_GetTargetId(e),
@@ -320,6 +320,7 @@ SPLASH_CONST(splash_a_padding,      NODE_PADDING)
 SPLASH_CONST(splash_a_margin,       NODE_MARGIN)
 SPLASH_CONST(splash_a_border_width, NODE_BORDER_WIDTH)
 SPLASH_CONST(splash_a_border_radius,NODE_BORDER_RADIUS)
+SPLASH_CONST(splash_a_blur,         NODE_BLUR)
 SPLASH_CONST(splash_a_border_color, NODE_BORDER_COLOR)
 SPLASH_CONST(splash_a_alignment,    NODE_ALIGNMENT)
 SPLASH_CONST(splash_a_opacity,      NODE_OPACITY)

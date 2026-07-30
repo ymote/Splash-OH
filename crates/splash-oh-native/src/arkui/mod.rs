@@ -47,6 +47,7 @@ mod raw {
         pub static splash_a_margin: i32;
         pub static splash_a_border_width: i32;
         pub static splash_a_border_radius: i32;
+        pub static splash_a_blur: i32;
         pub static splash_a_border_color: i32;
         pub static splash_a_checkbox_select: i32;
         pub static splash_a_checkbox_color: i32;
@@ -152,6 +153,7 @@ pub mod attr {
         width => splash_a_width, height => splash_a_height, bg => splash_a_bg,
         padding => splash_a_padding, margin => splash_a_margin,
         border_width => splash_a_border_width, border_radius => splash_a_border_radius,
+        blur => splash_a_blur,
         border_color => splash_a_border_color, alignment => splash_a_alignment,
         opacity => splash_a_opacity, visibility => splash_a_visibility,
         text_content => splash_a_text_content, font_color => splash_a_font_color,
