@@ -32,7 +32,19 @@ pub fn page() -> (f32, f32) {
         // and the home screen's chevron past the bottom edge, where they drew
         // but could not be tapped.
         const STATUS_BAR_VP: f32 = 20.0;
-        (pw as f32 / ratio, ph as f32 / ratio - STATUS_BAR_VP)
+        // And the navigation gesture bar at the bottom.
+        //
+        // The system takes touches in a strip across the bottom centre before
+        // the app sees them. That is why the middle cell of the tab bar was
+        // dead while the cells either side worked: it sat under the gesture
+        // area. It survived every in-app fix — laid out or positioned, with or
+        // without a hit-test mode, adjacent or gapped — because the app was
+        // never receiving those events at all.
+        const GESTURE_BAR_VP: f32 = 24.0;
+        (
+            pw as f32 / ratio,
+            ph as f32 / ratio - STATUS_BAR_VP - GESTURE_BAR_VP,
+        )
     } else {
         (splash_oh_native::ui::W, splash_oh_native::ui::PAGE_H)
     }

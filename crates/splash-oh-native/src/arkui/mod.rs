@@ -47,6 +47,7 @@ mod raw {
         pub static splash_a_toggle_color: i32;
         pub static splash_a_textpicker_range: i32;
         pub static splash_a_position: i32;
+        pub static splash_a_hit_test: i32;
         pub static splash_a_text_shadow: i32;
         pub static splash_a_translate: i32;
         pub static splash_a_scale: i32;
@@ -157,7 +158,7 @@ pub mod attr {
         image_src => splash_a_image_src,
         image_fit => splash_a_image_fit,
         textpicker_range => splash_a_textpicker_range,
-        position => splash_a_position, text_shadow => splash_a_text_shadow, translate => splash_a_translate,
+        position => splash_a_position, hit_test => splash_a_hit_test, text_shadow => splash_a_text_shadow, translate => splash_a_translate,
         scale => splash_a_scale, zindex => splash_a_zindex, clip => splash_a_clip,
         stack_align => splash_a_stack_align,
         linear_gradient => splash_a_linear_gradient,
