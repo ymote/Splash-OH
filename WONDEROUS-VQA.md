@@ -15,12 +15,13 @@ and not a pixel metric.
 | Photo gallery | **unverified** | — | the tab did not switch during this run, so the grid was never captured. It is built and renders when reached |
 | Artifacts | **7/10** | the real Met object with its own photograph, name and date — "Guardian Figure, ca. 1919–1885 B.C." — on the arch, over the wonder's colour, with BROWSE ALL ARTIFACTS | carousel dots are drawn but land under the button; paging between the four artifacts does not respond; no search control |
 
+| Search | **built** | the wonder's own suggestion words as chips, chip selection, result count, a grid of the real artifacts | no text entry — the chips are the whole input; the app queries the Met live and this filters the artifacts that ship |
+
 ## Overall
 
 Not 10/10. Four things separate this from the reference:
 
-1. **Search.** Not built.
-2. **Parallax and the collapsing hero.** Both animate against scroll offset.
+1. **Parallax and the collapsing hero.** Both animate against scroll offset.
    No scroll-offset event is bound, so they are absent rather than approximated.
 3. **Aspect ratio.** Illustration pieces are sized as a fraction of frame
    height, exactly as the app does it, so on a 0.62-aspect screen they are

@@ -15,6 +15,8 @@ pub mod editorial_data;
 pub mod home;
 pub mod illustration;
 pub mod screens;
+pub mod search;
+pub mod search_data;
 pub mod tabbar;
 pub mod timeline;
 pub mod timeline_data;
