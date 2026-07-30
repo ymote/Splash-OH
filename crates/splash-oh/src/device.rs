@@ -111,6 +111,20 @@ fn num<T: std::fmt::Display>(v: Option<T>) -> String {
 }
 
 /// How the panel is actually configured. JSON object.
+/// The display width in vp — physical pixels over the virtual pixel ratio.
+///
+/// vp is what every ArkUI length is in, so this is the number a Rust-built tree
+/// needs. Falls back to 402 (the benchmark apps' reference width) if either
+/// value is unavailable, which is wrong but bounded.
+pub fn width_vp() -> f32 {
+    let px = dm(|p| unsafe { OH_NativeDisplayManager_GetDefaultDisplayWidth(p) });
+    let ratio = dm(|p| unsafe { OH_NativeDisplayManager_GetDefaultDisplayVirtualPixelRatio(p) });
+    match (px, ratio) {
+        (Some(px), Some(r)) if r > 0.0 => px as f32 / r as f32,
+        _ => 402.0,
+    }
+}
+
 pub fn display() -> String {
     let w = dm(|p| unsafe { OH_NativeDisplayManager_GetDefaultDisplayWidth(p) });
     let h = dm(|p| unsafe { OH_NativeDisplayManager_GetDefaultDisplayHeight(p) });

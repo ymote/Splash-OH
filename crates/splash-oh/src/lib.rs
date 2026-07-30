@@ -106,6 +106,12 @@ pub fn mount(env: Env, content: JsObject) -> napi_ohos::Result<()> {
     // MethodChannel is, and the bridge already carries ~45 of these for web
     // pages. This exposes the same registry to the Splash DSL.
     // A `web` node in the DSL reserves space and asks for a real WebView there.
+    // The flutter catalog is built in Rust, so it has to be told how wide the
+    // page is — it cannot size in percentages the way the DSL kit did. `ui::W`
+    // is 402, the reference width the benchmark apps were drawn against, and on
+    // a 440vp display that left a bare strip down the right edge of every
+    // screen.
+    splash_oh_native::flutter::set_page_width(device::width_vp());
     splash_oh_native::set_web_reset(webslot::reset);
     splash_oh_native::set_web_declare(|src, x, y, w, h| {
         if let Some(path) = src.strip_prefix("app:") {
