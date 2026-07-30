@@ -9,5 +9,8 @@
 //! the ArkUI NDK from Rust.
 
 pub mod data;
+pub mod details;
+pub mod editorial_data;
 pub mod home;
 pub mod illustration;
+pub mod tabbar;
