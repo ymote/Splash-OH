@@ -45,6 +45,8 @@ a rebuild.
 | [Capabilities](docs/capabilities.md) | what a page may do, and how that is enforced |
 | [Releasing](docs/releasing.md) | signing, AGC, and what is not done yet |
 
+Every page is also in Chinese — see [README.zh-CN.md](README.zh-CN.md).
+
 ## What a page can reach
 
 49 built-in tools, a few of them internal: device, display, battery, sensors,
@@ -125,4 +127,5 @@ HarmonyOS 6.1 device rather than inferred. What is not done:
 - **`cargo test` cannot run here.** The crates build only for
   `aarch64-unknown-linux-ohos`, the host cannot exec that, and the device
   refuses under SELinux. The checks that matter run at startup instead and log
-  their result — search hilog for `selftest`.
+  their result — search hilog for `selftest`, and look immediately: hilog fills
+  with Chromium output within about a minute and evicts them.

@@ -1,5 +1,7 @@
 # Releasing
 
+*[中文版](releasing.zh-CN.md)*
+
 ## Status
 
 You can build an app and install it on your own device today. Handing it to
