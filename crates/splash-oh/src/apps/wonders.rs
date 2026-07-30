@@ -31,7 +31,10 @@ pub fn page() -> (f32, f32) {
         // pushes everything down by that much -- which put the intro's button
         // and the home screen's chevron past the bottom edge, where they drew
         // but could not be tapped.
-        const STATUS_BAR_VP: f32 = 20.0;
+        // Measured on the Pura X rather than assumed: the first row of app
+        // pixels on a details screen, whose hero starts at page y = 0, is at
+        // display y = 119 px, which at ratio 3 is 39.7 vp.
+        const STATUS_BAR_VP: f32 = 39.7;
         // And the navigation gesture bar at the bottom.
         //
         // The system takes touches in a strip across the bottom centre before
@@ -40,7 +43,11 @@ pub fn page() -> (f32, f32) {
         // area. It survived every in-app fix — laid out or positioned, with or
         // without a hit-test mode, adjacent or gapped — because the app was
         // never receiving those events at all.
-        const GESTURE_BAR_VP: f32 = 24.0;
+        //
+        // Only the sum of the two matters here — the system imposes the top
+        // inset itself and the page only chooses its height — but they are
+        // split so the numbers can be checked against a screenshot.
+        const GESTURE_BAR_VP: f32 = 4.3;
         (
             pw as f32 / ratio,
             ph as f32 / ratio - STATUS_BAR_VP - GESTURE_BAR_VP,
@@ -120,6 +127,20 @@ pub fn handle(target: i32) -> bool {
         return true;
     }
     match target {
+        // Tapping a peeking edge of the photo wall pans it one cell, the same
+        // move the app makes on a swipe in that direction.
+        wonders::details::PHOTO_UP
+        | wonders::details::PHOTO_DOWN
+        | wonders::details::PHOTO_LEFT
+        | wonders::details::PHOTO_RIGHT => {
+            let (dx, dy) = match target {
+                wonders::details::PHOTO_UP => (0, -1),
+                wonders::details::PHOTO_DOWN => (0, 1),
+                wonders::details::PHOTO_LEFT => (-1, 0),
+                _ => (1, 0),
+            };
+            wonders::details::move_photo_sel(dx, dy)
+        }
         wonders::details::BROWSE_TAP => {
             go(Screen::Search(None));
             true
