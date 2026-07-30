@@ -31,6 +31,9 @@ use crate::arkui::{attr, ty, Node};
 
 const APP: &str = "wonders";
 
+/// cloud-white.png is 278x55.
+const CLOUD_ASPECT: f32 = 55.0 / 278.0;
+
 /// Place one piece, and give back its node.
 /// `piece`, for callers outside this module — the editorial's short-mode band
 /// places the same pieces by the same rule in a much shorter frame.
@@ -140,43 +143,38 @@ pub fn illustration_with(
         }
     }
 
-    // Three clouds. Wonderous places them with a seeded `Random`, three per
-    // wonder, inside a box half the height of the screen:
+    // Three clouds, from the app's own seed through Dart's own generator.
+    //
     //   x     -200 .. width - 100
-    //   y       50 .. height/2 - 50
+    //   y       50 .. height/2 - 50      (the layer is a half-height box)
     //   scale   .7 .. 1
     //   flipX/flipY  either
-    // drawn 500 wide at 40% opacity.
+    //
+    // drawn 500 wide at 40% opacity. `_Cloud` sizes its image to `500 * scale`
+    // and then scales the whole thing by `scale` again, so what lands on screen
+    // is 500 * scale^2 wide, centred on where the unscaled box would have been.
     //
     // cloud-white.png is a row of blocky rounded bars that run edge to edge, so
     // a cloud does look rectangular at a glance -- that is the artwork, not a
     // node painting its own box.
-    //
-    // The ranges, the count, the size and the opacity are the app's; the
-    // generator is not. Dart's `Random` is explicitly implementation-defined, so
-    // the same seed cannot be replayed from Rust. This uses the app's per-wonder
-    // seed through a small deterministic generator instead: stable across runs
-    // and per wonder, but the three clouds do not land on the app's exact
-    // pixels.
-    let mut rng = w.cloud_seed.wrapping_mul(2_654_435_761).wrapping_add(1);
-    let mut next = || {
-        rng ^= rng << 13;
-        rng ^= rng >> 17;
-        rng ^= rng << 5;
-        (rng >> 8) as f32 / 16_777_216.0
-    };
+    let mut rng = super::dart_random::DartRandom::new(w.cloud_seed as i64);
     for _ in 0..3 {
-        let cx = -200.0 + next() * (frame_w - 100.0 + 200.0);
-        let cy = 50.0 + next() * (frame_h * 0.5 - 100.0).max(0.0);
-        let scale = 0.7 + next() * 0.3;
-        let size = 500.0 * scale;
+        let cx = rng.get_double(-200.0, frame_w as f64 - 100.0) as f32;
+        let cy = rng.get_double(50.0, (frame_h * 0.5) as f64 - 50.0) as f32;
+        let scale = rng.get_double(0.7, 1.0) as f32;
+        // Drawn, but nothing here mirrors an image, so they only move the draw
+        // order along -- the sequence has to be consumed either way or every
+        // cloud after the first lands somewhere else.
+        let _flip_x = rng.get_bool();
+        let _flip_y = rng.get_bool();
+
+        let (bw, bh) = (500.0 * scale, 500.0 * scale * CLOUD_ASPECT);
+        let (dw, dh) = (bw * scale, bh * scale);
+        let (x, y) = (cx + (bw - dw) / 2.0, cy + (bh - dh) / 2.0);
         if let Some(c) = Node::new(ty::image()) {
             root = root.child(
-                c.width(size)
-                    // cloud-white.png is 278x55; drawn `fit: fitWidth`, so the
-                    // box has to carry the asset's own aspect or the image is
-                    // letterboxed inside it and lands low.
-                    .height(size * (55.0 / 278.0))
+                c.width(dw)
+                    .height(dh)
                     .string_attr(
                         attr::image_src(),
                         &format!("resource://RAWFILE/{APP}/_common/cloud-white.png"),
@@ -185,7 +183,7 @@ pub fn illustration_with(
                     // asset's aspect, so there is nothing to letterbox.
                     .i32_attr(attr::image_fit(), 3)
                     .f32v_attr(attr::opacity(), &[0.4])
-                    .f32v_attr(attr::position(), &[cx, cy]),
+                    .f32v_attr(attr::position(), &[x, y]),
             );
         }
     }

@@ -569,3 +569,16 @@ pub const WONDERS: &[Wonder] = &[
         pieces: CHRIST_THE_REDEEMER_PIECES,
     },
 ];
+
+/// `artifactStartYr` / `artifactEndYr` — where the search screen's time range
+/// starts for each wonder, in the order `WONDERS` lists them.
+pub const ARTIFACT_YEARS: &[(i32, i32)] = &[
+    (-2800, -2300), // Pyramids of Giza
+    (-700, 1650),   // Great Wall of China
+    (-500, 500),    // Petra
+    (0, 500),       // Colosseum
+    (500, 1600),    // Chichen Itza
+    (1200, 1700),   // Machu Picchu
+    (1600, 1700),   // Taj Mahal
+    (1600, 2100),   // Christ the Redeemer
+];
