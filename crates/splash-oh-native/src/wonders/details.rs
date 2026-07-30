@@ -113,15 +113,25 @@ pub fn build(index: usize, tab: usize, w: f32, h: f32) -> Option<Node> {
     // touch targets go on top of it, one per cell.
     let d = 52.0;
     let cell = (w - d - 20.0) / tabbar::TABS.len() as f32;
-    root = root.child(
-        tap_col(d + 20.0, bar_h, 0x00000000, tabbar::HOME_TAP)?
-            .f32v_attr(attr::position(), &[0.0, h - bar_h]),
-    );
+    root = root.child(super::hit(
+        w,
+        h,
+        0.0,
+        h - bar_h,
+        d + 20.0,
+        bar_h,
+        tabbar::HOME_TAP,
+    )?);
     for i in 0..tabbar::TABS.len() {
-        root = root.child(
-            tap_col(cell, bar_h, 0x00000000, tabbar::TAB_BASE + i as i32)?
-                .f32v_attr(attr::position(), &[d + 20.0 + cell * i as f32, h - bar_h]),
-        );
+        root = root.child(super::hit(
+            w,
+            h,
+            d + 20.0 + cell * i as f32,
+            h - bar_h,
+            cell,
+            bar_h,
+            tabbar::TAB_BASE + i as i32,
+        )?);
     }
     Some(root)
 }

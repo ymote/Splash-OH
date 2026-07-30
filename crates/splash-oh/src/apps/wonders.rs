@@ -9,6 +9,7 @@
 use splash_oh_native::arkui::Node;
 use splash_oh_native::wonders;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Mutex;
 
 extern "C" {
     fn OH_NativeDisplayManager_GetDefaultDisplayWidth(w: *mut i32) -> i32;
@@ -25,14 +26,44 @@ pub fn page() -> (f32, f32) {
             && OH_NativeDisplayManager_GetDefaultDisplayVirtualPixelRatio(&mut ratio) == 0
     };
     if ok && pw > 0 && ph > 0 && ratio > 0.1 {
-        (pw as f32 / ratio, ph as f32 / ratio)
+        // The display is not the content area. ArkUI hands the page the space
+        // below the status bar, so laying out against the full display height
+        // pushes everything down by that much -- which put the intro's button
+        // and the home screen's chevron past the bottom edge, where they drew
+        // but could not be tapped.
+        const STATUS_BAR_VP: f32 = 20.0;
+        (pw as f32 / ratio, ph as f32 / ratio - STATUS_BAR_VP)
     } else {
         (splash_oh_native::ui::W, splash_oh_native::ui::PAGE_H)
     }
 }
 
-/// Which screen is showing: `None` on the home pager, `Some(tab)` inside a
-/// wonder's details.
+/// Which screen is showing.
+///
+/// The app opens on the intro, goes to the home pager, and from there into a
+/// wonder's details, the menu, the collection or one artifact.
+#[derive(Clone, Copy, PartialEq)]
+enum Screen {
+    Intro(usize),
+    Home,
+    Details(usize),
+    Menu,
+    Collection,
+    Artifact,
+}
+
+static SCREEN: Mutex<Screen> = Mutex::new(Screen::Intro(0));
+
+fn screen() -> Screen {
+    *SCREEN.lock().unwrap_or_else(|e| e.into_inner())
+}
+fn go(s: Screen) {
+    if let Ok(mut g) = SCREEN.lock() {
+        *g = s;
+    }
+}
+
+/// Kept so the details screens can ask which tab is up.
 static TAB: AtomicUsize = AtomicUsize::new(usize::MAX);
 
 fn tab() -> Option<usize> {
@@ -45,6 +76,12 @@ fn tab() -> Option<usize> {
 /// Handle a tap. `true` if it was ours and the tree should be rebuilt.
 pub fn handle(target: i32) -> bool {
     let n = wonders::data::WONDERS.len();
+    // Menu rows pick a wonder and return to its home page.
+    if target >= wonders::screens::MENU_BASE && target < wonders::screens::MENU_BASE + n as i32 {
+        set((target - wonders::screens::MENU_BASE) as usize);
+        go(Screen::Home);
+        return true;
+    }
     if target >= wonders::tabbar::TAB_BASE
         && target < wonders::tabbar::TAB_BASE + wonders::tabbar::TABS.len() as i32
     {
@@ -55,20 +92,46 @@ pub fn handle(target: i32) -> bool {
         return true;
     }
     match target {
+        wonders::screens::INTRO_NEXT => {
+            if let Screen::Intro(p) = screen() {
+                go(Screen::Intro(
+                    (p + 1).min(wonders::screens::INTRO.len() - 1),
+                ));
+            }
+            true
+        }
+        wonders::screens::INTRO_ENTER => {
+            go(Screen::Home);
+            true
+        }
+        wonders::home::MENU_TAP => {
+            go(Screen::Menu);
+            true
+        }
+        wonders::screens::MENU_CLOSE => {
+            go(Screen::Home);
+            true
+        }
+        wonders::screens::COLLECTION_CLOSE | wonders::screens::ARTIFACT_CLOSE => {
+            go(Screen::Home);
+            true
+        }
         wonders::tabbar::HOME_TAP => {
             TAB.store(usize::MAX, Ordering::Relaxed);
+            go(Screen::Home);
             true
         }
         // The chevron and the title both open the details, as they do in the app.
         wonders::home::DETAILS_TAP => {
             TAB.store(0, Ordering::Relaxed);
+            go(Screen::Details(0));
             true
         }
-        wonders::home::NEXT_TAP if tab().is_none() => {
+        wonders::home::NEXT_TAP if screen() == Screen::Home => {
             set((current() + 1) % n);
             true
         }
-        wonders::home::PREV_TAP if tab().is_none() => {
+        wonders::home::PREV_TAP if screen() == Screen::Home => {
             set((current() + n - 1) % n);
             true
         }
@@ -78,9 +141,13 @@ pub fn handle(target: i32) -> bool {
 
 pub fn build() -> Option<Node> {
     let (w, h) = page();
-    match tab() {
-        Some(t) => wonders::details::build(current(), t, w, h),
-        None => wonders::home::build(current(), w, h),
+    match screen() {
+        Screen::Intro(p) => wonders::screens::intro(p, w, h),
+        Screen::Menu => wonders::screens::menu(current(), w, h),
+        Screen::Collection => wonders::screens::collection(w, h),
+        Screen::Artifact => wonders::screens::artifact(current(), w, h),
+        Screen::Details(_) => wonders::details::build(current(), tab().unwrap_or(0), w, h),
+        Screen::Home => wonders::home::build(current(), w, h),
     }
 }
 
