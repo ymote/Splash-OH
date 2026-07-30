@@ -532,6 +532,36 @@ pub fn wonders_bench() {
             drop(n);
         }
     }
+    // Five timed runs, median reported, for the reason the ArkTS arm does it.
+    let build = |i: usize| match i {
+        0 => wonders::screens::intro(0, W, H),
+        1 => wonders::home::build(0, W, H),
+        2 => wonders::details::build(0, 0, W, H),
+        3 => wonders::details::build(0, 1, W, H),
+        4 => wonders::details::build(0, 2, W, H),
+        5 => wonders::details::build(0, 3, W, H),
+        6 => wonders::screens::menu(0, W, H),
+        7 => wonders::screens::collection(W, H),
+        8 => wonders::timeline::build(0, W, H),
+        9 => wonders::search::build(0, None, W, H),
+        _ => wonders::screens::artifact(0, W, H),
+    };
+    let mut runs: Vec<u128> = Vec::new();
+    for _ in 0..5 {
+        let t = std::time::Instant::now();
+        for i in 0..names.len() {
+            drop(build(i));
+        }
+        runs.push(t.elapsed().as_micros());
+    }
+    runs.sort_unstable();
+    splash_oh_native::log(&format!(
+        "wonderous/rust: MEDIAN {:.2} ms over 5 runs ({:.2}-{:.2})",
+        runs[2] as f64 / 1000.0,
+        runs[0] as f64 / 1000.0,
+        runs[4] as f64 / 1000.0
+    ));
+
     let mut total_us = 0u128;
     let mut total_nodes = 0usize;
     for (i, name) in names.iter().enumerate() {

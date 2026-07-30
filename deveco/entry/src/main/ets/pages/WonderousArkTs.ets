@@ -18,7 +18,7 @@
 import { typeNode, FrameNode, UIContext } from '@kit.ArkUI';
 import { http } from '@kit.NetworkKit';
 import { WONDERS, EDITORIAL, PIECES, ARTIFACTS, TIMELINES, SUGGESTIONS, CORPUS,
-  COLLECTIBLES, PLACES, WonderT, PieceT, ArtifactT, EventT, FoundT } from './WonderousData';
+  COLLECTIBLES, PLACES, ARTIFACT_YEARS, WonderT, PieceT, ArtifactT, EventT, FoundT } from './WonderousData';
 
 const APP: string = 'wonders';
 const SHEET: number = 0xFFF8ECE5;
@@ -151,6 +151,7 @@ export const T_PHOTO_OPEN: number = 7375;
 export const T_COLLECT: number = 7460;
 export const T_FOUND_CLOSE: number = 7490;
 export const T_VIEWER_CLOSE: number = 7450;
+export const T_RANGE: number = 7382;
 
 export class WonderousArkTs {
   private u: W;
@@ -164,6 +165,7 @@ export class WonderousArkTs {
   tab: number = 0;
   page: number = 0;
   photoSel: number = 13;
+  rangeOpen: boolean = false;
   artSel: number = 0;
   found: boolean[] = new Array<boolean>(24).fill(false);
   showing: number = 0;
@@ -417,6 +419,8 @@ export class WonderousArkTs {
       this.screen = S_ARTIFACT;
     } else if (t === T_PHOTO_OPEN) {
       this.screen = S_PHOTO;
+    } else if (t === T_RANGE) {
+      this.rangeOpen = !this.rangeOpen;
     } else if (t === T_VIEWER_CLOSE || t === T_FOUND_CLOSE) {
       this.screen = S_DETAILS;
     }
@@ -676,15 +680,14 @@ export class WonderousArkTs {
     // which took them from editorial_screen.dart.
     let bandRef: FrameNode | null = null;
     let capRef: FrameNode | null = null;
-    // The Rust arm reads the Scroll's own offset back, having found that
-    // accumulating the per-event deltas drifted well ahead of it inside a
-    // single drag. typeNode.Scroll exposes no such getter, so here the deltas
-    // are summed and clamped at zero -- close enough for a fade, and the one
-    // place the two arms do not share a mechanism.
-    let scrolled: number = 0;
+    // A Scroller bound to the Scroll answers for its real offset, which is what
+    // the Rust arm reads off its node. Summing the per-event deltas instead
+    // drifted well ahead of the truth inside a single drag -- the same trap,
+    // found on the other side first.
+    const scroller = new Scroller();
+    s.initialize(scroller);
     s.attribute.onDidScroll((xOff: number, yOff: number) => {
-      scrolled = Math.max(scrolled + yOff, 0);
-      const y: number = scrolled;
+      const y: number = Math.max(scroller.currentOffset().yOffset, 0);
       if (bandRef !== null) {
         bandRef.commonAttribute.opacity(Math.min(Math.max(1 - y / 700, 0), 1));
       }
@@ -1110,6 +1113,40 @@ export class WonderousArkTs {
       this.u.text('' + CORPUS[wi].length + ' artifact(s)', 12, 0x99F8ECE5, w, 22,
         BODY_FONT, TextAlign.Center),
       0, chipTop + 104));
+    // `ExpandingTimeRangeSelector`: a pill showing the span, opening into a
+    // handle per end. Same two-row construction the Rust arm settled on, and
+    // for the same reason -- ArkUI has no range slider, and two full-width ones
+    // on a line means the upper takes every touch.
+    const yrs: number[] = ARTIFACT_YEARS[wi];
+    const panelH: number = this.rangeOpen ? 150 : 52;
+    const panelW: number = w - 48;
+    const panelY: number = h - panelH - 24;
+    const panel = this.u.stack(panelW, panelH, 0xD91E1B18);
+    panel.attribute.borderRadius(12);
+    panel.appendChild(this.u.at(
+      this.u.text(this.yearLabel(yrs[0]) + ' - ' + this.yearLabel(yrs[1]), 14, SHEET,
+        panelW - 60, 22, SERIF_UI), 20, 15));
+    panel.appendChild(this.u.at(
+      this.u.img(APP + '/_common/icons/icon-timeline.png', 18, 18, 0, ImageFit.Contain),
+      panelW - 40, 17));
+    if (this.rangeOpen) {
+      for (let k = 0; k < 2; k++) {
+        const rowY: number = 58 + k * 44;
+        panel.appendChild(this.u.at(
+          this.u.text(k === 0 ? 'From' : 'To', 10, 0x8CF8ECE5, 34, 16, SERIF_UI), 20, rowY + 8));
+        const sl: typeNode.Slider = typeNode.createNode(this.u.ctx, 'Slider');
+        sl.initialize({ value: yrs[k], min: yrs[0], max: yrs[1] });
+        sl.attribute.width(panelW - 150).height(32)
+          .selectedColor(ACCENT1).blockColor(SHEET).trackColor(0x33F8ECE5);
+        this.u.count++;
+        panel.appendChild(this.u.at(sl, 58, rowY));
+        panel.appendChild(this.u.at(
+          this.u.text(this.yearLabel(yrs[k]), 10, SHEET, 80, 16, BODY_FONT, TextAlign.End),
+          panelW - 92, rowY + 8));
+      }
+    }
+    root.appendChild(this.u.at(panel, 24, panelY));
+
     const gw: number = (w - 48 - 16) / 3;
     const gtop: number = chipTop + 134;
     for (let i = 0; i < 9; i++) {
@@ -1127,6 +1164,15 @@ export class WonderousArkTs {
         this.u.text(hit.title, 10, 0x99F8ECE5, gw, 20, BODY_FONT, TextAlign.Center),
         x, y + gw + 3));
     }
+    const close2 = this.u.stack(46, 46, 0x33F8ECE5);
+    close2.attribute.borderRadius(23);
+    close2.appendChild(this.u.img(APP + '/_common/icons/icon-close.png', 20, 20, 0,
+      ImageFit.Contain));
+    root.appendChild(this.u.at(close2, w - 66, h * 0.04));
+    root.appendChild(this.hits(w, h, [
+      [w - 76, h * 0.03, 66, 66, T_VIEWER_CLOSE],
+      [24, panelY, panelW, 52, T_RANGE],
+    ]));
     return root;
   }
 

@@ -934,6 +934,23 @@ struct Index {
         }
       }
     }
+    // Five timed runs, and the median reported. One sample moved by a third
+    // between launches on this device, which is thermal and scheduling noise
+    // rather than the work; a median over five is a number worth quoting.
+    const runs: number[] = [];
+    for (let r = 0; r < 5; r++) {
+      const rt0: number = systemDateTime.getTime(true) / 1000000;
+      for (let i = 0; i < names.length; i++) {
+        const rn = wa.build(screens[i], 0, tabs[i], 0, W_VP, H_VP);
+        if (rn !== null) {
+          rn.dispose();
+        }
+      }
+      runs.push(systemDateTime.getTime(true) / 1000000 - rt0);
+    }
+    runs.sort((x: number, y: number) => x - y);
+    console.info('SplashOH: wonderous/arkts: MEDIAN ' + runs[2].toFixed(2) + ' ms over 5 runs ('
+      + runs[0].toFixed(2) + '-' + runs[4].toFixed(2) + ')');
     let totalMs: number = 0;
     let totalNodes: number = 0;
     for (let i = 0; i < names.length; i++) {

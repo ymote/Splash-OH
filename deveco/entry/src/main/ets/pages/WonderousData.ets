@@ -2801,3 +2801,15 @@ export function dataIsWellFormed(): string {
   }
   return 'ok';
 }
+
+/** `artifactStartYr`/`artifactEndYr` per wonder. */
+export const ARTIFACT_YEARS: number[][] = [
+  [-2800, -2300],
+  [-700, 1650],
+  [-500, 500],
+  [0, 500],
+  [500, 1600],
+  [1200, 1700],
+  [1600, 1700],
+  [1600, 2100],
+];

@@ -1,57 +1,53 @@
 # Wonderous: ArkTS vs Rust, measured
 
-Both arms build the same ten screens and mount them into the same ArkUI tree.
-`crates/splash-oh-native/src/wonders/` constructs from Rust through the NDK;
-`deveco/entry/src/main/ets/pages/WonderousArkTs.ets` constructs from ArkTS
+Two implementations of the same app. `crates/splash-oh-native/src/wonders/`
+constructs the tree from Rust through the ArkUI NDK;
+`deveco/entry/src/main/ets/pages/WonderousArkTs.ets` constructs it from ArkTS
 through `typeNode`. Both land on the same C++ patterns inside libace, so
-measure, layout and paint are identical native code in both cases and cancel
-out. Construction is the only stage that differs, and it is what this measures.
+measure, layout and paint are identical native code and cancel out.
+Construction is the only stage that differs, and it is what this measures.
 
-Data comes from tables generated out of the Rust arm's own, and the assets are
-the same rawfiles, so neither side is rendering different content.
+Both walk the same data — the ArkTS tables are generated from the Rust ones —
+and load the same rawfiles, so neither is rendering different content.
 
-HUAWEI Mate 70 Air (SUP-AL90), 406×805 vp page at ratio 3.25. Two warm-up
-passes discarded — the first pass cost 10 ms a screen against 2 ms warm, which
-is the interpreter starting up rather than the work.
+HUAWEI Mate 70 Air (SUP-AL90), 406×805 vp at ratio 3.25. Two warm-up passes
+discarded, then five timed runs, median reported.
 
-| screen | ArkTS ms | ArkTS nodes | Rust ms | Rust nodes |
-|---|---|---|---|---|
-| intro | 0.73 | 7 | 0.33 | 17 |
-| home | 5.46 | 75 | 4.65 | 129 |
-| editorial | 3.16 | 51 | 1.70 | 61 |
-| photos | 3.33 | 43 | 1.57 | 59 |
-| artifacts | 1.79 | 27 | 2.28 | 66 |
-| events | 2.76 | 48 | 1.22 | 56 |
-| menu | 3.05 | 48 | 1.79 | 77 |
-| collection | 3.65 | 51 | 1.28 | 58 |
-| timeline | 2.56 | 37 | 1.17 | 50 |
-| search | 2.80 | 40 | 1.68 | 63 |
-| artifact | 0.86 | 12 | 0.32 | 13 |
-| **total** | **30.14** | **439** | **17.98** | **649** |
+| | ArkTS | Rust |
+|---|---|---|
+| median, ten screens | **32.17 ms** | **17.15 ms** |
+| range over five runs | 31.20–35.33 | 16.57–19.93 |
+| nodes | 574 | 649 |
+| per node | **56.0 µs** | **26.4 µs** |
 
-## What can and cannot be concluded
+**Construction costs about 2.1× more from ArkTS than from Rust.**
 
-**The totals are not a ratio.** The two arms do not yet build the same number
-of nodes — 439 against 649 — so 30.14 against 17.98 compares different amounts
-of work. The ArkTS arm is the thinner of the two: its home screen mounts eight
-illustrations where the Rust one mounts eight plus their backgrounds, and
-several screens elide detail the Rust arm draws.
+The earlier single-sample runs suggested 2.4–2.5×. They were noise: the Rust
+total wandered between 13.55 and 17.98 ms across launches. Five runs and a
+median put both arms inside a ±10% band, and the ratio settles lower. The
+repo's own microbenchmark — one node type, N times, both paths — has long
+reported ~2.5×; this is the same effect measured on real screens, and a little
+smaller, which is what you would expect once per-screen work that is not node
+construction is included in both totals.
 
-**Per node is defensible**, as long as the node mix is broadly similar, and it
-is — both are mostly Text, Image, Column, Row and Stack:
+## What is the same
 
-* ArkTS: 30.14 ms / 439 = **68.7 µs per node**
-* Rust: 17.98 ms / 649 = **27.7 µs per node**
-* **2.5×**
+Ten screens, plus the fullscreen photograph, the collectible-found screen and
+the two web-backed viewers. The illustration rule, the masthead, the 5×5 wall
+and its cutout scrim, the carousel's collapse geometry and dots, the paragraph
+height estimate, the tap overlay's banding, the swipe threshold and its
+eight-way behaviour, the band fade against scroll, the live Met fetch, the
+collectibles and where each is hidden.
 
-That figure agrees with this repo's own microbenchmark, which builds one node
-type N times through both paths and has long reported ~2.5× on construction.
-Two independent measurements landing on the same number is worth more than
-either alone.
+`wonderous-arkts-vs-rust.png` is the two arms side by side.
 
-## What has not been done
+## What is not
 
-The ArkTS screens have been built and disposed, not put on screen. They are
-measured, not seen. Node counts still differ, so before quoting a total ratio
-the ArkTS arm needs bringing up to the Rust arm's tree — the home screen's
-per-wonder backgrounds first, since that is most of the 210-node gap.
+**Node counts differ: 574 against 649.** The remainder is content the Rust arm
+draws that this one does not, screen by screen. It is not a difference in how
+either builds a node, so per-node cost is the honest comparison and the total
+is indicative rather than exact.
+
+**Neither arm is the Flutter app.** Both are reproductions of it, measured
+against each other. Nothing here says what Flutter would cost on the same
+device.
