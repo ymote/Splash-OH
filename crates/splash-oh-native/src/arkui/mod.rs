@@ -99,6 +99,9 @@ mod raw {
         pub static splash_a_slider_value: i32;
         pub static splash_a_slider_min: i32;
         pub static splash_a_slider_max: i32;
+        pub static splash_a_slider_selected: i32;
+        pub static splash_a_slider_block: i32;
+        pub static splash_a_slider_track: i32;
         pub static splash_a_checkbox_shape: i32;
         pub static splash_a_loading_color: i32;
         pub static splash_a_progress_color: i32;
@@ -132,6 +135,7 @@ mod raw {
         pub static splash_e_touch: i32;
         pub static splash_e_appear: i32;
         pub static splash_e_input_change: i32;
+        pub static splash_e_slider_change: i32;
         pub static splash_e_did_scroll: i32;
     }
 }
@@ -197,6 +201,9 @@ pub mod attr {
         slider_value => splash_a_slider_value,
         slider_min => splash_a_slider_min,
         slider_max => splash_a_slider_max,
+        slider_selected => splash_a_slider_selected,
+        slider_block => splash_a_slider_block,
+        slider_track => splash_a_slider_track,
         checkbox_shape => splash_a_checkbox_shape,
         loading_color => splash_a_loading_color,
         progress_color => splash_a_progress_color,
@@ -208,7 +215,8 @@ pub mod attr {
 pub mod event {
     use super::raw;
     arkui_consts! { click => splash_e_click, touch => splash_e_touch, appear => splash_e_appear,
-    input_change => splash_e_input_change, did_scroll => splash_e_did_scroll }
+    input_change => splash_e_input_change, slider_change => splash_e_slider_change,
+    did_scroll => splash_e_did_scroll }
 }
 
 /// Initialise the node API. Safe to call repeatedly.

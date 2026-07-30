@@ -32,21 +32,30 @@ render as the evidence for anything about layout.
 | screen | state |
 |---|---|
 | Artifact details | the app's own screen: culture, name, and Date / Period / Geography / Medium / Dimensions / Classification fetched from `collectionapi.metmuseum.org` at run time, as `artifact_api_service.dart` fetches them. Five of those fields exist only in that response |
-| Search | the app's own corpus — 2686 `SearchData` entries from `*_search_data.dart` — a real text field that filters as you type, the wonder's own suggestion chips, and thumbnails off the app's own host by object id |
+| Search | the app's own corpus — 2686 `SearchData` entries from `*_search_data.dart` — a real text field that filters as you type, the wonder's own suggestion chips, thumbnails off the app's own host by object id, and `ExpandingTimeRangeSelector`: a pill showing the range that opens into draggable handles, starting at the wonder's own `artifactStartYr`/`artifactEndYr` |
 | Menu, Collection, Timeline, Events, Intro | all eight wonders, the global timeline from 2600 BCE to 1931 CE, each wonder's own dated events, the intro's three pages |
 
-## What is still not the app
+## What is not the app
 
-Two things, and they are the whole list.
+One thing, and it is a difference in construction rather than in what the screen
+does.
 
-1. **Cloud placement.** The three clouds are the app's asset at the app's size,
-   opacity, count and coordinate ranges, drawn from the app's per-wonder seed —
-   but through a different generator. Dart's `Random` algorithm is not part of
-   its API contract, so it cannot be replayed from Rust and the three shapes
-   land at different points within the same ranges.
-2. **The search screen's time-range selector.** `ExpandingTimeRangeSelector`
-   filters the corpus by year as well as by word. The corpus carries the years;
-   the control is not built. Everything else on that screen is.
+**The time range is two sliders, not one axis with two thumbs.** ArkUI has no
+range slider. Two full-width ones stacked on the same line would mean the upper
+one takes every touch and the lower thumb could be seen but never grabbed, so
+the panel gives each end of the range its own row. It filters identically and
+both ends are reachable; the app draws a single axis with a density plot behind
+it.
+
+Two earlier entries in this list are gone:
+
+- **Cloud placement** was "a different generator, because Dart's `Random` is not
+  part of its API contract". The contract is not the algorithm: `_Random` is a
+  64-bit multiply-with-carry with a published seed scramble, and it is now
+  transcribed in `dart_random.rs` along with the `rnd` package's `getDouble` and
+  `getBool`. `wonderous-clouds.png` is the result beside the reference at
+  matched aspect — the bands fall in the same places.
+- **The time-range selector** is built, above.
 
 ## What was verified on the device
 
@@ -67,5 +76,13 @@ mid-flight, and put back:
 - The hero parallax was measured rather than eyeballed at the old photo hero:
   0.51× the article over it.
 
+Search was checked against the corpus rather than by eye: at Petra's default
+500 BCE – 500 CE the grid is nine, starting "Figure of ibex", "Unguentarium",
+"Vessel with a lid"; dragged to 445–500 CE it is none; at 78–445 CE it is five,
+starting "Head of a man". Those are the answers the corpus gives for those
+ranges, computed separately from the app.
+
 `wonderous-vqa-matched.png` is the four scored screens at the reference aspect.
 `wonderous-artifact-live.png` is an artifact's Met record arriving.
+`wonderous-clouds.png` is the cloud placement beside the reference.
+`wonderous-timerange.png` is the range selector filtering.

@@ -10,6 +10,7 @@
 
 pub mod artifact_data;
 pub mod corpus;
+pub mod dart_random;
 pub mod data;
 pub mod details;
 pub mod editorial_data;
@@ -173,6 +174,9 @@ mod tests {
         ("details::SCROLL_TICK", super::details::SCROLL_TICK),
         ("search::SEARCH_CLOSE", super::search::SEARCH_CLOSE),
         ("search::SEARCH_TYPED", super::search::SEARCH_TYPED),
+        ("search::RANGE_TOGGLE", super::search::RANGE_TOGGLE),
+        ("search::RANGE_START", super::search::RANGE_START),
+        ("search::RANGE_END", super::search::RANGE_END),
     ];
 
     /// The ids that are the base of a run, and how long the run is.

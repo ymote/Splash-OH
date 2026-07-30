@@ -152,6 +152,9 @@ pub fn handle(target: i32) -> bool {
     if target == wonders::search::SEARCH_TYPED {
         return wonders::search::read_typed();
     }
+    if target == wonders::search::RANGE_START || target == wonders::search::RANGE_END {
+        return wonders::search::read_range();
+    }
     if target == SCREEN_APPEAR {
         fade_in_screen();
         return false;
@@ -236,6 +239,7 @@ pub fn handle(target: i32) -> bool {
             go(Screen::Search(None));
             true
         }
+        wonders::search::RANGE_TOGGLE => wonders::search::toggle_range(),
         wonders::search::SEARCH_CLOSE => {
             wonders::search::clear_field();
             go(Screen::Details(2));
