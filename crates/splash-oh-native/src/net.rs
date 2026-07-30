@@ -171,3 +171,169 @@ pub fn fetch_weekday(url: &str, path: &str, idx: i32) -> Option<String> {
     let names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
     Some(names[dow as usize].to_string())
 }
+
+// ---------------------------------------------------------------------------
+// Capability parity with the makepad host.
+//
+// The 2026-07-30 portability test lowered ONE semantic plan to both makepad Splash
+// DSL and this backend. It worked — but the plan's SunMoon section could not
+// render here at all, because the porting cost turned out not to be the widgets:
+// makepad exposes thirty-odd `sys.*` helpers and this backend injected five
+// (fetch_num, fetch_fmt, fetch_weekday, invoke, sget). Nothing yielded a moon
+// phase, a daylight fraction, a geocoded coordinate or a forecast extent, so the
+// card rendered an explicit "unavailable on this backend" notice.
+//
+// These close that gap. Each mirrors a `sys.*` helper in
+// octos-one/aichat/widgets/src/splash.rs — same semantics, same reasoning — so a
+// plan lowered to either backend resolves the same values.
+
+/// Seconds since the Unix epoch.
+fn now_unix_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// Mean synodic month — new moon to new moon — in seconds.
+const SYNODIC_SECS: f64 = 29.530_588_853 * 86_400.0;
+/// A known new moon: 2000-01-06 18:14 UTC.
+const NEW_MOON_EPOCH: f64 = 947_182_440.0;
+
+/// Position in the synodic cycle, 0..1: 0 new, 0.25 first quarter, 0.5 full.
+///
+/// The MEAN cycle, not a full lunar theory — the true phase wanders by up to about
+/// half a day. Invisible in a rendered disc or a rounded percentage, and it keeps
+/// an ephemeris out of the backend.
+fn moon_phase_fraction() -> f64 {
+    let f = ((now_unix_secs() as f64 - NEW_MOON_EPOCH) % SYNODIC_SECS) / SYNODIC_SECS;
+    if f < 0.0 { f + 1.0 } else { f }
+}
+
+/// `moonphase(field)` -> the current 月相. No network, so it never shows a
+/// placeholder. `field`: "name" | "name_zh" | "illumination" | "phase".
+pub fn moonphase(field: &str) -> String {
+    let f = moon_phase_fraction();
+    match field.trim() {
+        "name" | "name_zh" | "name_cn" => {
+            let zh = field.trim() != "name";
+            // The eight principal phases. The four exact ones name a narrow window
+            // around the instant; the rest is crescent or gibbous.
+            let (en, cn) = if f < 0.0335 || f >= 0.9665 { ("New Moon", "新月") }
+                else if f < 0.2165 { ("Waxing Crescent", "蛾眉月") }
+                else if f < 0.2835 { ("First Quarter", "上弦月") }
+                else if f < 0.4665 { ("Waxing Gibbous", "盈凸月") }
+                else if f < 0.5335 { ("Full Moon", "满月") }
+                else if f < 0.7165 { ("Waning Gibbous", "亏凸月") }
+                else if f < 0.7835 { ("Last Quarter", "下弦月") }
+                else { ("Waning Crescent", "残月") };
+            (if zh { cn } else { en }).to_string()
+        }
+        // Illuminated fraction is (1 - cos(2*pi*phase)) / 2 — 0 at new, 1 at full,
+        // correctly non-linear between.
+        "illumination" | "illum" => {
+            format!("{}", ((1.0 - (std::f64::consts::TAU * f).cos()) * 50.0).round() as i64)
+        }
+        _ => format!("{f:.2}"),
+    }
+}
+
+/// Numeric form, for a shader uniform or any arithmetic.
+pub fn moonnum(field: &str) -> f64 {
+    let f = moon_phase_fraction();
+    match field.trim() {
+        "illumination" | "illum" => (1.0 - (std::f64::consts::TAU * f).cos()) * 50.0,
+        _ => f,
+    }
+}
+
+/// "HH:MM" or an ISO datetime -> minutes since local midnight.
+fn hhmm_minutes(s: &str) -> Option<f64> {
+    let t = s.trim();
+    let time = if t.len() >= 16 && t.as_bytes().get(10) == Some(&b'T') { &t[11..16] } else { t };
+    let (h, m) = time.split_once(':')?;
+    Some(h.trim().parse::<f64>().ok()? * 60.0 + m.trim().parse::<f64>().ok()?)
+}
+
+/// `daylight(url)` -> fraction of daylight elapsed: 0 at sunrise, 1 at sunset.
+/// Negative before sunrise and >1 after sunset, which a caller reads as night.
+///
+/// "Now" comes from the DEVICE CLOCK shifted by the response's own
+/// `utc_offset_seconds`, NOT from a timestamp in the response — that response is
+/// cached, so its own idea of "now" is frozen at whenever the card first fetched.
+/// Sunrise, sunset and the offset are all stable for the day; only the instant
+/// must be live.
+///
+/// `url` must be an open-meteo forecast including `daily=sunrise,sunset` and
+/// `timezone=auto`.
+pub fn daylight(url: &str) -> f64 {
+    let inner = || -> Option<f64> {
+        let v = cached_json(url)?;
+        let rise = hhmm_minutes(walk(&v, "daily.sunrise", 0)?.as_str()?)?;
+        let set = hhmm_minutes(walk(&v, "daily.sunset", 0)?.as_str()?)?;
+        let offset = walk(&v, "utc_offset_seconds", -1)?.as_f64()?;
+        let local = (now_unix_secs() as f64 + offset).rem_euclid(86_400.0) / 60.0;
+        let span = set - rise;
+        if span <= 0.0 { return None; }   // polar day or night
+        Some((local - rise) / span)
+    };
+    inner().unwrap_or(0.5)
+}
+
+/// `weekextent(url, path, want_max)` -> the min or max of a 7-element daily array.
+///
+/// Exists because the CARD cannot know it: every temperature is a live fetch, so a
+/// generating model asked for the week's range guesses at numbers it has never
+/// seen — and guesses badly, which clamps a gradient to one end of its ramp.
+pub fn week_extent(url: &str, path: &str, want_max: bool) -> Option<f64> {
+    let v = cached_json(url)?;
+    let mut acc: Option<f64> = None;
+    for i in 0..7 {
+        let Some(n) = walk(&v, path, i).and_then(|x| x.as_f64()) else { continue };
+        acc = Some(match acc {
+            None => n,
+            Some(a) if want_max => a.max(n),
+            Some(a) => a.min(n),
+        });
+    }
+    acc
+}
+
+/// `geocode(name, field)` -> a fact about a place NAME. Never let a card carry a
+/// coordinate: one recalled by a model is an invented number exactly like a
+/// recalled temperature, plausible for a famous city and fabricated elsewhere.
+///
+/// `language` is not cosmetic — open-meteo searches its index PER LANGUAGE, so
+/// "上海" with `language=en` returns nothing while `language=zh` returns Shanghai.
+/// It therefore follows the script of the query.
+pub fn geocode(name: &str, field: &str) -> Option<String> {
+    let q = name.trim();
+    let cjk = q.chars().any(|c| matches!(c,
+        '\u{3040}'..='\u{30FF}' | '\u{3400}'..='\u{4DBF}'
+        | '\u{4E00}'..='\u{9FFF}' | '\u{F900}'..='\u{FAFF}'));
+    let lang = if cjk { "zh" } else { "en" };
+    let enc: String = q.bytes().map(|b| match b {
+        b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => (b as char).to_string(),
+        _ => format!("%{b:02X}"),
+    }).collect();
+    let url = format!(
+        "https://geocoding-api.open-meteo.com/v1/search?name={enc}&count=1&language={lang}&format=json"
+    );
+    let v = cached_json(&url)?;
+    let path = match field.trim() {
+        "lat" => "results.0.latitude",
+        "lon" => "results.0.longitude",
+        "name" => "results.0.name",
+        "country" => "results.0.country",
+        "timezone" => "results.0.timezone",
+        other => return walk(&v, &format!("results.0.{other}"), -1)
+            .map(|x| x.as_str().map(str::to_string).unwrap_or_else(|| x.to_string())),
+    };
+    let x = walk(&v, path, -1)?;
+    Some(x.as_str().map(str::to_string).unwrap_or_else(|| x.to_string()))
+}
+
+/// Numeric geocode, for the coordinates that anchor a data URL.
+pub fn geocodenum(name: &str, field: &str) -> f64 {
+    geocode(name, field).and_then(|s| s.parse::<f64>().ok()).unwrap_or(-9999.0)
+}

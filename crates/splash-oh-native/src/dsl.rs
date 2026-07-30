@@ -330,6 +330,90 @@ fn register_net_capabilities(vm: &mut ScriptVm) {
         },
     );
     vm.set_injected_global(id!(fetch_weekday), f_wd);
+
+    // ---- capability parity with the makepad host --------------------------
+    //
+    // The portability test lowered one semantic plan to both backends and found
+    // the real porting cost is HOST CAPABILITY, not widgets: makepad exposes
+    // thirty-odd sys.* helpers and this backend had five, so a plan's SunMoon
+    // section could not render here at all. These four close that gap; each
+    // mirrors its sys.* counterpart's semantics exactly.
+
+    // `moonphase(field)` -> "Full Moon" | "满月" | "87" | "0.51". Clock-only, so
+    // it never shows a placeholder. field: name | name_zh | illumination | phase.
+    let f_moon = add_global_fn(vm, &[(id!(field), ScriptValue::NIL)], |vm, a| {
+        let field = string_prop(vm, a, id!(field)).unwrap_or_default();
+        let s = crate::net::moonphase(&field);
+        vm.bx.heap.new_string_from_str(&s)
+    });
+    vm.set_injected_global(id!(moonphase), f_moon);
+
+    // Numeric form, for arithmetic or a shader uniform.
+    let f_moonnum = add_global_fn(vm, &[(id!(field), ScriptValue::NIL)], |vm, a| {
+        let field = string_prop(vm, a, id!(field)).unwrap_or_default();
+        ScriptValue::from_f64(crate::net::moonnum(&field))
+    });
+    vm.set_injected_global(id!(moonnum), f_moonnum);
+
+    // `daylight(url)` -> 0 at sunrise, 1 at sunset; outside that range it is
+    // night. Needs a forecast url carrying daily=sunrise,sunset & timezone=auto.
+    let f_day = add_global_fn(vm, &[(id!(url), ScriptValue::NIL)], |vm, a| {
+        let url = string_prop(vm, a, id!(url)).unwrap_or_default();
+        ScriptValue::from_f64(crate::net::daylight(&url))
+    });
+    vm.set_injected_global(id!(daylight), f_day);
+
+    // `weekmin(url, path)` / `weekmax(url, path)` -> the extent of a 7-element
+    // daily array. A card cannot know this: the values are a live fetch, so a
+    // model asked for the week's range guesses at numbers it has never seen.
+    let f_wmin = add_global_fn(
+        vm,
+        &[(id!(url), ScriptValue::NIL), (id!(path), ScriptValue::NIL)],
+        |vm, a| {
+            let url = string_prop(vm, a, id!(url)).unwrap_or_default();
+            let path = string_prop(vm, a, id!(path)).unwrap_or_default();
+            ScriptValue::from_f64(crate::net::week_extent(&url, &path, false).unwrap_or(0.0))
+        },
+    );
+    vm.set_injected_global(id!(weekmin), f_wmin);
+
+    let f_wmax = add_global_fn(
+        vm,
+        &[(id!(url), ScriptValue::NIL), (id!(path), ScriptValue::NIL)],
+        |vm, a| {
+            let url = string_prop(vm, a, id!(url)).unwrap_or_default();
+            let path = string_prop(vm, a, id!(path)).unwrap_or_default();
+            ScriptValue::from_f64(crate::net::week_extent(&url, &path, true).unwrap_or(30.0))
+        },
+    );
+    vm.set_injected_global(id!(weekmax), f_wmax);
+
+    // `geocode(name, field)` / `geocodenum(name, field)` -> facts about a place
+    // NAME, so a card never carries a coordinate a model recalled. The lookup
+    // language follows the script of the query: open-meteo indexes per language,
+    // and "上海" with language=en returns nothing.
+    let f_geo = add_global_fn(
+        vm,
+        &[(id!(name), ScriptValue::NIL), (id!(field), ScriptValue::NIL)],
+        |vm, a| {
+            let name = string_prop(vm, a, id!(name)).unwrap_or_default();
+            let field = string_prop(vm, a, id!(field)).unwrap_or_default();
+            let s = crate::net::geocode(&name, &field).unwrap_or_else(|| "--".to_string());
+            vm.bx.heap.new_string_from_str(&s)
+        },
+    );
+    vm.set_injected_global(id!(geocode), f_geo);
+
+    let f_geonum = add_global_fn(
+        vm,
+        &[(id!(name), ScriptValue::NIL), (id!(field), ScriptValue::NIL)],
+        |vm, a| {
+            let name = string_prop(vm, a, id!(name)).unwrap_or_default();
+            let field = string_prop(vm, a, id!(field)).unwrap_or_default();
+            ScriptValue::from_f64(crate::net::geocodenum(&name, &field))
+        },
+    );
+    vm.set_injected_global(id!(geocodenum), f_geonum);
 }
 
 /// Expose the device capabilities to the DSL as a single `invoke(tool)` global.

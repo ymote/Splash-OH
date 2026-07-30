@@ -153,8 +153,16 @@ fn bar_color(t) {
     ]},
     {t: "column", w: PANELW, bg: argb(165, 19, 23, 33), radius: 20, pad: 16, c: [
         {t: "text", text: "Sunrise / Sunset", size: 12, weight: 5, color: argb(196, 209, 216, 230), w: 338, h: 12 * 1.3 + 8},
+        {t: "column", w: 4, h: 8},
+        {t: "progress", w: PANW_IN, h: 6, value: daylight(WX) * 100, max: 100},
+        {t: "column", w: 4, h: 8},
+        {t: "row", w: PANW_IN, h: 26, c: [
+            {t: "text", text: fetch_weekday(WX, "daily.time", 0), size: 15, weight: 4, color: argb(196, 209, 216, 230), w: 110, h: 15 * 1.3 + 8},
+            {t: "column", w: 110, h: 4},
+            {t: "text", text: moonphase("illumination") + "% illuminated", size: 15, weight: 4, color: argb(196, 209, 216, 230), w: 118, h: 15 * 1.3 + 8}
+        ]},
         {t: "column", w: 4, h: 6},
-        {t: "text", text: "Sun & Moon unavailable on this backend", size: 15, weight: 4, color: argb(196, 209, 216, 230), w: 338, h: 15 * 1.3 + 8}
+        {t: "text", text: moonphase("name"), size: 15, weight: 5, color: argb(236, 235, 239, 247), w: 338, h: 15 * 1.3 + 8}
     ]},
     {t: "row", w: PANELW, h: 92, c: [
         {t: "column", w: TILEW, h: 80, bg: argb(80, 140, 151, 178), radius: 14, pad: 12, c: [
