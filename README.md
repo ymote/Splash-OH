@@ -1,5 +1,7 @@
 # Splash-OH
 
+*[中文版](README.zh-CN.md)*
+
 Build a HarmonyOS app with a web frontend and Rust for everything else.
 
 A page calls `splash.invoke('device.info')` and gets an answer from Rust. Around
