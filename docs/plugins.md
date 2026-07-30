@@ -1,5 +1,7 @@
 # Plugins
 
+*[中文版](plugins.zh-CN.md)*
+
 A plugin adds native tools a page can call by name. It depends on
 `splash-oh-core` and nothing else — not on the bridge, not on napi, not on
 ArkTS.

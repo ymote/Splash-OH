@@ -1,5 +1,7 @@
 # Building an app
 
+*[中文版](building-an-app.zh-CN.md)*
+
 ## What you get
 
 ```sh
@@ -187,3 +189,7 @@ that drops its `Responder` rejects with `the tool did not answer`.
 **Startup checks.** Search hilog for `selftest` — path handling, the registry's
 rules and the capability rules all verify themselves at startup and log the
 result.
+
+Look immediately. hilog fills with Chromium output within about a minute and
+evicts those lines, so a search half a minute after launch finds nothing and
+reads exactly like a failure.

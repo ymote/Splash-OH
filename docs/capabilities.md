@@ -1,5 +1,7 @@
 # Capabilities
 
+*[中文版](capabilities.zh-CN.md)*
+
 What a page may do, and why each check exists. Every rule here was verified on
 device in both directions — a rule proven only to refuse might refuse
 everything.

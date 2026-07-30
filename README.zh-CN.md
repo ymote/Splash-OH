@@ -23,7 +23,7 @@ npm install && npm run build
 ```
 
 `./build.sh` 需要一份 Splash-OH 源码作为构建依托——在项目旁边克隆一份，或设置
-`SPLASH_OH`。详见 **[docs/building-an-app.md](docs/building-an-app.md)**（英文）。
+`SPLASH_OH`。详见 **[docs/building-an-app.zh-CN.md](docs/building-an-app.zh-CN.md)**。
 
 开发过程中可以完全跳过重新构建：
 
@@ -37,25 +37,23 @@ SPLASH_DEV_SERVER=http://127.0.0.1:5173 ./build.sh
 
 ## 文档
 
-目前文档正文均为英文。
-
 | | |
 |---|---|
-| [Building an app](docs/building-an-app.md) | 模板、开发回路、`splash.toml`、构建 |
-| [Plugins](docs/plugins.md) | 自己的原生工具，同步与异步 |
-| [Capabilities](docs/capabilities.md) | 页面能做什么，以及如何强制 |
-| [Releasing](docs/releasing.md) | 签名、AGC，以及尚未完成的部分 |
+| [做一个应用](docs/building-an-app.zh-CN.md) | 模板、开发回路、`splash.toml`、构建 |
+| [插件](docs/plugins.zh-CN.md) | 自己的原生工具，同步与异步 |
+| [能力](docs/capabilities.zh-CN.md) | 页面能做什么，以及如何强制 |
+| [发布](docs/releasing.zh-CN.md) | 签名、AGC，以及尚未完成的部分 |
 
 ## 页面能碰到什么
 
 49 个内置工具（其中少数是内部用的）：设备信息、显示、电池、传感器、振动、定位、
 蜂窝网络、Wi-Fi、网络请求、文件系统、文件选择器、剪贴板、HUKS 密钥库、SQLite、
 蓝牙、相机、音频、视频、加解密，以及 Splash VM。你自己的工具和它们并列——见
-[docs/plugins.md](docs/plugins.md)。
+[docs/plugins.zh-CN.md](docs/plugins.zh-CN.md)。
 
 页面只能拿到它所在的那个 surface 被授予的东西。信任不是一个布尔值：每个 surface
 自己声明可以调用哪些工具、可以访问哪些目录、可以访问哪些主机。见
-[docs/capabilities.md](docs/capabilities.md)。
+[docs/capabilities.zh-CN.md](docs/capabilities.zh-CN.md)。
 
 ## 各个 crate
 
@@ -114,7 +112,7 @@ deveco/                        ArkTS 外壳
 
 - **发布签名没有接通。** `sign-hap.sh` 里已有无 IDE 的 AGC 签名路径，
   `splash.toml` 里也已有 `[signing]` 段，但两者还没连起来。见
-  [docs/releasing.md](docs/releasing.md)。没有真正跑过的签名不算能用的签名，
+  [docs/releasing.zh-CN.md](docs/releasing.zh-CN.md)。没有真正跑过的签名不算能用的签名，
   这一步需要真实的发布证书材料才能验证。
 - **外壳是一份源码，不是一个依赖。** 项目是"依托"一份 Splash-OH 源码来构建的，
   而把你自己的插件链接进去目前还需要在那份源码里手工改两处。
