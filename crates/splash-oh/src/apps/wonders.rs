@@ -17,8 +17,27 @@ extern "C" {
     fn OH_NativeDisplayManager_GetDefaultDisplayVirtualPixelRatio(r: *mut f32) -> i32;
 }
 
-/// The display in vp, or the old fixed page if the manager will not answer.
+/// The content area, in vp.
+///
+/// Not the display. The system keeps a strip at the top for the status bar and
+/// one at the bottom for the navigation gesture, and what ArkUI hands the page
+/// is what is left. Those strips differ per device -- the numbers this used to
+/// subtract were measured on one phone and were simply wrong on another -- so
+/// the page is measured instead: once a root has been mounted, ArkUI will say
+/// how big it actually is, and that answer is used from then on.
+///
+/// The very first build has nothing to measure, so it falls back to the
+/// display less a typical inset, and corrects itself on the first `appear`.
+static MEASURED: Mutex<Option<(f32, f32)>> = Mutex::new(None);
+
+/// A plausible total inset for the first frame only. Being wrong here costs one
+/// extra build, not a wrong layout.
+const FIRST_GUESS_INSET_VP: f32 = 44.0;
+
 pub fn page() -> (f32, f32) {
+    if let Some(m) = MEASURED.lock().ok().and_then(|g| *g) {
+        return m;
+    }
     let (mut pw, mut ph, mut ratio) = (0i32, 0i32, 0f32);
     let ok = unsafe {
         OH_NativeDisplayManager_GetDefaultDisplayWidth(&mut pw) == 0
@@ -26,35 +45,48 @@ pub fn page() -> (f32, f32) {
             && OH_NativeDisplayManager_GetDefaultDisplayVirtualPixelRatio(&mut ratio) == 0
     };
     if ok && pw > 0 && ph > 0 && ratio > 0.1 {
-        // The display is not the content area. ArkUI hands the page the space
-        // below the status bar, so laying out against the full display height
-        // pushes everything down by that much -- which put the intro's button
-        // and the home screen's chevron past the bottom edge, where they drew
-        // but could not be tapped.
-        // Measured on the Pura X rather than assumed: the first row of app
-        // pixels on a details screen, whose hero starts at page y = 0, is at
-        // display y = 119 px, which at ratio 3 is 39.7 vp.
-        const STATUS_BAR_VP: f32 = 39.7;
-        // And the navigation gesture bar at the bottom.
-        //
-        // The system takes touches in a strip across the bottom centre before
-        // the app sees them. That is why the middle cell of the tab bar was
-        // dead while the cells either side worked: it sat under the gesture
-        // area. It survived every in-app fix — laid out or positioned, with or
-        // without a hit-test mode, adjacent or gapped — because the app was
-        // never receiving those events at all.
-        //
-        // Only the sum of the two matters here — the system imposes the top
-        // inset itself and the page only chooses its height — but they are
-        // split so the numbers can be checked against a screenshot.
-        const GESTURE_BAR_VP: f32 = 4.3;
-        (
-            pw as f32 / ratio,
-            ph as f32 / ratio - STATUS_BAR_VP - GESTURE_BAR_VP,
-        )
+        (pw as f32 / ratio, ph as f32 / ratio - FIRST_GUESS_INSET_VP)
     } else {
         (splash_oh_native::ui::W, splash_oh_native::ui::PAGE_H)
     }
+}
+
+/// The pixel ratio, for turning a measured size back into vp.
+fn ratio() -> f32 {
+    let mut r = 0f32;
+    if unsafe { OH_NativeDisplayManager_GetDefaultDisplayVirtualPixelRatio(&mut r) } == 0 && r > 0.1
+    {
+        r
+    } else {
+        3.0
+    }
+}
+
+/// Ask the mounted root how big it is. `true` if that differs from what the
+/// page was built at, so the caller knows to build it again.
+fn measure_root(root: usize) -> bool {
+    if root == 0 {
+        return false;
+    }
+    let Some((w_px, h_px)) = (unsafe {
+        splash_oh_native::arkui::layout_size(root as splash_oh_native::arkui::NodeHandle)
+    }) else {
+        return false;
+    };
+    let r = ratio();
+    let got = (w_px as f32 / r, h_px as f32 / r);
+    let was = page();
+    if (got.0 - was.0).abs() < 1.0 && (got.1 - was.1).abs() < 1.0 {
+        return false;
+    }
+    splash_oh_native::log(&format!(
+        "wonders: content area measured {:.1}x{:.1} vp (built at {:.1}x{:.1})",
+        got.0, got.1, was.0, was.1
+    ));
+    if let Ok(mut g) = MEASURED.lock() {
+        *g = Some(got);
+    }
+    true
 }
 
 /// Which screen is showing.
@@ -168,7 +200,10 @@ pub fn handle(target: i32) -> bool {
     }
     if target == SCREEN_APPEAR {
         fade_in_screen();
-        return false;
+        // The first mount is also the first chance to learn how much room the
+        // system actually gave us; if it is not what the page assumed, build
+        // once more at the real size.
+        return measure_root(SCREEN_ROOT.load(Ordering::Relaxed));
     }
     let n = wonders::data::WONDERS.len();
     // Menu rows pick a wonder and return to its home page.

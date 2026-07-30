@@ -31,6 +31,7 @@ extern "C" {
         stops: *const f32,
         count: c_int,
     ) -> c_int;
+    fn splash_layout_size(n: NodeHandle, w: *mut i32, h: *mut i32) -> c_int;
     fn splash_content_add(content: NodeContentHandle, root: NodeHandle) -> c_int;
     fn splash_register_event(n: NodeHandle, event_type: c_int, id: i32) -> c_int;
     fn splash_animate(
@@ -458,6 +459,19 @@ impl Drop for Node {
         // Children first — ArkUI does not cascade.
         self.children.clear();
         unsafe { splash_dispose_node(self.raw) };
+    }
+}
+
+/// The size a mounted node was actually given, in px.
+///
+/// # Safety
+/// `raw` must be a live, mounted node handle.
+pub unsafe fn layout_size(raw: NodeHandle) -> Option<(i32, i32)> {
+    let (mut w, mut h) = (0i32, 0i32);
+    if unsafe { splash_layout_size(raw, &mut w, &mut h) } == 0 && w > 0 && h > 0 {
+        Some((w, h))
+    } else {
+        None
     }
 }
 
