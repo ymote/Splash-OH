@@ -51,6 +51,7 @@ enum Screen {
     Collection,
     Artifact,
     Timeline,
+    Search(Option<usize>),
 }
 
 static SCREEN: Mutex<Screen> = Mutex::new(Screen::Intro(0));
@@ -92,7 +93,23 @@ pub fn handle(target: i32) -> bool {
         );
         return true;
     }
+    if target >= wonders::search::CHIP_BASE
+        && target < wonders::search::CHIP_BASE + wonders::search::CHIPS as i32
+    {
+        go(Screen::Search(Some(
+            (target - wonders::search::CHIP_BASE) as usize,
+        )));
+        return true;
+    }
     match target {
+        wonders::details::BROWSE_TAP => {
+            go(Screen::Search(None));
+            true
+        }
+        wonders::search::SEARCH_CLOSE => {
+            go(Screen::Details(2));
+            true
+        }
         wonders::details::ARTIFACT_NEXT | wonders::details::ARTIFACT_PREV => {
             let list = wonders::artifact_data::ARTIFACTS[current() % 8];
             if !list.is_empty() {
@@ -173,6 +190,7 @@ pub fn build() -> Option<Node> {
         Screen::Menu => wonders::screens::menu(current(), w, h),
         Screen::Collection => wonders::screens::collection(w, h),
         Screen::Timeline => wonders::timeline::build(current(), w, h),
+        Screen::Search(c) => wonders::search::build(current(), c, w, h),
         Screen::Artifact => wonders::screens::artifact(current(), w, h),
         Screen::Details(_) => wonders::details::build(current(), tab().unwrap_or(0), w, h),
         Screen::Home => wonders::home::build(current(), w, h),

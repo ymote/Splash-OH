@@ -149,6 +149,14 @@ pub fn build(index: usize, tab: usize, w: f32, h: f32) -> Option<Node> {
         ));
     }
     if tab == 2 {
+        // BROWSE ALL ARTIFACTS opens the search screen, as it does in the app.
+        //
+        // Its band has to end above the tab bar's. Overlapping, the two merged
+        // into one row, and `hits` dropped whichever target started to the left
+        // of the cursor -- which was this one, silently.
+        let browse_h = 52.0;
+        let browse_y = h - bar_h - browse_h - 10.0;
+        targets.push((w * 0.14, browse_y, w * 0.72, browse_h, BROWSE_TAP));
         let (ay, ah) = artifact_arch(w, h - bar_h);
         targets.push((0.0, ay, w * 0.5, ah, ARTIFACT_PREV));
         targets.push((w * 0.5, ay, w * 0.5, ah, ARTIFACT_NEXT));
@@ -465,7 +473,7 @@ fn artifacts(wonder: &Wonder, index: usize, sel: usize, w: f32, h: f32) -> Optio
     st = st.child(
         col(w * 0.72, 52.0, GREY_STRONG)?
             .radius(4.0)
-            .f32v_attr(attr::position(), &[w * 0.14, h - 88.0])
+            .f32v_attr(attr::position(), &[w * 0.14, h - 62.0 - 52.0 - 10.0])
             .child(
                 text("BROWSE ALL ARTIFACTS", 13.0, SHEET, w * 0.72, 52.0)?
                     .string_attr(attr::font_family(), SERIF_UI)
@@ -477,6 +485,7 @@ fn artifacts(wonder: &Wonder, index: usize, sel: usize, w: f32, h: f32) -> Optio
 }
 
 pub const ARTIFACT_PREV: i32 = 7370;
+pub const BROWSE_TAP: i32 = 7372;
 pub const ARTIFACT_NEXT: i32 = 7371;
 
 // ---------------------------------------------------------------------------
