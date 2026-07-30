@@ -18,6 +18,7 @@
 
 #include <arkui/native_node.h>
 #include <arkui/native_interface.h>
+#include <arkui/ui_input_event.h>
 #include <arkui/native_type.h>
 
 #include <network/netstack/net_http.h>
@@ -206,10 +207,59 @@ static void (*g_rust_handler)(int32_t target_id, int32_t event_type) = nullptr;
 // the per-event deltas here drifted badly against the real position; the Scroll
 // node reports its own offset through NODE_SCROLL_OFFSET, which is what callers
 // use instead.
+// Swipes.
+//
+// Wonderous pages its home screen, its photo wall and its artifact carousel by
+// swiping; none of that is a component event ArkUI will report. What it will
+// report is the raw touch stream, so the drag is measured here and only the
+// result -- one of four directions -- crosses into Rust, as an id.
+//
+// The threshold is the app's own: EightWaySwipeDetector uses 30.
+#define SPLASH_SWIPE_THRESHOLD 30.f
+static float g_touch_x0 = 0.f, g_touch_y0 = 0.f;
+static int32_t g_touch_target = 0;
+static bool g_touch_down = false;
+
+// A swipe on target `id` is reported as `id + 1..4` for left, right, up, down.
+// The caller reserves that block when it registers the touch event.
+enum { SPLASH_SWIPE_LEFT = 1, SPLASH_SWIPE_RIGHT, SPLASH_SWIPE_UP, SPLASH_SWIPE_DOWN };
+
+static void splash_handle_touch(ArkUI_NodeEvent *e, int32_t target) {
+    ArkUI_UIInputEvent *in = OH_ArkUI_NodeEvent_GetInputEvent(e);
+    if (!in) return;
+    const int32_t action = OH_ArkUI_UIInputEvent_GetAction(in);
+    const float x = OH_ArkUI_PointerEvent_GetX(in);
+    const float y = OH_ArkUI_PointerEvent_GetY(in);
+    if (action == UI_TOUCH_EVENT_ACTION_DOWN) {
+        g_touch_x0 = x;
+        g_touch_y0 = y;
+        g_touch_target = target;
+        g_touch_down = true;
+        return;
+    }
+    if (action != UI_TOUCH_EVENT_ACTION_UP || !g_touch_down ||
+        g_touch_target != target) {
+        return;
+    }
+    g_touch_down = false;
+    const float dx = x - g_touch_x0, dy = y - g_touch_y0;
+    const float adx = dx < 0 ? -dx : dx, ady = dy < 0 ? -dy : dy;
+    if (adx < SPLASH_SWIPE_THRESHOLD && ady < SPLASH_SWIPE_THRESHOLD) return;
+    // The dominant axis wins, so a sloppy diagonal still pages one way.
+    int32_t dir = adx >= ady ? (dx < 0 ? SPLASH_SWIPE_LEFT : SPLASH_SWIPE_RIGHT)
+                             : (dy < 0 ? SPLASH_SWIPE_UP : SPLASH_SWIPE_DOWN);
+    g_rust_handler(target + dir, (int32_t)NODE_TOUCH_EVENT);
+}
+
 static void splash_event_trampoline(ArkUI_NodeEvent *e) {
     if (!e || !g_rust_handler) return;
-    g_rust_handler(OH_ArkUI_NodeEvent_GetTargetId(e),
-                   (int32_t)OH_ArkUI_NodeEvent_GetEventType(e));
+    const int32_t target = OH_ArkUI_NodeEvent_GetTargetId(e);
+    const ArkUI_NodeEventType ty = OH_ArkUI_NodeEvent_GetEventType(e);
+    if (ty == NODE_TOUCH_EVENT) {
+        splash_handle_touch(e, target);
+        return;
+    }
+    g_rust_handler(target, (int32_t)ty);
 }
 
 void splash_set_event_handler(void (*h)(int32_t, int32_t)) {
@@ -402,3 +452,4 @@ SPLASH_CONST(splash_t_waterflow, ARKUI_NODE_WATER_FLOW)
 SPLASH_CONST(splash_t_refresh,  ARKUI_NODE_REFRESH)
 SPLASH_CONST(splash_t_list,     ARKUI_NODE_LIST)
 SPLASH_CONST(splash_e_click,    NODE_ON_CLICK)
+SPLASH_CONST(splash_e_touch,    NODE_TOUCH_EVENT)

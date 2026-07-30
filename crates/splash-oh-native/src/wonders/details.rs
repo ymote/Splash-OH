@@ -244,7 +244,19 @@ pub fn build(index: usize, tab: usize, w: f32, h: f32) -> Option<Node> {
         targets.push((0.0, ay, w * 0.5, ah, ARTIFACT_PREV));
         targets.push((w * 0.5, ay, w * 0.5, ah, ARTIFACT_NEXT));
     }
-    root = root.child(super::hits(w, h, &targets)?);
+    // The wall and the carousel both swipe in the app; which base is live
+    // depends on which tab is up, and only one of them is ever on screen.
+    //
+    // The wall is the exception: its tap targets are four thin edge strips and
+    // the whole middle of the screen is bare, so the drag is measured on the
+    // wall itself instead. Registering it in both places double-counted --
+    // ArkUI walks a touch up the tree, so a swipe that started on a strip was
+    // reported by the strip and again by the wall, and the wall moved two.
+    let swipe = match tab {
+        2 => Some(ARTIFACT_SWIPE),
+        _ => None,
+    };
+    root = root.child(super::hits_swipe(w, h, &targets, swipe)?);
 
     Some(root)
 }
@@ -513,7 +525,9 @@ fn photos(wonder: &Wonder, w: f32, h: f32) -> Option<Node> {
     let ox = (w - gw) / 2.0 + (2.0 - (sel % GRID) as f32) * sx;
     let oy = (h - gh) / 2.0 + (2.0 - (sel / GRID) as f32) * sy;
 
-    let mut root = stack(w, h, wonder.bg)?.i32_attr(attr::clip(), 1);
+    let mut root = stack(w, h, wonder.bg)?
+        .i32_attr(attr::clip(), 1)
+        .on_event(crate::arkui::event::touch(), PHOTO_SWIPE);
     for i in 0..GRID * GRID {
         let (c, r) = (i % GRID, i / GRID);
         let (x, y) = (ox + c as f32 * sx, oy + r as f32 * sy);
@@ -562,10 +576,19 @@ fn photos(wonder: &Wonder, w: f32, h: f32) -> Option<Node> {
 /// the earlier one is dead — which is how the tab bar silently ate every tap
 /// meant for the carousel.
 /// The gallery's four peeking edges.
-pub const PHOTO_UP: i32 = 7340;
-pub const PHOTO_DOWN: i32 = 7341;
-pub const PHOTO_LEFT: i32 = 7342;
-pub const PHOTO_RIGHT: i32 = 7343;
+///
+/// 7400 and up: 7340..7342 are the collection's and the menu's, and sharing
+/// them meant a tap on the collection's close button was read as a pan of a
+/// photo wall that was not even on screen. `ids_are_unique` now says so.
+pub const PHOTO_UP: i32 = 7400;
+pub const PHOTO_DOWN: i32 = 7401;
+pub const PHOTO_LEFT: i32 = 7402;
+pub const PHOTO_RIGHT: i32 = 7403;
+
+/// Swipe bases. A swipe on one of these is reported as base + 1..4, in the
+/// order left, right, up, down.
+pub const PHOTO_SWIPE: i32 = 7410;
+pub const ARTIFACT_SWIPE: i32 = 7420;
 
 /// The carousel's two halves, and the button under it.
 pub const ARTIFACT_PREV: i32 = 7370;
