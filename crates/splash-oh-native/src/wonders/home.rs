@@ -56,25 +56,33 @@ pub fn build(index: usize, w: f32, h: f32) -> Option<Node> {
     root = root.child(illustration_with(wonder, w, h, None)?);
     root = root.child(title_block(wonder, index, w, h)?);
     root = root.child(menu_button(h)?);
+    root = root.child(super::hit(w, h, 12.0, h * 0.045, 62.0, 62.0, MENU_TAP)?);
     root = root.child(chevron(w, h)?);
     // Paging zones, above the artwork and below the controls, so the menu and
     // the chevron still get their own taps.
-    root = root.child(
-        tap_col(w * 0.35, h * 0.72, 0x00000000, PREV_TAP)?
-            .f32v_attr(attr::position(), &[0.0, h * 0.12]),
-    );
-    root = root.child(
-        tap_col(w * 0.35, h * 0.72, 0x00000000, NEXT_TAP)?
-            .f32v_attr(attr::position(), &[w * 0.65, h * 0.12]),
-    );
+    root = root.child(super::hit(
+        w,
+        h,
+        0.0,
+        h * 0.12,
+        w * 0.35,
+        h * 0.6,
+        PREV_TAP,
+    )?);
+    root = root.child(super::hit(
+        w,
+        h,
+        w * 0.65,
+        h * 0.12,
+        w * 0.35,
+        h * 0.6,
+        NEXT_TAP,
+    )?);
     // Opening the details. A click registered straight on the chevron's Stack
     // never arrived; a tap_col does, which is the same construct the paging
     // zones use. The strip covers the title and the chevron together, matching
     // the app -- there both the name and the arrow push the details screen.
-    root = root.child(
-        tap_col(w, h * 0.14, 0x00000000, DETAILS_TAP)?
-            .f32v_attr(attr::position(), &[0.0, h * 0.86]),
-    );
+    root = root.child(super::hit(w, h, 0.0, h * 0.80, w, h * 0.17, DETAILS_TAP)?);
     Some(root)
 }
 
@@ -178,8 +186,7 @@ fn menu_button(h: f32) -> Option<Node> {
     let size = 46.0;
     let mut disc = stack(size, size, 0xB3272625)?
         .radius(size / 2.0)
-        .f32v_attr(attr::position(), &[20.0, h * 0.055])
-        .on_event(crate::arkui::event::click(), MENU_TAP);
+        .f32v_attr(attr::position(), &[20.0, h * 0.055]);
     disc = disc.child(icon(APP, "_common/icons/icon-menu.png", 22.0)?);
     Some(disc)
 }
