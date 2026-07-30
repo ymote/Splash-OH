@@ -117,26 +117,28 @@ pub fn build(index: usize, tab: usize, w: f32, h: f32) -> Option<Node> {
     }
     root =
         root.child(tabbar::build(wonder, tab, w)?.f32v_attr(attr::position(), &[0.0, h - bar_h]));
-    // The bar draws correctly and receives nothing on its own: a target nested
-    // in a positioned Row inside a Stack is not hit-tested. The cells therefore
-    // live in one overlay row, laid out rather than positioned, so their layout
-    // boxes are where they appear.
+    // One overlay for the whole screen: the bar's cells and, on the artifacts
+    // tab, the carousel's paging halves. Two overlays means the later one wins
+    // and the earlier is dead — which is how the bar ate every carousel tap.
     let d = 52.0;
     let cell = (w - d - 20.0) / tabbar::TABS.len() as f32;
-    let mut overlay = col(w, h, 0x00000000)?;
-    overlay = overlay.child(spacer(w, h - bar_h)?);
-    let mut line = row(w, bar_h, 0x00000000)?;
-    line = line.child(tap_col(d + 20.0, bar_h, 0x00000000, tabbar::HOME_TAP)?);
+    let mut targets: Vec<(f32, f32, f32, f32, i32)> =
+        vec![(0.0, h - bar_h, d + 20.0, bar_h, tabbar::HOME_TAP)];
     for i in 0..tabbar::TABS.len() {
-        line = line.child(tap_col(
+        targets.push((
+            d + 20.0 + cell * i as f32,
+            h - bar_h,
             cell,
             bar_h,
-            0x00000000,
             tabbar::TAB_BASE + i as i32,
-        )?);
+        ));
     }
-    overlay = overlay.child(line);
-    root = root.child(overlay);
+    if tab == 2 {
+        let (ay, ah) = artifact_arch(w, h - bar_h);
+        targets.push((0.0, ay, w * 0.5, ah, ARTIFACT_PREV));
+        targets.push((w * 0.5, ay, w * 0.5, ah, ARTIFACT_NEXT));
+    }
+    root = root.child(super::hits(w, h, &targets)?);
     Some(root)
 }
 
@@ -399,9 +401,18 @@ fn artifacts(wonder: &Wonder, index: usize, sel: usize, w: f32, h: f32) -> Optio
     );
 
     // Name and date, which is what the reference screen leads with.
-    let mut cap = col(w, 110.0, 0x00000000)?.f32v_attr(attr::position(), &[0.0, ay + ah + 14.0]);
+    // Two lines of room: "Ring with Uninscribed Scarab" wraps, and at one line
+    // of height the second line printed straight through the date.
+    let title_lines = if art.title.chars().count() > 22 {
+        2.0
+    } else {
+        1.0
+    };
+    let title_h = 34.0 * title_lines;
+    let mut cap =
+        col(w, title_h + 40.0, 0x00000000)?.f32v_attr(attr::position(), &[0.0, ay + ah + 12.0]);
     cap = cap.child(
-        text(art.title, 26.0, SHEET, w - 40.0, 40.0)?
+        text(art.title, 24.0, SHEET, w - 40.0, title_h)?
             .string_attr(attr::font_family(), DISPLAY)
             .i32_attr(attr::text_align(), 1)
             .f32v_attr(attr::padding(), &[0.0, 20.0, 0.0, 20.0]),
@@ -417,7 +428,7 @@ fn artifacts(wonder: &Wonder, index: usize, sel: usize, w: f32, h: f32) -> Optio
     let (d, gap) = (7.0, 10.0);
     let total = list.len() as f32 * d + (list.len() as f32 - 1.0) * gap;
     let mut dots = row(w, 24.0, 0x00000000)?
-        .f32v_attr(attr::position(), &[0.0, ay + ah + 118.0])
+        .f32v_attr(attr::position(), &[0.0, ay + ah + title_h + 56.0])
         .f32v_attr(attr::padding(), &[8.0, 0.0, 0.0, (w - total) / 2.0]);
     for i in 0..list.len() {
         dots = dots.child(
