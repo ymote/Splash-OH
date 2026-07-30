@@ -349,6 +349,14 @@ fn editorial(wonder: &Wonder, index: usize, w: f32, h: f32) -> Option<Node> {
         para(e.construction2, 15.0, BODY, cw),
         text_height(e.construction2, 15.0, cw),
     );
+    // Two of the wonder's three collectibles are tucked into the article, as
+    // `_scrolling_content.dart` tucks its into slots between the sections.
+    let hidden = super::collectibles::for_wonder(index);
+    if let Some(&c) = hidden.get(1) {
+        if !super::collectibles::is_found(c) {
+            b = b.push(super::collectibles::badge(c, 48.0), 64.0);
+        }
+    }
     b = b.push(section(cw, "arc-location.png", "geography.png"), sec_h);
     // `_MapsSection`: an inline map under the location heading, which opens
     // the fullscreen one.
@@ -361,6 +369,11 @@ fn editorial(wonder: &Wonder, index: usize, w: f32, h: f32) -> Option<Node> {
         para(e.location2, 15.0, BODY, cw),
         text_height(e.location2, 15.0, cw),
     );
+    if let Some(&c) = hidden.get(2) {
+        if !super::collectibles::is_found(c) {
+            b = b.push(super::collectibles::badge(c, 48.0), 64.0);
+        }
+    }
     let (body, body_h) = b.done(cw);
 
     let mut sheet = Stack1::new(col(w, 0.0, SHEET)?);
@@ -618,6 +631,12 @@ fn slide_wall(sel: usize) {
 /// height and translates the whole grid so the selected cell lands in the
 /// middle, so four neighbours always peek in from the edges. It swipes; this
 /// taps those peeking edges, which is the same move.
+/// Which wonder this is, by its directory — `photos` is handed the wonder
+/// rather than its index.
+fn index_of(w: &Wonder) -> usize {
+    WONDERS.iter().position(|x| x.dir == w.dir).unwrap_or(0)
+}
+
 fn photos(wonder: &Wonder, w: f32, h: f32) -> Option<Node> {
     let sel = photo_sel().min(GRID * GRID - 1);
     let (iw, ih) = (w * 0.66, h * 0.5);
@@ -673,6 +692,21 @@ fn photos(wonder: &Wonder, w: f32, h: f32) -> Option<Node> {
     ] {
         if rw > 0.0 && rh > 0.0 {
             root = root.child(col(rw, rh, scrim)?.f32v_attr(attr::position(), &[x, y]));
+        }
+    }
+
+    // The wonder's gallery collectible, on the cell the app hides it in, and
+    // over the scrim so it is not dimmed with the neighbours. Reaching it means
+    // panning to that corner, which is the whole point of hiding it there.
+    let wi = index_of(wonder);
+    if sel == super::collectibles::gallery_cell(wi) {
+        if let Some(&c) = super::collectibles::for_wonder(wi).first() {
+            if !super::collectibles::is_found(c) {
+                if let Some(b) = super::collectibles::badge(c, 56.0) {
+                    root = root
+                        .child(b.f32v_attr(attr::position(), &[hx + iw - 76.0, hy + ih - 76.0]));
+                }
+            }
         }
     }
     Some(root)

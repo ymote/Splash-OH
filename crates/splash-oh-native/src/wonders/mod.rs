@@ -9,6 +9,7 @@
 //! the ArkUI NDK from Rust.
 
 pub mod artifact_data;
+pub mod collectibles;
 pub mod corpus;
 pub mod dart_random;
 pub mod data;
