@@ -8,6 +8,7 @@
 //! No Flutter, no makepad, no ArkTS widgets. Every node here is created through
 //! the ArkUI NDK from Rust.
 
+pub mod artifact_data;
 pub mod data;
 pub mod details;
 pub mod editorial_data;

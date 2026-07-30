@@ -93,6 +93,20 @@ pub fn handle(target: i32) -> bool {
         return true;
     }
     match target {
+        wonders::details::ARTIFACT_NEXT | wonders::details::ARTIFACT_PREV => {
+            let list = wonders::artifact_data::ARTIFACTS[current() % 8];
+            if !list.is_empty() {
+                let n = list.len();
+                let cur = wonders::details::artifact_sel() % n;
+                let next = if target == wonders::details::ARTIFACT_NEXT {
+                    (cur + 1) % n
+                } else {
+                    (cur + n - 1) % n
+                };
+                wonders::details::set_artifact_sel(next);
+            }
+            true
+        }
         wonders::screens::INTRO_NEXT => {
             if let Screen::Intro(p) = screen() {
                 go(Screen::Intro(
