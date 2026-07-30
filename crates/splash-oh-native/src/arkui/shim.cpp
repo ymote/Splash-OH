@@ -311,6 +311,7 @@ SPLASH_CONST(splash_a_textpicker_range,  NODE_TEXT_PICKER_OPTION_RANGE)
 // A Stack centres its children; Wonderous positions each piece of a wonder
 // against the frame, so the pieces need coordinates of their own.
 SPLASH_CONST(splash_a_position,     NODE_POSITION)
+SPLASH_CONST(splash_a_hit_test,     NODE_HIT_TEST_BEHAVIOR)
 SPLASH_CONST(splash_a_text_shadow,  NODE_TEXT_TEXT_SHADOW)
 SPLASH_CONST(splash_a_translate,    NODE_TRANSLATE)
 SPLASH_CONST(splash_a_scale,        NODE_SCALE)

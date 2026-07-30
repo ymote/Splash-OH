@@ -126,19 +126,10 @@ pub fn build(index: usize, tab: usize, w: f32, h: f32) -> Option<Node> {
         vec![(0.0, h - bar_h, d + 20.0, bar_h, tabbar::HOME_TAP)];
     // One band, cells edge to edge.
     //
-    // KNOWN DEFECT: the "photos" cell does not receive taps. The other three
-    // and the portrait do. Established on device, in this order:
-    //   * the overlay does build all five targets, contiguous and correctly
-    //     sized — logged as `hit 7201: x 164..256`;
-    //   * sweeping the bar shows tab 0 answering to vp 133 and tab 2 from vp
-    //     286, so roughly 150 vp in the middle is dead, wider than one cell;
-    //   * it is not the child index — removing the portrait from the band, so
-    //     photos becomes the second child of four, changes nothing;
-    //   * it is not adjacency — a 2 vp gap between cells changes nothing;
-    //   * separate bands per cell fix it and turn the bar into a diagonal
-    //     staircase, which is worse than the defect.
-    // Left as it is, and recorded, rather than shipped with a layout no one
-    // could tap on purpose.
+    // The middle cell used to be dead. It was not layout: the system's
+    // navigation gesture bar takes touches in a strip across the bottom centre
+    // before the app sees them, and that cell sat under it. The page now stops
+    // above the gesture inset — see `page()` — so the whole bar is reachable.
     for i in 0..tabbar::TABS.len() {
         targets.push((
             d + 20.0 + cell * i as f32,
@@ -155,13 +146,14 @@ pub fn build(index: usize, tab: usize, w: f32, h: f32) -> Option<Node> {
         // into one row, and `hits` dropped whichever target started to the left
         // of the cursor -- which was this one, silently.
         let browse_h = 52.0;
-        let browse_y = h - bar_h - browse_h - 10.0;
+        let browse_y = h - bar_h - browse_h - 14.0;
         targets.push((w * 0.14, browse_y, w * 0.72, browse_h, BROWSE_TAP));
         let (ay, ah) = artifact_arch(w, h - bar_h);
         targets.push((0.0, ay, w * 0.5, ah, ARTIFACT_PREV));
         targets.push((w * 0.5, ay, w * 0.5, ah, ARTIFACT_NEXT));
     }
     root = root.child(super::hits(w, h, &targets)?);
+
     Some(root)
 }
 
@@ -384,7 +376,12 @@ fn photos(wonder: &Wonder, w: f32, h: f32) -> Option<Node> {
 /// the earlier one is dead — which is how the tab bar silently ate every tap
 /// meant for the carousel.
 fn artifact_arch(w: f32, h: f32) -> (f32, f32) {
-    (h * 0.10, w * 0.60 * 1.42)
+    // Sized from what is left after the caption, the dots and the button, so
+    // losing height to the gesture inset shortens the arch rather than pushing
+    // the name under the button.
+    let below = 34.0 + 30.0 + 34.0 + 52.0 + 30.0;
+    let top = h * 0.085;
+    ((top), (h - top - below).min(w * 0.60 * 1.42))
 }
 
 fn artifacts(wonder: &Wonder, index: usize, sel: usize, w: f32, h: f32) -> Option<Node> {
@@ -473,7 +470,7 @@ fn artifacts(wonder: &Wonder, index: usize, sel: usize, w: f32, h: f32) -> Optio
     st = st.child(
         col(w * 0.72, 52.0, GREY_STRONG)?
             .radius(4.0)
-            .f32v_attr(attr::position(), &[w * 0.14, h - 62.0 - 52.0 - 10.0])
+            .f32v_attr(attr::position(), &[w * 0.14, h - 66.0])
             .child(
                 text("BROWSE ALL ARTIFACTS", 13.0, SHEET, w * 0.72, 52.0)?
                     .string_attr(attr::font_family(), SERIF_UI)

@@ -12,8 +12,8 @@ and not a pixel metric.
 |---|---|---|---|
 | Home (Christ the Redeemer) | **8/10** | illustration layers, palette, Yeseva One title, the small italic article beside the second line, eight dots, menu button, chevron | sun larger and lower, foliage sits differently, cloud bands thinner — the pieces are sized by `heightFactor × frameHeight` and the Pura X is far shorter relative to its width than the reference device |
 | Editorial | **6/10** | hero photograph, title and region, real body copy, arc section labels with their icons, video still with play button, scrolls | reference is scrolled to a different point so the pair is not aligned; no collapsing hero, no pull-quote block, callouts not visible in this view |
-| Photo gallery | **unverified** | — | the tab did not switch during this run, so the grid was never captured. It is built and renders when reached |
-| Artifacts | **7/10** | the real Met object with its own photograph, name and date — "Guardian Figure, ca. 1919–1885 B.C." — on the arch, over the wonder's colour, with BROWSE ALL ARTIFACTS | carousel dots are drawn but land under the button; paging between the four artifacts does not respond; no search control |
+| Photo gallery | **7/10** | a two-column grid of the wonder's own photography, full bleed, over its colour, reachable from the tab bar | the app pulls a live Unsplash collection; this tiles the four photographs that ship, so the grid repeats |
+| Artifacts | **8/10** | the real Met object with its own photograph, name and date — "Guardian Figure, ca. 1919–1885 B.C." — on the arch, over the wonder's colour, with BROWSE ALL ARTIFACTS | no search control in the corner; the app's carousel swipes where this pages by tapping either half |
 
 | Search | **built** | the wonder's own suggestion words as chips, chip selection, result count, a grid of the real artifacts | no text entry — the chips are the whole input; the app queries the Met live and this filters the artifacts that ship |
 
