@@ -16,7 +16,8 @@
  */
 
 import { typeNode, FrameNode, UIContext } from '@kit.ArkUI';
-import { WONDERS, EDITORIAL, PIECES, WonderT, PieceT } from './WonderousData';
+import { WONDERS, EDITORIAL, PIECES, ARTIFACTS, TIMELINES, SUGGESTIONS, CORPUS,
+  COLLECTIBLES, WonderT, PieceT, ArtifactT, EventT, FoundT } from './WonderousData';
 
 const APP: string = 'wonders';
 const SHEET: number = 0xFFF8ECE5;
@@ -342,6 +343,12 @@ export class WonderousArkTs {
   }
 
   /** How tall a paragraph will be once wrapped — the Rust arm's rule. */
+  /** A year as `StringUtils.formatYr` writes it. */
+  private yearLabel(y: number): string {
+    const v: number = y === 0 ? 1 : y;
+    return v < 0 ? ('' + (-v) + ' BCE') : ('' + v + ' CE');
+  }
+
   private textH(s: string, size: number, w: number): number {
     const perLine: number = Math.max(w * 2.163 * 0.94 / size, 1);
     const lines: number = Math.max(Math.ceil(s.length / perLine), 1);
@@ -483,33 +490,58 @@ export class WonderousArkTs {
     const ay: number = (h - tall) / 2 - tall * 0.25;
     const ax: number = (w - iw) / 2;
 
-    root.appendChild(this.u.at(
-      this.u.img(APP + '/' + wo.dir + '/photo-1.jpg', w * 1.25, h * 1.25, 0, ImageFit.Cover),
-      -w * 0.125, -h * 0.05));
     root.appendChild(this.u.at(this.u.col(w, h, 0x99000000), 0, 0));
     const dome = this.u.col(2000, 2000, 0xCCF8ECE5);
     dome.attribute.borderRadius({ topLeft: 1000, topRight: 1000 });
     root.appendChild(this.u.at(dome, (w - 2000) / 2, h * 0.5));
 
-    for (let k = -1; k <= 1; k++) {
-      const x: number = ax + k * iw;
+    const list: ArtifactT[] = ARTIFACTS[wi];
+    const n: number = list.length;
+    const sel: number = 0;
+    // Every piece mounted, placed by its distance from the selection, as
+    // `_CollapsingCarouselItem` does and as the Rust arm does.
+    for (let i = 0; i < n; i++) {
+      let k: number = (i - sel) % n;
+      if (k * 2 > n) {
+        k = k - n;
+      }
+      const drop: number = Math.abs(k) === 0 ? 0
+        : (Math.abs(k) === 1 ? iw * 0.5 : (Math.abs(k) === 2 ? iw * 0.825 : iw));
       const fh: number = k === 0 ? tall : iw;
-      const y: number = ay + (tall - fh) / 2 + (k === 0 ? 0 : iw * 0.5);
+      const x: number = ax + k * iw;
+      const y: number = ay + (tall - fh) / 2 + drop;
+      const op: number = Math.abs(k) <= 2 ? 1 : 0;
       const frame = this.u.col(iw, fh, 0x00000000);
-      frame.attribute.borderRadius(iw / 2).borderWidth(1).borderColor(SHEET);
+      frame.attribute.borderRadius(iw / 2).borderWidth(1).borderColor(SHEET).opacity(op);
       root.appendChild(this.u.at(frame, x, y));
       const inset: number = k === 0 ? 8 : iw * 0.1;
-      root.appendChild(this.u.at(
-        this.u.img(APP + '/' + wo.dir + '/photo-3.jpg', iw - inset * 2, fh - inset * 2,
-          (iw - inset * 2) / 2, ImageFit.Cover),
-        x + inset, y + inset));
+      const pic = this.u.img(APP + '/artifacts/' + list[i].id + '.jpg',
+        iw - inset * 2, fh - inset * 2, (iw - inset * 2) / 2, ImageFit.Cover);
+      pic.commonAttribute.opacity(op);
+      root.appendChild(this.u.at(pic, x + inset, y + inset));
+      // The blurred backdrop, one per piece, cross-faded.
+      const bg = this.u.img(APP + '/artifacts/' + list[i].id + '.jpg',
+        w * 1.25, h * 1.25, 0, ImageFit.Cover);
+      bg.commonAttribute.opacity(i === sel ? 1 : 0);
+      root.appendChild(this.u.at(bg, -w * 0.125, -h * 0.05));
+    }
+    // One dot per piece, the current one twice as wide.
+    const dd: number = 6;
+    const dtot: number = (n + 1) * dd + (n - 1) * 10;
+    for (let i = 0; i < n; i++) {
+      const dot = this.u.col(i === sel ? dd * 2 : dd, dd, ACCENT1);
+      dot.attribute.borderRadius(dd / 2);
+      root.appendChild(this.u.at(dot, (w - dtot) / 2 + i * (dd + 10), h - 88));
     }
 
     root.appendChild(this.u.at(
       this.u.text('ARTIFACTS', 13, ACCENT1, w, 30, SERIF_UI, TextAlign.Center), 0, 22));
     root.appendChild(this.u.at(
-      this.u.text(wo.title, 30, 0xFF1E1B18, w - 48, 36, DISPLAY, TextAlign.Center),
+      this.u.text(ARTIFACTS[wi][0].title, 30, 0xFF1E1B18, w - 48, 36, DISPLAY, TextAlign.Center),
       0, h - bottomH + 24));
+    root.appendChild(this.u.at(
+      this.u.text(ARTIFACTS[wi][0].date, 14, 0xB31E1B18, w, 24, BODY_FONT, TextAlign.Center),
+      0, h - bottomH + 64));
     const btn = this.u.col(w * 0.72, 52, GREY_STRONG);
     btn.attribute.borderRadius(4);
     btn.appendChild(this.u.text('BROWSE ALL ARTIFACTS', 13, SHEET, w * 0.72, 52,
@@ -532,17 +564,16 @@ export class WonderousArkTs {
     head.appendChild(this.u.text(e.region, 13, ACCENT1, cw, 24, SERIF_UI));
     inner.appendChild(head);
     // Six dated entries, as each wonder carries.
-    const lines: string[] = [e.history1, e.history2, e.construction1, e.construction2,
-      e.location1, e.location2];
-    for (let i = 0; i < lines.length; i++) {
-      const th: number = this.textH(lines[i], 14, cw - 18);
+    const evs: EventT[] = TIMELINES[wi].events;
+    for (let i = 0; i < evs.length; i++) {
+      const th: number = this.textH(evs[i].text, 14, cw - 18);
       const block: number = th + 46;
       const r = this.u.row(cw, block, 0x00000000);
       r.appendChild(this.u.col(2, block - 12, 0x44E4935D));
       const c = this.u.col(cw - 18, block, 0x00000000);
       c.attribute.padding({ left: 16 });
-      c.appendChild(this.u.text('' + (2600 - i * 200) + ' BCE', 12, ACCENT1, cw - 18, 22, SERIF_UI));
-      c.appendChild(this.u.text(lines[i], 14, 0xCCF8ECE5, cw - 18, th, BODY_FONT));
+      c.appendChild(this.u.text(this.yearLabel(evs[i].year), 12, ACCENT1, cw - 18, 22, SERIF_UI));
+      c.appendChild(this.u.text(evs[i].text, 14, 0xCCF8ECE5, cw - 18, th, BODY_FONT));
       r.appendChild(c);
       inner.appendChild(r);
       total += block;
@@ -596,19 +627,19 @@ export class WonderousArkTs {
     root.appendChild(this.u.at(
       this.u.text('COLLECTION', 13, ACCENT1, w, 26, SERIF_UI, TextAlign.Center), 0, h * 0.06));
     root.appendChild(this.u.at(
-      this.u.text('0 of 24 discovered', 14, 0x99F8ECE5, w, 24, BODY_FONT, TextAlign.Center),
+      this.u.text('0 of ' + COLLECTIBLES.length + ' discovered', 14, 0x99F8ECE5, w, 24,
+        BODY_FONT, TextAlign.Center),
       0, h * 0.10));
     const cols: number = 4;
     const pad: number = 20;
     const cell: number = (w - pad * 2 - 8 * (cols - 1)) / cols;
     const top: number = h * 0.16;
-    const icons: string[] = ['jewelry', 'picture', 'scroll', 'statue', 'textile', 'vase'];
-    for (let i = 0; i < 24; i++) {
+    for (let i = 0; i < COLLECTIBLES.length; i++) {
       const x: number = pad + (cell + 8) * (i % cols);
       const y: number = top + (cell + 26) * Math.floor(i / cols);
       const c = this.u.stack(cell, cell, 0x0DF8ECE5);
       c.attribute.borderRadius(6);
-      c.appendChild(this.u.img(APP + '/_common/collectibles/' + icons[i % icons.length] + '.png',
+      c.appendChild(this.u.img(APP + '/_common/collectibles/' + COLLECTIBLES[i].icon + '.png',
         cell * 0.34, cell * 0.34, 0, ImageFit.Contain));
       root.appendChild(this.u.at(c, x, y));
     }
@@ -637,9 +668,21 @@ export class WonderousArkTs {
         this.u.text(WONDERS[i].title, 11, i === wi ? SHEET : 0x99F8ECE5, trackX - 26, 18, BODY_FONT),
         20, y + 44));
       root.appendChild(this.u.at(this.u.col(trackW, 2, 0x22F8ECE5), trackX, y + 22));
-      const bar = this.u.col(trackW * (0.2 + 0.1 * i), 10, i === wi ? ACCENT1 : WONDERS[i].fg);
+      let lo: number = TIMELINES[0].startYr;
+      let hi: number = TIMELINES[0].endYr;
+      for (let k = 0; k < TIMELINES.length; k++) {
+        lo = Math.min(lo, TIMELINES[k].startYr);
+        hi = Math.max(hi, TIMELINES[k].endYr);
+      }
+      const span: number = Math.max(hi - lo, 1);
+      const x0: number = trackX + (TIMELINES[i].startYr - lo) / span * trackW;
+      const x1: number = trackX + (TIMELINES[i].endYr - lo) / span * trackW;
+      const bar = this.u.col(Math.max(x1 - x0, 3), 10, i === wi ? ACCENT1 : WONDERS[i].fg);
       bar.attribute.borderRadius(5);
-      root.appendChild(this.u.at(bar, trackX, y + 18));
+      root.appendChild(this.u.at(bar, x0, y + 18));
+      root.appendChild(this.u.at(
+        this.u.text(this.yearLabel(TIMELINES[i].startYr), 10, 0x8CF8ECE5, 90, 16, BODY_FONT),
+        Math.min(x0, w - 96), y + 34));
     }
     const close = this.u.stack(46, 46, 0x33F8ECE5);
     close.attribute.borderRadius(23);
@@ -668,21 +711,30 @@ export class WonderousArkTs {
       const y: number = chipTop + 46 * Math.floor(i / 4);
       const c = this.u.col(cw, 36, 0x1AF8ECE5);
       c.attribute.borderRadius(18);
-      c.appendChild(this.u.text('term', 12, 0xCCF8ECE5, cw, 36, BODY_FONT, TextAlign.Center));
+      const words: string[] = SUGGESTIONS[wi];
+      c.appendChild(this.u.text(i < words.length ? words[i] : '', 12, 0xCCF8ECE5, cw, 36,
+        BODY_FONT, TextAlign.Center));
       root.appendChild(this.u.at(c, x, y));
     }
     root.appendChild(this.u.at(
-      this.u.text('9 artifact(s)', 12, 0x99F8ECE5, w, 22, BODY_FONT, TextAlign.Center),
+      this.u.text('' + CORPUS[wi].length + ' artifact(s)', 12, 0x99F8ECE5, w, 22,
+        BODY_FONT, TextAlign.Center),
       0, chipTop + 104));
     const gw: number = (w - 48 - 16) / 3;
     const gtop: number = chipTop + 134;
     for (let i = 0; i < 9; i++) {
       const x: number = 24 + (gw + 8) * (i % 3);
       const y: number = gtop + (gw + 26) * Math.floor(i / 3);
+      const hit: FoundT = CORPUS[wi][i];
+      // The thumbnails are network images in the Rust arm too, but a bare URL
+      // string is not what typeNode.Image.initialize accepts here; the shipped
+      // artifact photographs stand in, and the node count is what the
+      // comparison turns on either way.
       root.appendChild(this.u.at(
-        this.u.img(APP + '/' + wo.dir + '/photo-4.jpg', gw, gw, 6, ImageFit.Cover), x, y));
+        this.u.img(APP + '/artifacts/' + ARTIFACTS[wi][i % ARTIFACTS[wi].length].id + '.jpg',
+          gw, gw, 6, ImageFit.Cover), x, y));
       root.appendChild(this.u.at(
-        this.u.text('Artifact', 10, 0x99F8ECE5, gw, 20, BODY_FONT, TextAlign.Center),
+        this.u.text(hit.title, 10, 0x99F8ECE5, gw, 20, BODY_FONT, TextAlign.Center),
         x, y + gw + 3));
     }
     return root;
@@ -696,14 +748,16 @@ export class WonderousArkTs {
     const root = this.u.stack(w, h, SHEET);
     const ih: number = h * 0.46;
     root.appendChild(this.u.at(
-      this.u.img(APP + '/' + wo.dir + '/photo-3.jpg', w, ih, 0, ImageFit.Cover), 0, 0));
+      this.u.img(APP + '/artifacts/' + ARTIFACTS[wi][0].id + '.jpg', w, ih, 0, ImageFit.Cover),
+      0, 0));
     let y: number = ih + 26;
     root.appendChild(this.u.at(
-      this.u.text(wo.title, 28, GREY_STRONG, w - 56, 40, DISPLAY), 28, y));
+      this.u.text(ARTIFACTS[wi][0].title, 28, GREY_STRONG, w - 56, 40, DISPLAY), 28, y));
     y += 54;
     root.appendChild(this.u.at(this.u.col(w - 56, 1, 0x33272625), 28, y));
     y += 18;
-    const rows: string[][] = [['Date', e.region], ['Period', e.subTitle], ['Medium', 'Stone']];
+    const art: ArtifactT = ARTIFACTS[wi][0];
+    const rows: string[][] = [['Date', art.date], ['Culture', art.culture]];
     for (let i = 0; i < rows.length; i++) {
       root.appendChild(this.u.at(
         this.u.text(rows[i][0], 11, 0xFF9D9995, w - 56, 18, SERIF_UI), 28, y));

@@ -209,6 +209,14 @@ export const TIMELINES: TimelineT[] = [
 ];
 
 export const SUGGESTIONS: string[][] = [
+  ["maatkare", "cylinder", "seal", "iii", "shabti", "alloy", "travertine", "faience", "jasper", "abumeh", "seneb", "impressed", "stela", "clay", "khasekhemwy", "abu", "royal", "glass", "fragment", "bronzes", "relief", "red", "bronze", "steatite"],
+  ["longquan", "bodhisattva", "horn", "figure", "mirror", "mythical", "jingdezhen", "figures", "model", "birds", "mirrors", "sample", "stand", "copper", "tomb", "architectural", "celadon", "alloy", "silver", "ware", "colored", "incense", "sculpture", "earthenware"],
+  ["stamp", "figure", "cylinder", "membranophone", "seal", "copper", "molded", "brass", "dagger", "alloy", "silver", "slip", "animal", "stone", "opaque", "sculpture", "earthenware", "incised", "ink", "jambiya", "paper", "ceramics", "jasper", "metal"],
+  ["marble", "wall", "mosaic", "ornament", "miscellaneous", "pentelic", "grotesque", "denarius", "amphora", "handle", "silver", "terracotta", "stone", "sculpture", "phallic", "urn", "cinerary", "vase", "beaker", "ivory", "fresco", "glass", "cup", "shape"],
+  ["stamp", "yoke", "hacha", "god", "male", "female", "serpentine", "figure", "andesite", "cylindrical", "chisel", "earflare", "cinnabar", "relief", "model", "plate", "ornament", "red", "censer", "jade", "slip", "gold", "implements", "musical"],
+  ["hat", "figure", "earflare", "prosopis", "fiber", "ornament", "paccha", "copper", "feline", "bronze", "canopa", "costumes", "dish", "tomb", "lime", "miniature", "top", "wood", "bottle", "gilded", "inlay", "tumi", "alloy", "silver"],
+  ["shrine", "dagger", "alloy", "stone", "sculpture", "ink", "paper", "album", "leather", "katar", "folio", "textiles", "sandstone", "fragment", "semiprecious", "coins", "illustrated", "relief", "red", "silk", "bronze", "jade", "black", "wood"],
+  ["ivory", "blown", "cane", "hole", "vibrated", "aerophone", "blow", "fan", "flute", "bamboo", "lip"],
 ];
 
 export interface FoundT { year: number; id: number; title: string; keywords: string }
@@ -2766,3 +2774,30 @@ export const PLACES: (string | number)[][] = [
   ["EWkDzLrhpXI", 27.17405039840427, 78.04211890065208],
   ["k_615AauSds", -22.95238891944396, -43.21045520611561],
 ];
+
+/**
+ * Every per-wonder table has one entry per wonder.
+ *
+ * Three of these tables generated as empty arrays at one point or another and
+ * nothing complained: an empty `ARTIFACTS` and `COLLECTIBLES` merely drew blank
+ * sections, and an empty `SUGGESTIONS` made `SUGGESTIONS[wonder]` undefined,
+ * which threw on `.length` and stopped the app starting with no message worth
+ * reading. A generator that silently produces nothing is the failure mode this
+ * port kept hitting, so the shapes are asserted where they are used.
+ */
+export function dataIsWellFormed(): string {
+  const n: number = WONDERS.length;
+  const names: string[] = ['EDITORIAL', 'PIECES', 'ARTIFACTS', 'TIMELINES',
+    'SUGGESTIONS', 'CORPUS', 'PLACES'];
+  const lens: number[] = [EDITORIAL.length, PIECES.length, ARTIFACTS.length,
+    TIMELINES.length, SUGGESTIONS.length, CORPUS.length, PLACES.length];
+  for (let i = 0; i < names.length; i++) {
+    if (lens[i] !== n) {
+      return names[i] + ' has ' + lens[i] + ' entries, expected ' + n;
+    }
+  }
+  if (COLLECTIBLES.length !== 24) {
+    return 'COLLECTIBLES has ' + COLLECTIBLES.length + ', expected 24';
+  }
+  return 'ok';
+}

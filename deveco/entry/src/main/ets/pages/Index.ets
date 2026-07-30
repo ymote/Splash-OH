@@ -13,6 +13,7 @@ import splash from 'libsplash_oh.so';
 import { WeChatArkTs, LoadGenerator, RouteKind } from './WeChatArkTs';
 import { Taobao, TikTok, Wonderous } from './AppsArkTs';
 import { WonderousArkTs, S_INTRO, S_HOME, S_DETAILS, S_MENU, S_COLLECTION, S_TIMELINE, S_SEARCH, S_ARTIFACT } from './WonderousArkTs';
+import { dataIsWellFormed } from './WonderousData';
 
 /**
  * When true the app is the YouTube demo: Splash-OH renders the native chrome
@@ -888,6 +889,11 @@ struct Index {
   private benchDone: boolean = false;
 
   private wonderousArkBench(): void {
+    const shape: string = dataIsWellFormed();
+    console.info('SplashOH: wonderous/arkts: data ' + shape);
+    if (shape !== 'ok') {
+      return;
+    }
     const ctx = this.getUIContext();
     const wa = new WonderousArkTs(ctx);
     const names: string[] = ['intro', 'home', 'editorial', 'photos', 'artifacts',
