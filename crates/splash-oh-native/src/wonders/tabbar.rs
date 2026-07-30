@@ -44,11 +44,14 @@ pub fn build(wonder: &Wonder, active: usize, w: f32) -> Option<Node> {
         photo(APP, &format!("{}/button.png", wonder.dir), d, d, d / 2.0)?
             .f32v_attr(attr::position(), &[14.0, (h - d) / 2.0]),
     );
-    bar = bar.child(portrait.on_event(crate::arkui::event::click(), HOME_TAP));
+    // No click here. The screen's single overlay owns every tap; registering
+    // them twice put two live targets over the same pixels, and which one won
+    // varied by cell -- three tabs responded and photos did not.
+    bar = bar.child(portrait);
 
     let cell = (w - d - 20.0) / TABS.len() as f32;
     for (i, (_, glyph)) in TABS.iter().enumerate() {
-        let mut c = tap_col(cell, h, 0x00000000, TAB_BASE + i as i32)?;
+        let mut c = col(cell, h, 0x00000000)?;
         let on = i == active;
         c = c.child(
             icon(APP, &format!("_common/icons/{glyph}"), 26.0)?
