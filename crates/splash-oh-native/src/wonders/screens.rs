@@ -142,6 +142,7 @@ pub fn menu(current: usize, w: f32, h: f32) -> Option<Node> {
         let y = top + row_h * i as f32;
         let on = i == current % WONDERS.len();
         let mut r = row(w, row_h, 0x00000000)?.f32v_attr(attr::position(), &[0.0, y]);
+        menu_hits.push((0.0, y, w, row_h, MENU_BASE + i as i32));
         r = r.child(
             photo(
                 APP,
@@ -170,7 +171,6 @@ pub fn menu(current: usize, w: f32, h: f32) -> Option<Node> {
         );
         r = r.child(t);
         root = root.child(r);
-        menu_hits.push((0.0, y, w, row_h, MENU_BASE + i as i32));
     }
 
     // The two destinations that are not wonders, as the app lists them under
@@ -184,16 +184,18 @@ pub fn menu(current: usize, w: f32, h: f32) -> Option<Node> {
     .enumerate()
     {
         let y = extras_y + row_h * i as f32;
+        // The whole row is the target, clicked directly rather than through an
+        // overlay.
         root = root.child(
             icon(APP, &format!("_common/icons/{glyph}"), 22.0)?
                 .f32v_attr(attr::position(), &[38.0, y + row_h * 0.25]),
         );
+        menu_hits.push((0.0, y, w, row_h, *id));
         root = root.child(
             text(label, 16.0, 0xCCF8ECE5, w - 90.0, 26.0)?
                 .string_attr(attr::font_family(), SERIF_UI)
                 .f32v_attr(attr::position(), &[86.0, y + row_h * 0.22]),
         );
-        menu_hits.push((0.0, y, w, row_h, *id));
     }
 
     root = root.child(
@@ -202,11 +204,8 @@ pub fn menu(current: usize, w: f32, h: f32) -> Option<Node> {
             .f32v_attr(attr::position(), &[w - 66.0, h * 0.055])
             .child(icon(APP, "_common/icons/icon-close.png", 20.0)?),
     );
-    root = root.child(super::hits(
-        w,
-        h,
-        &[(w - 76.0, h * 0.045, 66.0, 66.0, MENU_CLOSE)],
-    )?);
+    menu_hits.push((w - 76.0, 6.0, 66.0, 60.0, MENU_CLOSE));
+    root = root.child(super::hits(w, h, &menu_hits)?);
     Some(root)
 }
 

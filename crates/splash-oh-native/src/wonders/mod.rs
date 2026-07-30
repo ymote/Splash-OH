@@ -58,6 +58,14 @@ pub fn hits(
         }
     }
 
+    // Kept: this line is what found the menu passing a one-element literal
+    // where it meant to pass its ten targets. A screen whose taps do nothing
+    // looks identical whether the targets are misplaced or were never built.
+    crate::log(&format!(
+        "wonders/hits: {} target(s) in {} band(s)",
+        targets.len(),
+        bands.len()
+    ));
     let mut column = col(frame_w, frame_h, 0x00000000)?;
     let mut cursor = 0.0f32;
     for band in bands {
