@@ -12,6 +12,8 @@ import { window } from '@kit.ArkUI';
 import splash from 'libsplash_oh.so';
 import { WeChatArkTs, LoadGenerator, RouteKind } from './WeChatArkTs';
 import { Taobao, TikTok, Wonderous } from './AppsArkTs';
+import { WonderousArkTs, S_INTRO, S_HOME, S_DETAILS, S_MENU, S_COLLECTION, S_TIMELINE, S_SEARCH, S_ARTIFACT } from './WonderousArkTs';
+import { dataIsWellFormed } from './WonderousData';
 
 /**
  * When true the app is the YouTube demo: Splash-OH renders the native chrome
@@ -822,6 +824,20 @@ struct Index {
   }
 
   onPageShow(): void {
+    // The Wonderous comparison, before the START_APP short-circuit: build every
+    // screen in ArkTS through typeNode, then ask Rust to build the same ten
+    // through the NDK, and report ms and node count for each. Both walk the
+    // same data and the same rawfiles, so what is left between them is the
+    // language the tree is constructed in.
+    //
+    // Runs once. onPageShow fires again on every return to the page.
+    if (!this.benchDone) {
+      this.benchDone = true;
+      setTimeout(() => {
+        this.wonderousArkBench();
+        splash.wondersBench();
+      }, 2500);
+    }
     if (START_APP !== '') {
       return;
     }
@@ -869,6 +885,96 @@ struct Index {
    *    watch RSS climb, which gives the per-screen cost without the allocator
    *    reuse that ruined the earlier two-paths-in-one-process attempt.
    */
+  /** Ten screens, built in ArkTS. Reports ms and node count per screen. */
+  private benchDone: boolean = false;
+  private wa: WonderousArkTs | null = null;
+  private waRoot: FrameNode | null = null;
+
+  /** Build the current ArkTS screen and put it on screen. */
+  private wonderousArkMount(): void {
+    const wa = this.wa;
+    if (wa === null) {
+      return;
+    }
+    const node = wa.build(wa.screen, wa.wonder, wa.tab, wa.page, 406.15, 805.23);
+    if (node === null) {
+      return;
+    }
+    if (this.waRoot !== null) {
+      this.content.removeFrameNode(this.waRoot);
+      this.waRoot.dispose();
+    }
+    this.content.addFrameNode(node);
+    this.waRoot = node;
+  }
+
+  private wonderousArkBench(): void {
+    const shape: string = dataIsWellFormed();
+    console.info('SplashOH: wonderous/arkts: data ' + shape);
+    if (shape !== 'ok') {
+      return;
+    }
+    const ctx = this.getUIContext();
+    const wa = new WonderousArkTs(ctx);
+    const names: string[] = ['intro', 'home', 'editorial', 'photos', 'artifacts',
+      'events', 'menu', 'collection', 'timeline', 'search', 'artifact'];
+    const screens: number[] = [S_INTRO, S_HOME, S_DETAILS, S_DETAILS, S_DETAILS,
+      S_DETAILS, S_MENU, S_COLLECTION, S_TIMELINE, S_SEARCH, S_ARTIFACT];
+    const tabs: number[] = [0, 0, 0, 1, 2, 3, 0, 0, 0, 0, 0];
+    const W_VP: number = 406.15;
+    const H_VP: number = 805.23;
+    // Three passes, reporting the last. The first is warm-up -- class loading
+    // and JIT -- and on the first run it cost 10 ms a screen against 2 ms once
+    // warm. Reporting that would be measuring the interpreter starting up.
+    for (let pass = 0; pass < 2; pass++) {
+      for (let i = 0; i < names.length; i++) {
+        const r = wa.build(screens[i], 0, tabs[i], 0, W_VP, H_VP);
+        if (r !== null) {
+          r.dispose();
+        }
+      }
+    }
+    // Five timed runs, and the median reported. One sample moved by a third
+    // between launches on this device, which is thermal and scheduling noise
+    // rather than the work; a median over five is a number worth quoting.
+    const runs: number[] = [];
+    for (let r = 0; r < 5; r++) {
+      const rt0: number = systemDateTime.getTime(true) / 1000000;
+      for (let i = 0; i < names.length; i++) {
+        const rn = wa.build(screens[i], 0, tabs[i], 0, W_VP, H_VP);
+        if (rn !== null) {
+          rn.dispose();
+        }
+      }
+      runs.push(systemDateTime.getTime(true) / 1000000 - rt0);
+    }
+    runs.sort((x: number, y: number) => x - y);
+    console.info('SplashOH: wonderous/arkts: MEDIAN ' + runs[2].toFixed(2) + ' ms over 5 runs ('
+      + runs[0].toFixed(2) + '-' + runs[4].toFixed(2) + ')');
+    let totalMs: number = 0;
+    let totalNodes: number = 0;
+    for (let i = 0; i < names.length; i++) {
+      const t0: number = systemDateTime.getTime(true) / 1000000;
+      const root = wa.build(screens[i], 0, tabs[i], 0, W_VP, H_VP);
+      const t1: number = systemDateTime.getTime(true) / 1000000;
+      const ms: number = t1 - t0;
+      totalMs += ms;
+      totalNodes += wa.nodes;
+      console.info('SplashOH: wonderous/arkts: ' + names[i] + ' ' + ms.toFixed(2) + ' ms, '
+        + wa.nodes + ' nodes');
+      if (root !== null) {
+        root.dispose();
+      }
+    }
+    // Then mount it for real, so the arm is a usable app and not only a
+    // timing harness: the same tree, driven by taps, rebuilt on each.
+    this.wa = wa;
+    wa.onTap = () => { this.wonderousArkMount(); };
+    this.wonderousArkMount();
+    console.info('SplashOH: wonderous/arkts: TOTAL ' + totalMs.toFixed(2) + ' ms, '
+      + totalNodes + ' nodes');
+  }
+
   private memStep(i: number): void {
     const which: string = MEM_RUST ? 'rust' : 'arkts';
 
