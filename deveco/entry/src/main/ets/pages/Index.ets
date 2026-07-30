@@ -12,6 +12,7 @@ import { window } from '@kit.ArkUI';
 import splash from 'libsplash_oh.so';
 import { WeChatArkTs, LoadGenerator, RouteKind } from './WeChatArkTs';
 import { Taobao, TikTok, Wonderous } from './AppsArkTs';
+import { WonderousArkTs, S_INTRO, S_HOME, S_DETAILS, S_MENU, S_COLLECTION, S_TIMELINE, S_SEARCH, S_ARTIFACT } from './WonderousArkTs';
 
 /**
  * When true the app is the YouTube demo: Splash-OH renders the native chrome
@@ -833,6 +834,11 @@ struct Index {
       setTimeout(() => { this.memStep(0); }, 3000);
       return;
     }
+    // The Wonderous comparison: build every screen in ArkTS through typeNode,
+    // the same ten the Rust arm builds through the NDK, and report how long and
+    // how many nodes. Both walk the same data and the same rawfiles, so what is
+    // left between them is the language the tree is constructed in.
+    this.wonderousArkBench();
     if (SKIP_BENCH) {
       // Still need the ArkTS twins constructed so the toggle can mount them.
       const ctx = this.getUIContext();
@@ -869,6 +875,36 @@ struct Index {
    *    watch RSS climb, which gives the per-screen cost without the allocator
    *    reuse that ruined the earlier two-paths-in-one-process attempt.
    */
+  /** Ten screens, built in ArkTS. Reports ms and node count per screen. */
+  private wonderousArkBench(): void {
+    const ctx = this.getUIContext();
+    const wa = new WonderousArkTs(ctx);
+    const names: string[] = ['intro', 'home', 'editorial', 'photos', 'artifacts',
+      'events', 'menu', 'collection', 'timeline', 'search', 'artifact'];
+    const screens: number[] = [S_INTRO, S_HOME, S_DETAILS, S_DETAILS, S_DETAILS,
+      S_DETAILS, S_MENU, S_COLLECTION, S_TIMELINE, S_SEARCH, S_ARTIFACT];
+    const tabs: number[] = [0, 0, 0, 1, 2, 3, 0, 0, 0, 0, 0];
+    const W_VP: number = 406.15;
+    const H_VP: number = 805.23;
+    let totalMs: number = 0;
+    let totalNodes: number = 0;
+    for (let i = 0; i < names.length; i++) {
+      const t0: number = systemDateTime.getTime(true) / 1000000;
+      const root = wa.build(screens[i], 0, tabs[i], 0, W_VP, H_VP);
+      const t1: number = systemDateTime.getTime(true) / 1000000;
+      const ms: number = t1 - t0;
+      totalMs += ms;
+      totalNodes += wa.nodes;
+      console.info('SplashOH: wonderous/arkts: ' + names[i] + ' ' + ms.toFixed(2) + ' ms, '
+        + wa.nodes + ' nodes');
+      if (root !== null) {
+        root.dispose();
+      }
+    }
+    console.info('SplashOH: wonderous/arkts: TOTAL ' + totalMs.toFixed(2) + ' ms, '
+      + totalNodes + ' nodes');
+  }
+
   private memStep(i: number): void {
     const which: string = MEM_RUST ? 'rust' : 'arkts';
 

@@ -1,0 +1,708 @@
+/*
+ * Wonderous, built in ArkTS through the imperative ArkUI node API.
+ *
+ * The other arm of the comparison. `crates/splash-oh-native/src/wonders/` builds
+ * the same screens from Rust through the NDK; this builds them from ArkTS
+ * through `typeNode`. Both end up at the same C++ patterns inside libace, so
+ * everything downstream — measure, layout, paint — is identical native code and
+ * cancels out. What differs is the language the tree is constructed in, which
+ * is exactly what the comparison is meant to isolate.
+ *
+ * For that to hold, the two must build the *same* tree: same node types, same
+ * counts, same geometry. The data comes from `WonderousData.ets`, generated
+ * from the tables the Rust arm compiles in, and the assets are the same
+ * rawfiles. Anywhere the numbers here differ from `wonders/*.rs`, the
+ * comparison is measuring the difference rather than the language.
+ */
+
+import { typeNode, FrameNode, UIContext } from '@kit.ArkUI';
+import { WONDERS, EDITORIAL, PIECES, WonderT, PieceT } from './WonderousData';
+
+const APP: string = 'wonders';
+const SHEET: number = 0xFFF8ECE5;
+const BODY: number = 0xFF514F4D;
+const CAPTION_C: number = 0xFF7D7873;
+const GREY_STRONG: number = 0xFF272625;
+const ACCENT1: number = 0xFFE4935D;
+const DISPLAY: string = 'YesevaOne';
+const SERIF_UI: string = 'TenorSans';
+const BODY_FONT: string = 'Raleway';
+const BODY_ITALIC: string = 'RalewayItalic';
+
+/** Node primitives, one per Rust `ui.rs` helper, so both arms count alike. */
+class W {
+  ctx: UIContext;
+  count: number = 0;
+
+  constructor(ctx: UIContext) {
+    this.ctx = ctx;
+  }
+
+  text(s: string, size: number, color: number, w: number, h: number, family?: string,
+       align?: number): FrameNode {
+    this.count++;
+    const n: typeNode.Text = typeNode.createNode(this.ctx, 'Text');
+    n.initialize(s);
+    n.attribute.fontSize(size).fontColor(color).width(w).height(h);
+    if (family !== undefined) {
+      n.attribute.fontFamily(family);
+    }
+    if (align !== undefined) {
+      n.attribute.textAlign(align);
+    }
+    return n;
+  }
+
+  col(w: number, h: number, bg: number): typeNode.Column {
+    this.count++;
+    const n: typeNode.Column = typeNode.createNode(this.ctx, 'Column');
+    n.attribute.width(w).height(h).backgroundColor(bg);
+    return n;
+  }
+
+  row(w: number, h: number, bg: number): typeNode.Row {
+    this.count++;
+    const n: typeNode.Row = typeNode.createNode(this.ctx, 'Row');
+    n.attribute.width(w).height(h).backgroundColor(bg);
+    return n;
+  }
+
+  stack(w: number, h: number, bg: number): typeNode.Stack {
+    this.count++;
+    const n: typeNode.Stack = typeNode.createNode(this.ctx, 'Stack');
+    n.attribute.width(w).height(h).backgroundColor(bg);
+    return n;
+  }
+
+  scroll(w: number, h: number): typeNode.Scroll {
+    this.count++;
+    const n: typeNode.Scroll = typeNode.createNode(this.ctx, 'Scroll');
+    n.attribute.width(w).height(h).align(Alignment.Top);
+    return n;
+  }
+
+  img(path: string, w: number, h: number, radius: number, fit: number): FrameNode {
+    this.count++;
+    const n: typeNode.Image = typeNode.createNode(this.ctx, 'Image');
+    n.initialize($rawfile(path));
+    n.attribute.width(w).height(h).borderRadius(radius).objectFit(fit);
+    return n;
+  }
+
+  /** Absolute placement, as the Rust arm's `position` attribute does. */
+  at(n: FrameNode, x: number, y: number): FrameNode {
+    n.commonAttribute.position({ x: x, y: y });
+    return n;
+  }
+}
+
+/** Which screen is up. Mirrors the Rust arm's `Screen`. */
+export const S_INTRO: number = 0;
+export const S_HOME: number = 1;
+export const S_DETAILS: number = 2;
+export const S_MENU: number = 3;
+export const S_COLLECTION: number = 4;
+export const S_TIMELINE: number = 5;
+export const S_SEARCH: number = 6;
+export const S_ARTIFACT: number = 7;
+
+const INTRO: string[][] = [
+  ['Journey to the past', 'Navigate the intersection of time, art, and culture.'],
+  ['Explore places', 'Uncover remarkable human-made structures from around the world.'],
+  ['Discover artifacts', 'Learn about cultures throughout time by examining things they left behind.'],
+];
+
+const TABS: string[] = ['icon-info.png', 'icon-wallpaper.png', 'icon-collection.png', 'icon-timeline.png'];
+
+export class WonderousArkTs {
+  private u: W;
+  private w: number = 0;
+  private h: number = 0;
+  /** Nodes in the last tree built, and how long building it took. */
+  nodes: number = 0;
+
+  constructor(ctx: UIContext) {
+    this.u = new W(ctx);
+  }
+
+  /** Build one screen and return its root. */
+  build(screen: number, wonder: number, tab: number, page: number,
+        w: number, h: number): FrameNode | null {
+    this.u.count = 0;
+    this.w = w;
+    this.h = h;
+    let root: FrameNode | null = null;
+    if (screen === S_INTRO) {
+      root = this.intro(page);
+    } else if (screen === S_HOME) {
+      root = this.home(wonder);
+    } else if (screen === S_DETAILS) {
+      root = this.details(wonder, tab);
+    } else if (screen === S_MENU) {
+      root = this.menu(wonder);
+    } else if (screen === S_COLLECTION) {
+      root = this.collection();
+    } else if (screen === S_TIMELINE) {
+      root = this.timeline(wonder);
+    } else if (screen === S_SEARCH) {
+      root = this.search(wonder);
+    } else {
+      root = this.artifact(wonder);
+    }
+    this.nodes = this.u.count;
+    return root;
+  }
+
+  // --- the illustration, by the app's own rule -----------------------------
+  // height = max(minH, frameH * heightFactor); width = height * aspect;
+  // then anchor, then translate by a fraction of the piece's own size.
+  private piece(wo: WonderT, p: PieceT, fw: number, fh: number): FrameNode {
+    const ph: number = Math.max(p.minH, fh * p.heightFactor);
+    const pw: number = ph * p.aspect;
+    let ax: number = 0;
+    let ay: number = 0;
+    if (p.anchor === 0) {
+      ax = (fw - pw) / 2;
+      ay = (fh - ph) / 2;
+    } else if (p.anchor === 2) {
+      ax = (fw - pw) / 2;
+    } else if (p.anchor === 3) {
+      ax = fw - pw;
+    } else if (p.anchor === 4) {
+      ay = fh - ph;
+    } else if (p.anchor === 5) {
+      ax = (fw - pw) / 2;
+      ay = fh - ph;
+    } else if (p.anchor === 6) {
+      ax = fw - pw;
+      ay = fh - ph;
+    }
+    const n = this.u.img(APP + '/' + wo.dir + '/' + p.file, pw, ph, 0, ImageFit.Fill);
+    return this.u.at(n, ax + p.fracX * pw + p.offX, ay + p.fracY * ph + p.offY);
+  }
+
+  private isForeground(f: string): boolean {
+    return f.startsWith('foreground') || f === 'top-left.png' || f === 'top-right.png';
+  }
+
+  private illustration(wi: number, fw: number, fh: number): FrameNode {
+    const wo: WonderT = WONDERS[wi];
+    const root = this.u.stack(fw, fh, wo.fg);
+    root.commonAttribute.clip(true);
+    root.appendChild(this.u.at(
+      this.u.img(APP + '/' + wo.dir + '/texture.png', fw, fh, 0, ImageFit.Cover), 0, 0));
+    const ps: PieceT[] = PIECES[wi];
+    // Background pieces, then the wonder, then the foreground.
+    let mgAt: number = 0;
+    for (let i = 0; i < ps.length; i++) {
+      if (!this.isForeground(ps[i].file)) {
+        mgAt = i;
+      }
+    }
+    for (let i = 0; i < mgAt; i++) {
+      if (!this.isForeground(ps[i].file)) {
+        root.appendChild(this.piece(wo, ps[i], fw, fh));
+      }
+    }
+    root.appendChild(this.piece(wo, ps[mgAt], fw, fh));
+    for (let i = 0; i < ps.length; i++) {
+      if (this.isForeground(ps[i].file)) {
+        root.appendChild(this.piece(wo, ps[i], fw, fh));
+      }
+    }
+    return root;
+  }
+
+  // --- screens -------------------------------------------------------------
+
+  private intro(page: number): FrameNode {
+    const w = this.w;
+    const h = this.h;
+    const p: string[] = INTRO[page % INTRO.length];
+    const root = this.u.stack(w, h, 0xFF1E1B18);
+    root.appendChild(this.u.at(
+      this.u.img(APP + '/_common/app-logo.png', w * 0.62, h * 0.4, 0, ImageFit.Contain),
+      w * 0.19, h * 0.08));
+    root.appendChild(this.u.at(
+      this.u.text('WONDEROUS', 12, ACCENT1, w, 22, SERIF_UI, TextAlign.Center), 0, h * 0.56));
+    root.appendChild(this.u.at(
+      this.u.text(p[0], 28, SHEET, w, 40, DISPLAY, TextAlign.Center), 0, h * 0.60));
+    root.appendChild(this.u.at(
+      this.u.text(p[1], 13, 0x99F8ECE5, w - 80, 60, BODY_FONT, TextAlign.Center), 40, h * 0.68));
+    const btn = this.u.col(w * 0.5, 52, ACCENT1);
+    btn.attribute.borderRadius(26);
+    btn.appendChild(this.u.text(page === INTRO.length - 1 ? 'ENTER' : 'NEXT', 13, GREY_STRONG,
+      w * 0.5, 52, SERIF_UI, TextAlign.Center));
+    root.appendChild(this.u.at(btn, w * 0.25, h * 0.89));
+    return root;
+  }
+
+  private home(wi: number): FrameNode {
+    const w = this.w;
+    const h = this.h;
+    const wo: WonderT = WONDERS[wi];
+    const root = this.u.stack(w, h, wo.bg);
+    root.appendChild(this.illustration(wi, w, h));
+
+    // Title block: the name, the article beside line two, then the dots.
+    const size: number = Math.min(Math.max(w * 0.115, 30), 52);
+    const lineH: number = size * 1.28;
+    const oneLine: boolean = wo.line2.length === 0;
+    const blockH: number = (oneLine ? lineH : lineH * 2) + 44;
+    const y: number = Math.max(h - blockH - h * 0.115, h * 0.5);
+    const cap = this.u.col(w, blockH, 0x00000000);
+    cap.appendChild(this.u.text(wo.line1, size, SHEET, w, lineH, DISPLAY, TextAlign.Center));
+    if (!oneLine) {
+      const r = this.u.row(w, lineH, 0x00000000);
+      if (wo.article.length > 0) {
+        r.appendChild(this.u.text(wo.article, size * 0.42, SHEET, size * 1.6, lineH,
+          BODY_ITALIC, TextAlign.End));
+      }
+      r.appendChild(this.u.text(wo.line2, size, SHEET, w * 0.7, lineH, DISPLAY, TextAlign.Start));
+      cap.appendChild(r);
+    }
+    const dots = this.u.row(w, 36, 0x00000000);
+    for (let i = 0; i < WONDERS.length; i++) {
+      const d = this.u.col(i === wi ? 16 : 8, 8, SHEET);
+      d.attribute.borderRadius(4).margin({ left: 5, right: 5 });
+      dots.appendChild(d);
+    }
+    cap.appendChild(dots);
+    root.appendChild(this.u.at(cap, 0, y));
+
+    const menu = this.u.stack(62, 62, 0x59272625);
+    menu.attribute.borderRadius(31);
+    menu.appendChild(this.u.img(APP + '/_common/icons/icon-menu.png', 24, 24, 0, ImageFit.Contain));
+    root.appendChild(this.u.at(menu, 12, h * 0.045));
+    root.appendChild(this.u.at(
+      this.u.img(APP + '/_common/icons/icon-next-large.png', 26, 26, 0, ImageFit.Contain),
+      (w - 26) / 2, h * 0.94));
+    return root;
+  }
+
+  private tabBar(wi: number, tab: number): FrameNode {
+    const w = this.w;
+    const wo: WonderT = WONDERS[wi];
+    const barH: number = 72;
+    const bar = this.u.row(w, barH, wo.bg);
+    const d: number = 52;
+    const portrait = this.u.stack(d + 20, barH, 0x00000000);
+    portrait.appendChild(this.u.at(
+      this.u.img(APP + '/' + wo.dir + '/button.png', d, d, d / 2, ImageFit.Cover),
+      14, (barH - d) / 2));
+    bar.appendChild(portrait);
+    const cell: number = (w - d - 20) / TABS.length;
+    for (let i = 0; i < TABS.length; i++) {
+      const c = this.u.col(cell, barH, 0x00000000);
+      c.appendChild(this.u.at(
+        this.u.img(APP + '/_common/icons/' + TABS[i], 26, 26, 0, ImageFit.Contain),
+        (cell - 26) / 2, barH * 0.28));
+      if (i === tab) {
+        const u = this.u.col(22, 2, ACCENT1);
+        u.attribute.borderRadius(1);
+        c.appendChild(this.u.at(u, (cell - 22) / 2, barH * 0.72));
+      }
+      bar.appendChild(c);
+    }
+    return bar;
+  }
+
+  private details(wi: number, tab: number): FrameNode {
+    const w = this.w;
+    const h = this.h;
+    const wo: WonderT = WONDERS[wi];
+    const barH: number = 72;
+    const root = this.u.stack(w, h, wo.bg);
+    let body: FrameNode;
+    if (tab === 1) {
+      body = this.photoWall(wi, w, h - barH);
+    } else if (tab === 2) {
+      body = this.artifacts(wi, w, h - barH);
+    } else if (tab === 3) {
+      body = this.events(wi, w, h - barH);
+    } else {
+      body = this.editorial(wi, w, h - barH);
+    }
+    root.appendChild(this.u.at(body, 0, 0));
+    root.appendChild(this.u.at(this.tabBar(wi, tab), 0, h - barH));
+    return root;
+  }
+
+  /** How tall a paragraph will be once wrapped — the Rust arm's rule. */
+  private textH(s: string, size: number, w: number): number {
+    const perLine: number = Math.max(w * 2.163 * 0.94 / size, 1);
+    const lines: number = Math.max(Math.ceil(s.length / perLine), 1);
+    return lines * size * 1.5 + size * 0.35;
+  }
+
+  private editorial(wi: number, w: number, h: number): FrameNode {
+    const wo: WonderT = WONDERS[wi];
+    const e = EDITORIAL[wi];
+    const pad: number = 24;
+    const cw: number = w - pad * 2;
+    const bandH: number = 250;
+
+    const s = this.u.scroll(w, h);
+    const sheet = this.u.col(w, 0, SHEET);
+
+    // The band: background and mid-ground only, as `_TopIllustration` builds.
+    const band = this.u.stack(w, bandH, wo.fg);
+    band.commonAttribute.clip(true);
+    band.appendChild(this.u.at(
+      this.u.img(APP + '/' + wo.dir + '/texture.png', w * 3.5, bandH * 3.5, 0, ImageFit.Cover),
+      -w * 1.25, -bandH * 1.25));
+    const ps: PieceT[] = PIECES[wi];
+    for (let i = 0; i < ps.length && i < 2; i++) {
+      band.appendChild(this.piece(wo, ps[i], w, bandH));
+    }
+    sheet.appendChild(band);
+
+    // The masthead: a rule, the sub-title, a rule, the name, the region.
+    const cap = this.u.col(w, 150, 0x00000000);
+    const rule = this.u.row(w, 30, 0x00000000);
+    rule.appendChild(this.u.col((w - 200) / 2, 1, wo.fg));
+    rule.appendChild(this.u.text(e.subTitle.toUpperCase(), 11, GREY_STRONG, 152, 20,
+      SERIF_UI, TextAlign.Center));
+    rule.appendChild(this.u.col((w - 200) / 2, 1, wo.fg));
+    cap.appendChild(rule);
+    cap.appendChild(this.u.text(wo.title, Math.min(Math.max(w * 0.10, 26), 40), GREY_STRONG,
+      w - 48, 60, DISPLAY, TextAlign.Center));
+    cap.appendChild(this.u.text(e.region, 12, CAPTION_C, w - 48, 22, BODY_FONT, TextAlign.Center));
+    sheet.appendChild(cap);
+
+    const body = this.u.col(cw, 0, 0x00000000);
+    let bodyH: number = 0;
+    const paras: string[] = [e.history1, e.history2, e.construction1, e.construction2,
+      e.location1, e.location2];
+    const callouts: string[] = [e.callout1, e.callout2];
+    for (let i = 0; i < paras.length; i++) {
+      const th: number = this.textH(paras[i], 15, cw);
+      body.appendChild(this.u.text(paras[i], 15, BODY, cw, th, BODY_FONT));
+      bodyH += th;
+      if (i === 0 || i === 2) {
+        const k: number = i === 0 ? 0 : 1;
+        if (callouts[k].length > 0) {
+          const ch: number = this.textH(callouts[k], 19, cw - 22) + 56;
+          const q = this.u.row(cw, ch, 0x00000000);
+          q.appendChild(this.u.col(2, ch - 20, ACCENT1));
+          q.appendChild(this.u.text(callouts[k], 19, GREY_STRONG, cw - 22, ch - 20, BODY_ITALIC));
+          body.appendChild(q);
+          bodyH += ch;
+        }
+      }
+      // A section arc between the thirds, as the app sets them.
+      if (i === 1 || i === 3) {
+        const secH: number = w * 0.62 * 0.16 + 70 + 62;
+        const sec = this.u.col(cw, secH, 0x00000000);
+        sec.appendChild(this.u.img(
+          APP + '/_common/' + (i === 1 ? 'arc-construction.png' : 'arc-location.png'),
+          cw * 0.62, cw * 0.62 * 0.16, 0, ImageFit.Contain));
+        sec.appendChild(this.u.img(
+          APP + '/_common/' + (i === 1 ? 'construction.png' : 'geography.png'),
+          48, 48, 0, ImageFit.Contain));
+        body.appendChild(sec);
+        bodyH += secH;
+      }
+      // The film still, after the first construction paragraph.
+      if (i === 2 && e.videoCaption.length > 0) {
+        const vh: number = cw * 0.56;
+        const frame = this.u.stack(cw, vh, 0xFF000000);
+        frame.appendChild(this.u.img(APP + '/' + wo.dir + '/photo-2.jpg', cw, vh, 0, ImageFit.Cover));
+        const play = this.u.stack(54, 54, 0x66000000);
+        play.attribute.borderRadius(27);
+        play.appendChild(this.u.text('▶', 20, SHEET, 54, 54, undefined, TextAlign.Center));
+        frame.appendChild(this.u.at(play, (cw - 54) / 2, (vh - 54) / 2));
+        body.appendChild(frame);
+        body.appendChild(this.u.text(e.videoCaption, 13, CAPTION_C, cw, 60, BODY_ITALIC));
+        bodyH += vh + 70;
+      }
+    }
+    body.attribute.height(bodyH);
+    const wrap = this.u.col(w, bodyH + 68, 0x00000000);
+    wrap.attribute.padding({ top: 28, left: pad, bottom: 40, right: pad });
+    wrap.appendChild(body);
+    sheet.appendChild(wrap);
+    sheet.attribute.height(bandH + 150 + bodyH + 68);
+    s.appendChild(sheet);
+    return s;
+  }
+
+  /** The 5x5 wall, cells two thirds wide and half tall, all 25 mounted. */
+  private photoWall(wi: number, w: number, h: number): FrameNode {
+    const wo: WonderT = WONDERS[wi];
+    const sel: number = 13;
+    const grid: number = 5;
+    const iw: number = w * 0.66;
+    const ih: number = h * 0.5;
+    const pad: number = 24;
+    const sx: number = iw + pad;
+    const sy: number = ih + pad;
+    const ox: number = (w - iw) / 2;
+    const oy: number = (h - ih) / 2;
+    const root = this.u.stack(w, h, wo.bg);
+    root.commonAttribute.clip(true);
+    for (let i = 0; i < grid * grid; i++) {
+      const x: number = ox + (i % grid) * sx - (sel % grid) * sx;
+      const y: number = oy + Math.floor(i / grid) * sy - Math.floor(sel / grid) * sy;
+      const name: string = (i % 24) < 10 ? '0' + (i % 24) : '' + (i % 24);
+      root.appendChild(this.u.at(
+        this.u.img(APP + '/' + wo.dir + '/gallery/' + name + '.jpg', iw, ih, 0, ImageFit.Cover),
+        x, y));
+    }
+    // The cutout scrim: four rectangles around the centred cell.
+    const scrim: number = 0xB3000000;
+    root.appendChild(this.u.at(this.u.col(w, oy, scrim), 0, 0));
+    root.appendChild(this.u.at(this.u.col(w, Math.max(h - oy - ih, 0), scrim), 0, oy + ih));
+    root.appendChild(this.u.at(this.u.col(Math.max(ox, 0), ih, scrim), 0, oy));
+    root.appendChild(this.u.at(
+      this.u.col(Math.max(w - ox - iw, 0), ih, scrim), ox + iw, oy));
+    return root;
+  }
+
+  private artifacts(wi: number, w: number, h: number): FrameNode {
+    const wo: WonderT = WONDERS[wi];
+    const root = this.u.stack(w, h, wo.bg);
+    root.commonAttribute.clip(true);
+    const bottomH: number = h / 2.75;
+    const itemH: number = Math.min(Math.max(h - 200 - bottomH, 250), 400);
+    const iw: number = itemH * 0.666;
+    const tall: number = iw * 1.5;
+    const ay: number = (h - tall) / 2 - tall * 0.25;
+    const ax: number = (w - iw) / 2;
+
+    root.appendChild(this.u.at(
+      this.u.img(APP + '/' + wo.dir + '/photo-1.jpg', w * 1.25, h * 1.25, 0, ImageFit.Cover),
+      -w * 0.125, -h * 0.05));
+    root.appendChild(this.u.at(this.u.col(w, h, 0x99000000), 0, 0));
+    const dome = this.u.col(2000, 2000, 0xCCF8ECE5);
+    dome.attribute.borderRadius({ topLeft: 1000, topRight: 1000 });
+    root.appendChild(this.u.at(dome, (w - 2000) / 2, h * 0.5));
+
+    for (let k = -1; k <= 1; k++) {
+      const x: number = ax + k * iw;
+      const fh: number = k === 0 ? tall : iw;
+      const y: number = ay + (tall - fh) / 2 + (k === 0 ? 0 : iw * 0.5);
+      const frame = this.u.col(iw, fh, 0x00000000);
+      frame.attribute.borderRadius(iw / 2).borderWidth(1).borderColor(SHEET);
+      root.appendChild(this.u.at(frame, x, y));
+      const inset: number = k === 0 ? 8 : iw * 0.1;
+      root.appendChild(this.u.at(
+        this.u.img(APP + '/' + wo.dir + '/photo-3.jpg', iw - inset * 2, fh - inset * 2,
+          (iw - inset * 2) / 2, ImageFit.Cover),
+        x + inset, y + inset));
+    }
+
+    root.appendChild(this.u.at(
+      this.u.text('ARTIFACTS', 13, ACCENT1, w, 30, SERIF_UI, TextAlign.Center), 0, 22));
+    root.appendChild(this.u.at(
+      this.u.text(wo.title, 30, 0xFF1E1B18, w - 48, 36, DISPLAY, TextAlign.Center),
+      0, h - bottomH + 24));
+    const btn = this.u.col(w * 0.72, 52, GREY_STRONG);
+    btn.attribute.borderRadius(4);
+    btn.appendChild(this.u.text('BROWSE ALL ARTIFACTS', 13, SHEET, w * 0.72, 52,
+      SERIF_UI, TextAlign.Center));
+    root.appendChild(this.u.at(btn, w * 0.14, h - 66));
+    return root;
+  }
+
+  private events(wi: number, w: number, h: number): FrameNode {
+    const wo: WonderT = WONDERS[wi];
+    const e = EDITORIAL[wi];
+    const pad: number = 24;
+    const cw: number = w - pad * 2;
+    const s = this.u.scroll(w, h);
+    const inner = this.u.col(w, 0, wo.bg);
+    inner.attribute.padding({ top: 36, left: pad, bottom: 40, right: pad });
+    let total: number = 96;
+    const head = this.u.col(cw, 96, 0x00000000);
+    head.appendChild(this.u.text(wo.title, 26, SHEET, cw, 40, DISPLAY));
+    head.appendChild(this.u.text(e.region, 13, ACCENT1, cw, 24, SERIF_UI));
+    inner.appendChild(head);
+    // Six dated entries, as each wonder carries.
+    const lines: string[] = [e.history1, e.history2, e.construction1, e.construction2,
+      e.location1, e.location2];
+    for (let i = 0; i < lines.length; i++) {
+      const th: number = this.textH(lines[i], 14, cw - 18);
+      const block: number = th + 46;
+      const r = this.u.row(cw, block, 0x00000000);
+      r.appendChild(this.u.col(2, block - 12, 0x44E4935D));
+      const c = this.u.col(cw - 18, block, 0x00000000);
+      c.attribute.padding({ left: 16 });
+      c.appendChild(this.u.text('' + (2600 - i * 200) + ' BCE', 12, ACCENT1, cw - 18, 22, SERIF_UI));
+      c.appendChild(this.u.text(lines[i], 14, 0xCCF8ECE5, cw - 18, th, BODY_FONT));
+      r.appendChild(c);
+      inner.appendChild(r);
+      total += block;
+    }
+    inner.attribute.height(total + 76);
+    s.appendChild(inner);
+    return s;
+  }
+
+  private menu(wi: number): FrameNode {
+    const w = this.w;
+    const h = this.h;
+    const wo: WonderT = WONDERS[wi];
+    const root = this.u.stack(w, h, wo.bg);
+    root.appendChild(this.u.at(
+      this.u.text('WONDEROUS', 13, ACCENT1, w, 26, SERIF_UI, TextAlign.Center), 0, h * 0.055));
+    const top: number = h * 0.125;
+    const rowH: number = Math.min(Math.max((h * 0.86 - top) / 10.5, 44), 74);
+    for (let i = 0; i < WONDERS.length; i++) {
+      const y: number = top + rowH * i;
+      const r = this.u.row(w, rowH, 0x00000000);
+      r.appendChild(this.u.img(APP + '/' + WONDERS[i].dir + '/button.png', 34, 34, 17, ImageFit.Cover));
+      const t = this.u.col(w - 110, rowH, 0x00000000);
+      t.appendChild(this.u.text(WONDERS[i].title, 21, i === wi ? SHEET : 0xB3F8ECE5,
+        w - 110, 32, DISPLAY));
+      t.appendChild(this.u.text(EDITORIAL[i].region, 12, 0x8CF8ECE5, w - 110, 20, BODY_FONT));
+      r.appendChild(t);
+      root.appendChild(this.u.at(r, 24, y));
+    }
+    const extras: string[][] = [['Collection', 'icon-collection.png'], ['Timeline', 'icon-timeline.png']];
+    const ey: number = top + rowH * WONDERS.length + rowH * 0.15;
+    for (let i = 0; i < extras.length; i++) {
+      const y: number = ey + rowH * i;
+      root.appendChild(this.u.at(
+        this.u.img(APP + '/_common/icons/' + extras[i][1], 22, 22, 0, ImageFit.Contain),
+        38, y + rowH * 0.25));
+      root.appendChild(this.u.at(
+        this.u.text(extras[i][0], 16, 0xCCF8ECE5, w - 90, 26, SERIF_UI), 86, y + rowH * 0.22));
+    }
+    const close = this.u.stack(46, 46, 0xB3272625);
+    close.attribute.borderRadius(23);
+    close.appendChild(this.u.img(APP + '/_common/icons/icon-close.png', 20, 20, 0, ImageFit.Contain));
+    root.appendChild(this.u.at(close, w - 66, h * 0.055));
+    return root;
+  }
+
+  private collection(): FrameNode {
+    const w = this.w;
+    const h = this.h;
+    const root = this.u.stack(w, h, GREY_STRONG);
+    root.appendChild(this.u.at(
+      this.u.text('COLLECTION', 13, ACCENT1, w, 26, SERIF_UI, TextAlign.Center), 0, h * 0.06));
+    root.appendChild(this.u.at(
+      this.u.text('0 of 24 discovered', 14, 0x99F8ECE5, w, 24, BODY_FONT, TextAlign.Center),
+      0, h * 0.10));
+    const cols: number = 4;
+    const pad: number = 20;
+    const cell: number = (w - pad * 2 - 8 * (cols - 1)) / cols;
+    const top: number = h * 0.16;
+    const icons: string[] = ['jewelry', 'picture', 'scroll', 'statue', 'textile', 'vase'];
+    for (let i = 0; i < 24; i++) {
+      const x: number = pad + (cell + 8) * (i % cols);
+      const y: number = top + (cell + 26) * Math.floor(i / cols);
+      const c = this.u.stack(cell, cell, 0x0DF8ECE5);
+      c.attribute.borderRadius(6);
+      c.appendChild(this.u.img(APP + '/_common/collectibles/' + icons[i % icons.length] + '.png',
+        cell * 0.34, cell * 0.34, 0, ImageFit.Contain));
+      root.appendChild(this.u.at(c, x, y));
+    }
+    return root;
+  }
+
+  private timeline(wi: number): FrameNode {
+    const w = this.w;
+    const h = this.h;
+    const root = this.u.stack(w, h, GREY_STRONG);
+    root.appendChild(this.u.at(
+      this.u.text('TIMELINE', 13, ACCENT1, w, 26, SERIF_UI, TextAlign.Center), 0, h * 0.055));
+    root.appendChild(this.u.at(
+      this.u.text('2600 BCE — 1931 CE', 13, 0x99F8ECE5, w, 24, BODY_FONT, TextAlign.Center),
+      0, h * 0.095));
+    const top: number = h * 0.16;
+    const rowH: number = 68;
+    const trackX: number = 96;
+    const trackW: number = w - trackX - 24;
+    for (let i = 0; i < WONDERS.length; i++) {
+      const y: number = top + rowH * i;
+      root.appendChild(this.u.at(
+        this.u.img(APP + '/' + WONDERS[i].dir + '/button.png', 34, 34, 17, ImageFit.Cover),
+        20, y + 6));
+      root.appendChild(this.u.at(
+        this.u.text(WONDERS[i].title, 11, i === wi ? SHEET : 0x99F8ECE5, trackX - 26, 18, BODY_FONT),
+        20, y + 44));
+      root.appendChild(this.u.at(this.u.col(trackW, 2, 0x22F8ECE5), trackX, y + 22));
+      const bar = this.u.col(trackW * (0.2 + 0.1 * i), 10, i === wi ? ACCENT1 : WONDERS[i].fg);
+      bar.attribute.borderRadius(5);
+      root.appendChild(this.u.at(bar, trackX, y + 18));
+    }
+    const close = this.u.stack(46, 46, 0x33F8ECE5);
+    close.attribute.borderRadius(23);
+    close.appendChild(this.u.img(APP + '/_common/icons/icon-close.png', 20, 20, 0, ImageFit.Contain));
+    root.appendChild(this.u.at(close, w - 66, h * 0.04));
+    return root;
+  }
+
+  private search(wi: number): FrameNode {
+    const w = this.w;
+    const h = this.h;
+    const wo: WonderT = WONDERS[wi];
+    const root = this.u.stack(w, h, GREY_STRONG);
+    root.appendChild(this.u.at(
+      this.u.text('SEARCH ARTIFACTS', 13, ACCENT1, w, 26, SERIF_UI, TextAlign.Center), 0, h * 0.05));
+    root.appendChild(this.u.at(
+      this.u.text(wo.title, 22, SHEET, w, 34, DISPLAY, TextAlign.Center), 0, h * 0.09));
+    const field = this.u.col(w - 48, 46, 0x1AF8ECE5);
+    field.attribute.borderRadius(23);
+    field.appendChild(this.u.text('Search the collection', 15, 0x66F8ECE5, w - 48, 46, BODY_FONT));
+    root.appendChild(this.u.at(field, 24, h * 0.15));
+    const cw: number = (w - 48 - 24) / 4;
+    const chipTop: number = h * 0.24;
+    for (let i = 0; i < 8; i++) {
+      const x: number = 24 + (cw + 8) * (i % 4);
+      const y: number = chipTop + 46 * Math.floor(i / 4);
+      const c = this.u.col(cw, 36, 0x1AF8ECE5);
+      c.attribute.borderRadius(18);
+      c.appendChild(this.u.text('term', 12, 0xCCF8ECE5, cw, 36, BODY_FONT, TextAlign.Center));
+      root.appendChild(this.u.at(c, x, y));
+    }
+    root.appendChild(this.u.at(
+      this.u.text('9 artifact(s)', 12, 0x99F8ECE5, w, 22, BODY_FONT, TextAlign.Center),
+      0, chipTop + 104));
+    const gw: number = (w - 48 - 16) / 3;
+    const gtop: number = chipTop + 134;
+    for (let i = 0; i < 9; i++) {
+      const x: number = 24 + (gw + 8) * (i % 3);
+      const y: number = gtop + (gw + 26) * Math.floor(i / 3);
+      root.appendChild(this.u.at(
+        this.u.img(APP + '/' + wo.dir + '/photo-4.jpg', gw, gw, 6, ImageFit.Cover), x, y));
+      root.appendChild(this.u.at(
+        this.u.text('Artifact', 10, 0x99F8ECE5, gw, 20, BODY_FONT, TextAlign.Center),
+        x, y + gw + 3));
+    }
+    return root;
+  }
+
+  private artifact(wi: number): FrameNode {
+    const w = this.w;
+    const h = this.h;
+    const wo: WonderT = WONDERS[wi];
+    const e = EDITORIAL[wi];
+    const root = this.u.stack(w, h, SHEET);
+    const ih: number = h * 0.46;
+    root.appendChild(this.u.at(
+      this.u.img(APP + '/' + wo.dir + '/photo-3.jpg', w, ih, 0, ImageFit.Cover), 0, 0));
+    let y: number = ih + 26;
+    root.appendChild(this.u.at(
+      this.u.text(wo.title, 28, GREY_STRONG, w - 56, 40, DISPLAY), 28, y));
+    y += 54;
+    root.appendChild(this.u.at(this.u.col(w - 56, 1, 0x33272625), 28, y));
+    y += 18;
+    const rows: string[][] = [['Date', e.region], ['Period', e.subTitle], ['Medium', 'Stone']];
+    for (let i = 0; i < rows.length; i++) {
+      root.appendChild(this.u.at(
+        this.u.text(rows[i][0], 11, 0xFF9D9995, w - 56, 18, SERIF_UI), 28, y));
+      y += 18;
+      root.appendChild(this.u.at(
+        this.u.text(rows[i][1], 14, BODY, w - 56, 21, BODY_FONT), 28, y));
+      y += 33;
+    }
+    const close = this.u.stack(46, 46, 0x33272625);
+    close.attribute.borderRadius(23);
+    close.appendChild(this.u.img(APP + '/_common/icons/icon-close.png', 20, 20, 0, ImageFit.Contain));
+    root.appendChild(this.u.at(close, w - 66, h * 0.045));
+    return root;
+  }
+}
