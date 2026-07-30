@@ -89,6 +89,12 @@ fn tab() -> Option<usize> {
 
 /// Handle a tap. `true` if it was ours and the tree should be rebuilt.
 pub fn handle(target: i32) -> bool {
+    // A scroll tick moves the hero directly and does not rebuild: the tree is
+    // unchanged, only two attributes on nodes that are already mounted.
+    if target == wonders::details::SCROLL_TICK {
+        wonders::details::apply_parallax();
+        return false;
+    }
     let n = wonders::data::WONDERS.len();
     // Menu rows pick a wonder and return to its home page.
     if target >= wonders::screens::MENU_BASE && target < wonders::screens::MENU_BASE + n as i32 {

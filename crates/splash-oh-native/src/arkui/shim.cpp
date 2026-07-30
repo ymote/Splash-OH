@@ -147,6 +147,33 @@ int splash_set_f32v(ArkUI_NodeHandle n, int attr, const float *v, int count) {
     return g_api->setAttribute(n, (ArkUI_NodeAttributeType)attr, &item);
 }
 
+// A linear gradient. The only attribute here whose payload is a struct rather
+// than numbers, so it cannot go through splash_set_f32v.
+//
+// `dir` is ArkUI_LinearGradientDirection (3 = BOTTOM, i.e. top to bottom).
+// ArkUI copies the stops during setAttribute, so the locals are safe to drop.
+int splash_set_gradient(ArkUI_NodeHandle n, int attr, int dir,
+                        const uint32_t *colors, const float *stops, int count) {
+    if (!g_api || !n || !colors || !stops || count <= 0 || count > 16) return -1;
+    uint32_t c[16];
+    float s[16];
+    for (int i = 0; i < count; i++) { c[i] = colors[i]; s[i] = stops[i]; }
+    ArkUI_ColorStop cs;
+    cs.colors = c;
+    cs.stops = s;
+    cs.size = count;
+    ArkUI_NumberValue nv[3];
+    nv[0].f32 = 180.f;
+    nv[1].i32 = dir;
+    nv[2].i32 = 0;
+    ArkUI_AttributeItem item;
+    std::memset(&item, 0, sizeof(item));
+    item.value = nv;
+    item.size = 3;
+    item.object = &cs;
+    return g_api->setAttribute(n, (ArkUI_NodeAttributeType)attr, &item);
+}
+
 // ---- mounting into the page ----------------------------------------------
 // The ONE place ArkTS is involved: it hands us a NodeContent slot once, at
 // startup. After that the whole tree lives here.
@@ -172,6 +199,13 @@ int splash_register_event(ArkUI_NodeHandle n, int event_type, int32_t id) {
 // target id, so Rust never has to know ArkUI_NodeEvent's layout.
 static void (*g_rust_handler)(int32_t target_id, int32_t event_type) = nullptr;
 
+// Scroll offsets, kept here so a Rust handler can read the last one without
+// the event's layout leaking across the boundary.
+//
+// Nothing is read out of the event payload. A scroll handler that accumulated
+// the per-event deltas here drifted badly against the real position; the Scroll
+// node will report its own offset through NODE_SCROLL_OFFSET, which is what
+// callers use.
 static void splash_event_trampoline(ArkUI_NodeEvent *e) {
     if (!e || !g_rust_handler) return;
     g_rust_handler(OH_ArkUI_NodeEvent_GetTargetId(e),
@@ -312,6 +346,7 @@ SPLASH_CONST(splash_a_textpicker_range,  NODE_TEXT_PICKER_OPTION_RANGE)
 // against the frame, so the pieces need coordinates of their own.
 SPLASH_CONST(splash_a_position,     NODE_POSITION)
 SPLASH_CONST(splash_a_hit_test,     NODE_HIT_TEST_BEHAVIOR)
+SPLASH_CONST(splash_e_did_scroll,   NODE_SCROLL_EVENT_ON_DID_SCROLL)
 SPLASH_CONST(splash_a_text_shadow,  NODE_TEXT_TEXT_SHADOW)
 SPLASH_CONST(splash_a_translate,    NODE_TRANSLATE)
 SPLASH_CONST(splash_a_scale,        NODE_SCALE)

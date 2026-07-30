@@ -22,6 +22,14 @@ extern "C" {
     fn splash_set_i32(n: NodeHandle, attr: c_int, v: i32) -> c_int;
     fn splash_set_u32(n: NodeHandle, attr: c_int, v: u32) -> c_int;
     fn splash_set_f32v(n: NodeHandle, attr: c_int, v: *const f32, count: c_int) -> c_int;
+    fn splash_set_gradient(
+        n: NodeHandle,
+        attr: c_int,
+        dir: c_int,
+        colors: *const u32,
+        stops: *const f32,
+        count: c_int,
+    ) -> c_int;
     fn splash_content_add(content: NodeContentHandle, root: NodeHandle) -> c_int;
     fn splash_register_event(n: NodeHandle, event_type: c_int, id: i32) -> c_int;
 }
@@ -111,6 +119,7 @@ mod raw {
         pub static splash_t_waterflow: i32;
         pub static splash_t_refresh: i32;
         pub static splash_e_click: i32;
+        pub static splash_e_did_scroll: i32;
     }
 }
 
@@ -184,7 +193,7 @@ pub mod attr {
 /// Event ids.
 pub mod event {
     use super::raw;
-    arkui_consts! { click => splash_e_click }
+    arkui_consts! { click => splash_e_click, did_scroll => splash_e_did_scroll }
 }
 
 /// Initialise the node API. Safe to call repeatedly.
@@ -217,7 +226,10 @@ impl Node {
     }
 
     /// Read one f32 out of an attribute, or `None` if it has none.
-    pub fn get_f32(raw: NodeHandle, a: i32, index: i32) -> Option<f32> {
+    ///
+    /// # Safety
+    /// `raw` must be a live node handle.
+    pub unsafe fn get_f32(raw: NodeHandle, a: i32, index: i32) -> Option<f32> {
         let mut out = 0.0f32;
         if unsafe { splash_get_f32(raw, a, index, &mut out) } == 0 {
             Some(out)
@@ -290,12 +302,34 @@ impl Node {
     /// The scroll-offset restore needs it: by the time the offset is written
     /// the tree is mounted and owned by the app, so there is no `Node` to
     /// consume.
-    pub fn set_f32v_raw(raw: NodeHandle, a: i32, v: &[f32]) {
+    ///
+    /// # Safety
+    /// `raw` must be a live node handle.
+    pub unsafe fn set_f32v_raw(raw: NodeHandle, a: i32, v: &[f32]) {
         unsafe { splash_set_f32v(raw, a, v.as_ptr(), v.len() as c_int) };
     }
 
     pub fn f32v_attr(self, a: i32, v: &[f32]) -> Self {
         unsafe { splash_set_f32v(self.raw, a, v.as_ptr(), v.len() as c_int) };
+        self
+    }
+
+    /// A linear gradient over this node's background.
+    ///
+    /// `dir` is `ArkUI_LinearGradientDirection`; `stops` run 0..1. Colours are
+    /// 0xAARRGGBB like everywhere else here.
+    pub fn gradient(self, dir: i32, colors: &[u32], stops: &[f32]) -> Self {
+        let n = colors.len().min(stops.len());
+        unsafe {
+            splash_set_gradient(
+                self.raw,
+                attr::linear_gradient(),
+                dir,
+                colors.as_ptr(),
+                stops.as_ptr(),
+                n as c_int,
+            )
+        };
         self
     }
 
