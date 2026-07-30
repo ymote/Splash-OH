@@ -43,6 +43,10 @@ pub const PREV_TAP: i32 = 7101;
 pub const NEXT_TAP: i32 = 7102;
 pub const MENU_TAP: i32 = 7103;
 pub const DETAILS_TAP: i32 = 7104;
+/// Swipe base for the pager. The app's home screen is a horizontal pager, so
+/// a drag across the artwork moves to the next wonder; the two tap halves stay
+/// as well, and either works.
+pub const HOME_SWIPE: i32 = 7430;
 
 const APP: &str = "wonders";
 
@@ -60,7 +64,7 @@ pub fn build(index: usize, w: f32, h: f32) -> Option<Node> {
     // Every tap target in one overlay: the menu, the two paging halves, and
     // the strip along the bottom that opens the details. One overlay because a
     // full-frame column per target means only the last one ever fires.
-    root = root.child(super::hits(
+    root = root.child(super::hits_swipe(
         w,
         h,
         &[
@@ -69,6 +73,7 @@ pub fn build(index: usize, w: f32, h: f32) -> Option<Node> {
             (w * 0.65, h * 0.14, w * 0.35, h * 0.6, NEXT_TAP),
             (0.0, h * 0.80, w, h * 0.17, DETAILS_TAP),
         ],
+        Some(HOME_SWIPE),
     )?);
     Some(root)
 }

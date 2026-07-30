@@ -43,6 +43,21 @@ pub fn hits(
     frame_h: f32,
     targets: &[(f32, f32, f32, f32, i32)],
 ) -> Option<crate::arkui::Node> {
+    hits_swipe(frame_w, frame_h, targets, None)
+}
+
+/// `hits`, plus a swipe base.
+///
+/// A drag has to be measured on the node that receives it, and over most of a
+/// screen that node is one of these targets rather than the artwork under
+/// them. Every target therefore also carries the touch event, and the shim
+/// turns the drag into `base + 1..4` -- left, right, up, down.
+pub fn hits_swipe(
+    frame_w: f32,
+    frame_h: f32,
+    targets: &[(f32, f32, f32, f32, i32)],
+    swipe: Option<i32>,
+) -> Option<crate::arkui::Node> {
     use crate::arkui::attr;
     use crate::ui::{col, row, spacer, tap_col};
 
@@ -104,11 +119,95 @@ pub fn hits(
             if tx > x {
                 line = line.child(spacer(tx - x, th)?.i32_attr(attr::hit_test(), HIT_NONE));
             }
-            line = line.child(tap_col(tw, th, 0x00000000, id)?);
+            let mut t = tap_col(tw, th, 0x00000000, id)?;
+            if let Some(base) = swipe {
+                t = t.on_event(crate::arkui::event::touch(), base);
+            }
+            line = line.child(t);
             x = tx + tw;
         }
         column = column.child(line);
         cursor = bottom;
     }
     Some(column)
+}
+
+#[cfg(test)]
+mod tests {
+    /// Every tap id, in one list.
+    ///
+    /// Two screens once shared 7340-7342, and because the dispatcher matches on
+    /// constants rather than literals nothing complained: the collection's
+    /// close button was read as a pan of a photo wall that was not on screen,
+    /// and the screen simply stopped closing. A screen whose button does
+    /// nothing looks exactly like a mislaid tap target, so this is worth a test
+    /// rather than care.
+    const IDS: &[(&str, i32)] = &[
+        ("home::PREV_TAP", super::home::PREV_TAP),
+        ("home::NEXT_TAP", super::home::NEXT_TAP),
+        ("home::MENU_TAP", super::home::MENU_TAP),
+        ("home::DETAILS_TAP", super::home::DETAILS_TAP),
+        ("tabbar::HOME_TAP", super::tabbar::HOME_TAP),
+        ("screens::INTRO_NEXT", super::screens::INTRO_NEXT),
+        ("screens::INTRO_ENTER", super::screens::INTRO_ENTER),
+        ("screens::MENU_CLOSE", super::screens::MENU_CLOSE),
+        (
+            "screens::COLLECTION_CLOSE",
+            super::screens::COLLECTION_CLOSE,
+        ),
+        ("screens::MENU_COLLECTION", super::screens::MENU_COLLECTION),
+        ("screens::MENU_TIMELINE", super::screens::MENU_TIMELINE),
+        ("screens::ARTIFACT_CLOSE", super::screens::ARTIFACT_CLOSE),
+        ("timeline::TIMELINE_CLOSE", super::timeline::TIMELINE_CLOSE),
+        ("details::PHOTO_UP", super::details::PHOTO_UP),
+        ("details::PHOTO_DOWN", super::details::PHOTO_DOWN),
+        ("details::PHOTO_LEFT", super::details::PHOTO_LEFT),
+        ("details::PHOTO_RIGHT", super::details::PHOTO_RIGHT),
+        ("details::ARTIFACT_PREV", super::details::ARTIFACT_PREV),
+        ("details::ARTIFACT_NEXT", super::details::ARTIFACT_NEXT),
+        ("details::BROWSE_TAP", super::details::BROWSE_TAP),
+        ("details::SCROLL_TICK", super::details::SCROLL_TICK),
+        ("search::SEARCH_CLOSE", super::search::SEARCH_CLOSE),
+    ];
+
+    /// The ids that are the base of a run, and how long the run is.
+    const RANGES: &[(&str, i32, i32)] = &[
+        (
+            "tabbar::TAB_BASE",
+            super::tabbar::TAB_BASE,
+            super::tabbar::TABS.len() as i32,
+        ),
+        (
+            "screens::MENU_BASE",
+            super::screens::MENU_BASE,
+            super::data::WONDERS.len() as i32,
+        ),
+        (
+            "search::CHIP_BASE",
+            super::search::CHIP_BASE,
+            super::search::CHIPS as i32,
+        ),
+        // A swipe base is reported as base + 1..4.
+        ("home::HOME_SWIPE", super::home::HOME_SWIPE, 5),
+        ("details::PHOTO_SWIPE", super::details::PHOTO_SWIPE, 5),
+        ("details::ARTIFACT_SWIPE", super::details::ARTIFACT_SWIPE, 5),
+    ];
+
+    #[test]
+    fn ids_are_unique() {
+        let mut all: Vec<(&str, i32)> = IDS.to_vec();
+        for (name, base, len) in RANGES {
+            for i in 0..*len {
+                all.push((name, base + i));
+            }
+        }
+        all.sort_by_key(|(_, id)| *id);
+        for w in all.windows(2) {
+            assert_ne!(
+                w[0].1, w[1].1,
+                "{} and {} both use id {}",
+                w[0].0, w[1].0, w[0].1
+            );
+        }
+    }
 }

@@ -37,7 +37,23 @@ pub mod wonders;
 ///
 /// Public here, where it was `pub(crate)` before: the webview crate logs too,
 /// and nothing should have to depend on the bridge to write a line.
+///
+/// Off device there is no hilog to link against, and asking for it anyway made
+/// the crate's own unit tests unlinkable on the host. There, the line goes to
+/// stderr instead.
 pub fn log(msg: &str) {
+    #[cfg(not(target_env = "ohos"))]
+    {
+        eprintln!("SplashOH: {msg}");
+    }
+    #[cfg(target_env = "ohos")]
+    {
+        log_ohos(msg);
+    }
+}
+
+#[cfg(target_env = "ohos")]
+fn log_ohos(msg: &str) {
     #[link(name = "hilog_ndk.z")]
     extern "C" {
         fn OH_LOG_Print(

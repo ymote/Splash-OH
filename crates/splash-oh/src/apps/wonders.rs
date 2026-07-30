@@ -94,6 +94,42 @@ fn tab() -> Option<usize> {
     }
 }
 
+/// The four directions the shim reports, as offsets from a swipe base.
+const SWIPE_LEFT: i32 = 1;
+const SWIPE_RIGHT: i32 = 2;
+const SWIPE_UP: i32 = 3;
+const SWIPE_DOWN: i32 = 4;
+
+/// `Some(direction)` if `target` is a swipe on `base`.
+fn swipe_of(target: i32, base: i32) -> Option<i32> {
+    match target - base {
+        d @ SWIPE_LEFT..=SWIPE_DOWN => Some(d),
+        _ => None,
+    }
+}
+
+/// Move the home pager, wrapping. Only meaningful on the home screen.
+fn step(d: i32) -> bool {
+    if screen() != Screen::Home {
+        return false;
+    }
+    let n = wonders::data::WONDERS.len();
+    set(((current() + n) as i32 + d) as usize % n);
+    true
+}
+
+/// Move the artifact carousel, wrapping as the app's `PageView` does.
+fn step_artifact(d: i32) -> bool {
+    let list = wonders::artifact_data::ARTIFACTS[current() % 8];
+    if list.is_empty() {
+        return false;
+    }
+    let n = list.len();
+    let cur = wonders::details::artifact_sel() % n;
+    wonders::details::set_artifact_sel(((cur + n) as i32 + d) as usize % n);
+    true
+}
+
 /// Handle a tap. `true` if it was ours and the tree should be rebuilt.
 pub fn handle(target: i32) -> bool {
     // A scroll tick moves the hero directly and does not rebuild: the tree is
@@ -126,6 +162,39 @@ pub fn handle(target: i32) -> bool {
         )));
         return true;
     }
+    // Swipes. The shim measures the drag and reports base + 1..4 for left,
+    // right, up and down; each of these is the same move as the tap next to it.
+    if let Some(d) = swipe_of(target, wonders::home::HOME_SWIPE) {
+        return match d {
+            SWIPE_LEFT => {
+                step(1);
+                true
+            }
+            SWIPE_RIGHT => {
+                step(-1);
+                true
+            }
+            _ => false,
+        };
+    }
+    if let Some(d) = swipe_of(target, wonders::details::PHOTO_SWIPE) {
+        // `_handleSwipe`: a horizontal swipe moves one cell against the drag,
+        // a vertical one moves a whole row.
+        let (dx, dy) = match d {
+            SWIPE_LEFT => (1, 0),
+            SWIPE_RIGHT => (-1, 0),
+            SWIPE_UP => (0, 1),
+            _ => (0, -1),
+        };
+        return wonders::details::move_photo_sel(dx, dy);
+    }
+    if let Some(d) = swipe_of(target, wonders::details::ARTIFACT_SWIPE) {
+        return match d {
+            SWIPE_LEFT => step_artifact(1),
+            SWIPE_RIGHT => step_artifact(-1),
+            _ => false,
+        };
+    }
     match target {
         // Tapping a peeking edge of the photo wall pans it one cell, the same
         // move the app makes on a swipe in that direction.
@@ -149,20 +218,8 @@ pub fn handle(target: i32) -> bool {
             go(Screen::Details(2));
             true
         }
-        wonders::details::ARTIFACT_NEXT | wonders::details::ARTIFACT_PREV => {
-            let list = wonders::artifact_data::ARTIFACTS[current() % 8];
-            if !list.is_empty() {
-                let n = list.len();
-                let cur = wonders::details::artifact_sel() % n;
-                let next = if target == wonders::details::ARTIFACT_NEXT {
-                    (cur + 1) % n
-                } else {
-                    (cur + n - 1) % n
-                };
-                wonders::details::set_artifact_sel(next);
-            }
-            true
-        }
+        wonders::details::ARTIFACT_NEXT => step_artifact(1),
+        wonders::details::ARTIFACT_PREV => step_artifact(-1),
         wonders::screens::INTRO_NEXT => {
             if let Screen::Intro(p) = screen() {
                 go(Screen::Intro(
@@ -210,14 +267,8 @@ pub fn handle(target: i32) -> bool {
             go(Screen::Details(0));
             true
         }
-        wonders::home::NEXT_TAP if screen() == Screen::Home => {
-            set((current() + 1) % n);
-            true
-        }
-        wonders::home::PREV_TAP if screen() == Screen::Home => {
-            set((current() + n - 1) % n);
-            true
-        }
+        wonders::home::NEXT_TAP => step(1),
+        wonders::home::PREV_TAP => step(-1),
         _ => false,
     }
 }

@@ -120,6 +120,7 @@ mod raw {
         pub static splash_t_waterflow: i32;
         pub static splash_t_refresh: i32;
         pub static splash_e_click: i32;
+        pub static splash_e_touch: i32;
         pub static splash_e_did_scroll: i32;
     }
 }
@@ -195,7 +196,7 @@ pub mod attr {
 /// Event ids.
 pub mod event {
     use super::raw;
-    arkui_consts! { click => splash_e_click, did_scroll => splash_e_did_scroll }
+    arkui_consts! { click => splash_e_click, touch => splash_e_touch, did_scroll => splash_e_did_scroll }
 }
 
 /// Initialise the node API. Safe to call repeatedly.

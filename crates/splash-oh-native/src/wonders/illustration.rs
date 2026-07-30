@@ -72,7 +72,9 @@ fn piece(w: &Wonder, p: &Piece, frame_w: f32, frame_h: f32) -> Option<Node> {
 /// title. Nothing in the asset names says which is which except the names
 /// themselves, and they are consistent across all eight.
 fn is_foreground(file: &str) -> bool {
-    file.starts_with("foreground")
+    // Chichen Itza's two are not called `foreground-*`, but `_buildFg` is where
+    // the app puts them -- they are the fronds that overhang the title.
+    file.starts_with("foreground") || file == "top-left.png" || file == "top-right.png"
 }
 
 /// The whole illustration, with `overlay` sitting between the mid-ground and
@@ -113,18 +115,43 @@ pub fn illustration_with(
         );
     }
 
-    // Three clouds drift over the background. Wonderous places them with a
-    // seeded `Random`, three per wonder, from these ranges:
+    // Wonderous draws the background pieces, then the clouds over them, then
+    // the wonder itself. `bg` is everything up to the wonder; the wonder is the
+    // last piece that is not foreground.
+    let mg_at = w
+        .pieces
+        .iter()
+        .rposition(|p| !is_foreground(p.file))
+        .unwrap_or(0);
+    for p in w
+        .pieces
+        .iter()
+        .take(mg_at)
+        .filter(|p| !is_foreground(p.file))
+    {
+        if let Some(node) = piece(w, p, frame_w, frame_h) {
+            root = root.child(node);
+        }
+    }
+
+    // Three clouds. Wonderous places them with a seeded `Random`, three per
+    // wonder, inside a box half the height of the screen:
     //   x     -200 .. width - 100
-    //   y       50 .. height - 50
+    //   y       50 .. height/2 - 50
     //   scale   .7 .. 1
     //   flipX/flipY  either
+    // drawn 500 wide at 40% opacity.
     //
-    // The ranges and the count are the app's; the generator is not. Dart's
-    // `Random` is explicitly implementation-defined, so the same seed cannot be
-    // replayed from Rust. This uses the app's per-wonder seed through a small
-    // deterministic generator instead: stable across runs and per wonder, but
-    // the three clouds do not land on the app's exact pixels.
+    // cloud-white.png is a row of blocky rounded bars that run edge to edge, so
+    // a cloud does look rectangular at a glance -- that is the artwork, not a
+    // node painting its own box.
+    //
+    // The ranges, the count, the size and the opacity are the app's; the
+    // generator is not. Dart's `Random` is explicitly implementation-defined, so
+    // the same seed cannot be replayed from Rust. This uses the app's per-wonder
+    // seed through a small deterministic generator instead: stable across runs
+    // and per wonder, but the three clouds do not land on the app's exact
+    // pixels.
     let mut rng = w.cloud_seed.wrapping_mul(2_654_435_761).wrapping_add(1);
     let mut next = || {
         rng ^= rng << 13;
@@ -134,28 +161,31 @@ pub fn illustration_with(
     };
     for _ in 0..3 {
         let cx = -200.0 + next() * (frame_w - 100.0 + 200.0);
-        let cy = 50.0 + next() * (frame_h - 100.0);
+        let cy = 50.0 + next() * (frame_h * 0.5 - 100.0).max(0.0);
         let scale = 0.7 + next() * 0.3;
-        let size = 500.0 * scale * (frame_w / 400.0).min(1.4);
+        let size = 500.0 * scale;
         if let Some(c) = Node::new(ty::image()) {
             root = root.child(
                 c.width(size)
-                    .height(size * 0.5)
+                    // cloud-white.png is 278x55; drawn `fit: fitWidth`, so the
+                    // box has to carry the asset's own aspect or the image is
+                    // letterboxed inside it and lands low.
+                    .height(size * (55.0 / 278.0))
                     .string_attr(
                         attr::image_src(),
                         &format!("resource://RAWFILE/{APP}/_common/cloud-white.png"),
                     )
-                    .i32_attr(attr::image_fit(), 0)
-                    .f32v_attr(attr::opacity(), &[0.55])
+                    // FILL, as `piece` does: the box already carries the
+                    // asset's aspect, so there is nothing to letterbox.
+                    .i32_attr(attr::image_fit(), 3)
+                    .f32v_attr(attr::opacity(), &[0.4])
                     .f32v_attr(attr::position(), &[cx, cy]),
             );
         }
     }
 
-    for p in w.pieces.iter().filter(|p| !is_foreground(p.file)) {
-        if let Some(node) = piece(w, p, frame_w, frame_h) {
-            root = root.child(node);
-        }
+    if let Some(node) = piece(w, &w.pieces[mg_at], frame_w, frame_h) {
+        root = root.child(node);
     }
     if let Some(o) = overlay {
         root = root.child(o);
