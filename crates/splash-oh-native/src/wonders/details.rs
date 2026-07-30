@@ -95,7 +95,7 @@ pub fn build(index: usize, tab: usize, w: f32, h: f32) -> Option<Node> {
     let body = match tab {
         1 => photos(wonder, w, h - bar_h),
         2 => artifacts(wonder, w, h - bar_h),
-        3 => events(wonder, index, w, h - bar_h),
+        3 => super::timeline::events(index, w, h - bar_h),
         _ => editorial(wonder, index, w, h - bar_h),
     };
     if let Some(b) = body {
@@ -107,32 +107,26 @@ pub fn build(index: usize, tab: usize, w: f32, h: f32) -> Option<Node> {
     }
     root =
         root.child(tabbar::build(wonder, tab, w)?.f32v_attr(attr::position(), &[0.0, h - bar_h]));
-    // The bar's own cells draw correctly but never receive a tap: a tap target
-    // nested inside a positioned Row inside a Stack does not hit-test, while a
-    // direct child of the Stack does. The visible bar stays as it is and the
-    // touch targets go on top of it, one per cell.
+    // The bar draws correctly and receives nothing on its own: a target nested
+    // in a positioned Row inside a Stack is not hit-tested. The cells therefore
+    // live in one overlay row, laid out rather than positioned, so their layout
+    // boxes are where they appear.
     let d = 52.0;
     let cell = (w - d - 20.0) / tabbar::TABS.len() as f32;
-    root = root.child(super::hit(
-        w,
-        h,
-        0.0,
-        h - bar_h,
-        d + 20.0,
-        bar_h,
-        tabbar::HOME_TAP,
-    )?);
+    let mut overlay = col(w, h, 0x00000000)?;
+    overlay = overlay.child(spacer(w, h - bar_h)?);
+    let mut line = row(w, bar_h, 0x00000000)?;
+    line = line.child(tap_col(d + 20.0, bar_h, 0x00000000, tabbar::HOME_TAP)?);
     for i in 0..tabbar::TABS.len() {
-        root = root.child(super::hit(
-            w,
-            h,
-            d + 20.0 + cell * i as f32,
-            h - bar_h,
+        line = line.child(tap_col(
             cell,
             bar_h,
+            0x00000000,
             tabbar::TAB_BASE + i as i32,
         )?);
     }
+    overlay = overlay.child(line);
+    root = root.child(overlay);
     Some(root)
 }
 

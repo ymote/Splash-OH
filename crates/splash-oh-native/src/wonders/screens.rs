@@ -24,6 +24,8 @@ pub const INTRO_ENTER: i32 = 7301;
 pub const MENU_CLOSE: i32 = 7310;
 pub const MENU_BASE: i32 = 7320;
 pub const COLLECTION_CLOSE: i32 = 7340;
+pub const MENU_COLLECTION: i32 = 7341;
+pub const MENU_TIMELINE: i32 = 7342;
 pub const ARTIFACT_CLOSE: i32 = 7350;
 
 /// The three onboarding pages, verbatim from the app.
@@ -109,7 +111,11 @@ pub fn intro(page: usize, w: f32, h: f32) -> Option<Node> {
                     .f32v_attr(attr::padding(), &[18.0, 0.0, 0.0, 0.0]),
             ),
     );
-    root = root.child(super::hit(w, h, w * 0.25, h * 0.89, w * 0.5, 52.0, id)?);
+    root = root.child(super::hits(
+        w,
+        h,
+        &[(w * 0.25, h * 0.89, w * 0.5, 52.0, id)],
+    )?);
     Some(root)
 }
 
@@ -126,15 +132,25 @@ pub fn menu(current: usize, w: f32, h: f32) -> Option<Node> {
             .f32v_attr(attr::position(), &[0.0, h * 0.07]),
     );
 
-    let row_h = 74.0;
-    let top = h * 0.14;
+    // Ten rows have to fit between the wordmark and the bottom: the eight
+    // wonders plus Collection and Timeline. At a fixed 74 vp the last two fell
+    // past the bottom edge and could not be reached at all.
+    let top = h * 0.125;
+    let row_h = ((h * 0.86 - top) / 10.5).clamp(44.0, 74.0);
+    let mut menu_hits: Vec<(f32, f32, f32, f32, i32)> = Vec::new();
     for (i, wo) in WONDERS.iter().enumerate() {
         let y = top + row_h * i as f32;
         let on = i == current % WONDERS.len();
         let mut r = row(w, row_h, 0x00000000)?.f32v_attr(attr::position(), &[0.0, y]);
         r = r.child(
-            photo(APP, &format!("{}/button.png", wo.dir), 46.0, 46.0, 23.0)?
-                .f32v_attr(attr::margin(), &[14.0, 14.0, 0.0, 26.0]),
+            photo(
+                APP,
+                &format!("{}/button.png", wo.dir),
+                row_h * 0.62,
+                row_h * 0.62,
+                row_h * 0.31,
+            )?
+            .f32v_attr(attr::margin(), &[row_h * 0.19, 14.0, 0.0, 26.0]),
         );
         let mut t = col(w - 110.0, row_h, 0x00000000)?;
         t = t.child(
@@ -154,7 +170,30 @@ pub fn menu(current: usize, w: f32, h: f32) -> Option<Node> {
         );
         r = r.child(t);
         root = root.child(r);
-        root = root.child(super::hit(w, h, 0.0, y, w, row_h, MENU_BASE + i as i32)?);
+        menu_hits.push((0.0, y, w, row_h, MENU_BASE + i as i32));
+    }
+
+    // The two destinations that are not wonders, as the app lists them under
+    // the eight.
+    let extras_y = top + row_h * WONDERS.len() as f32 + row_h * 0.15;
+    for (i, (label, glyph, id)) in [
+        ("Collection", "icon-collection.png", MENU_COLLECTION),
+        ("Timeline", "icon-timeline.png", MENU_TIMELINE),
+    ]
+    .iter()
+    .enumerate()
+    {
+        let y = extras_y + row_h * i as f32;
+        root = root.child(
+            icon(APP, &format!("_common/icons/{glyph}"), 22.0)?
+                .f32v_attr(attr::position(), &[38.0, y + row_h * 0.25]),
+        );
+        root = root.child(
+            text(label, 16.0, 0xCCF8ECE5, w - 90.0, 26.0)?
+                .string_attr(attr::font_family(), SERIF_UI)
+                .f32v_attr(attr::position(), &[86.0, y + row_h * 0.22]),
+        );
+        menu_hits.push((0.0, y, w, row_h, *id));
     }
 
     root = root.child(
@@ -163,14 +202,10 @@ pub fn menu(current: usize, w: f32, h: f32) -> Option<Node> {
             .f32v_attr(attr::position(), &[w - 66.0, h * 0.055])
             .child(icon(APP, "_common/icons/icon-close.png", 20.0)?),
     );
-    root = root.child(super::hit(
+    root = root.child(super::hits(
         w,
         h,
-        w - 76.0,
-        h * 0.045,
-        66.0,
-        66.0,
-        MENU_CLOSE,
+        &[(w - 76.0, h * 0.045, 66.0, 66.0, MENU_CLOSE)],
     )?);
     Some(root)
 }
@@ -226,14 +261,10 @@ pub fn collection(w: f32, h: f32) -> Option<Node> {
             .f32v_attr(attr::position(), &[w - 66.0, h * 0.045])
             .child(icon(APP, "_common/icons/icon-close.png", 20.0)?),
     );
-    root = root.child(super::hit(
+    root = root.child(super::hits(
         w,
         h,
-        w - 76.0,
-        h * 0.035,
-        66.0,
-        66.0,
-        COLLECTION_CLOSE,
+        &[(w - 76.0, h * 0.035, 66.0, 66.0, COLLECTION_CLOSE)],
     )?);
     Some(root)
 }
@@ -275,14 +306,10 @@ pub fn artifact(index: usize, w: f32, h: f32) -> Option<Node> {
             .f32v_attr(attr::position(), &[w - 66.0, h * 0.045])
             .child(icon(APP, "_common/icons/icon-close.png", 20.0)?),
     );
-    root = root.child(super::hit(
+    root = root.child(super::hits(
         w,
         h,
-        w - 76.0,
-        h * 0.035,
-        66.0,
-        66.0,
-        ARTIFACT_CLOSE,
+        &[(w - 76.0, h * 0.035, 66.0, 66.0, ARTIFACT_CLOSE)],
     )?);
     let _ = ty::text();
     Some(root)
