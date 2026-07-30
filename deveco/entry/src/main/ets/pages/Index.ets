@@ -823,6 +823,20 @@ struct Index {
   }
 
   onPageShow(): void {
+    // The Wonderous comparison, before the START_APP short-circuit: build every
+    // screen in ArkTS through typeNode, then ask Rust to build the same ten
+    // through the NDK, and report ms and node count for each. Both walk the
+    // same data and the same rawfiles, so what is left between them is the
+    // language the tree is constructed in.
+    //
+    // Runs once. onPageShow fires again on every return to the page.
+    if (!this.benchDone) {
+      this.benchDone = true;
+      setTimeout(() => {
+        this.wonderousArkBench();
+        splash.wondersBench();
+      }, 2500);
+    }
     if (START_APP !== '') {
       return;
     }
@@ -834,11 +848,6 @@ struct Index {
       setTimeout(() => { this.memStep(0); }, 3000);
       return;
     }
-    // The Wonderous comparison: build every screen in ArkTS through typeNode,
-    // the same ten the Rust arm builds through the NDK, and report how long and
-    // how many nodes. Both walk the same data and the same rawfiles, so what is
-    // left between them is the language the tree is constructed in.
-    this.wonderousArkBench();
     if (SKIP_BENCH) {
       // Still need the ArkTS twins constructed so the toggle can mount them.
       const ctx = this.getUIContext();
@@ -876,6 +885,8 @@ struct Index {
    *    reuse that ruined the earlier two-paths-in-one-process attempt.
    */
   /** Ten screens, built in ArkTS. Reports ms and node count per screen. */
+  private benchDone: boolean = false;
+
   private wonderousArkBench(): void {
     const ctx = this.getUIContext();
     const wa = new WonderousArkTs(ctx);
@@ -886,6 +897,17 @@ struct Index {
     const tabs: number[] = [0, 0, 0, 1, 2, 3, 0, 0, 0, 0, 0];
     const W_VP: number = 406.15;
     const H_VP: number = 805.23;
+    // Three passes, reporting the last. The first is warm-up -- class loading
+    // and JIT -- and on the first run it cost 10 ms a screen against 2 ms once
+    // warm. Reporting that would be measuring the interpreter starting up.
+    for (let pass = 0; pass < 2; pass++) {
+      for (let i = 0; i < names.length; i++) {
+        const r = wa.build(screens[i], 0, tabs[i], 0, W_VP, H_VP);
+        if (r !== null) {
+          r.dispose();
+        }
+      }
+    }
     let totalMs: number = 0;
     let totalNodes: number = 0;
     for (let i = 0; i < names.length; i++) {

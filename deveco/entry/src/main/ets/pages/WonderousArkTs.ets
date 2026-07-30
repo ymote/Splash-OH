@@ -242,7 +242,20 @@ export class WonderousArkTs {
     const h = this.h;
     const wo: WonderT = WONDERS[wi];
     const root = this.u.stack(w, h, wo.bg);
-    root.appendChild(this.illustration(wi, w, h));
+    // All eight, as the Rust arm mounts them: the page change is a cross-fade
+    // over trees that are already there, not a rebuild. Building only the
+    // current one would make this arm's tree a fifth the size and the
+    // comparison meaningless.
+    for (let i = 0; i < WONDERS.length; i++) {
+      const bg = this.u.col(w, h, WONDERS[i].bg);
+      bg.attribute.opacity(i === wi ? 1 : 0);
+      root.appendChild(this.u.at(bg, 0, 0));
+    }
+    for (let i = 0; i < WONDERS.length; i++) {
+      const art = this.illustration(i, w, h);
+      art.commonAttribute.opacity(i === wi ? 1 : 0);
+      root.appendChild(art);
+    }
 
     // Title block: the name, the article beside line two, then the dots.
     const size: number = Math.min(Math.max(w * 0.115, 30), 52);

@@ -489,6 +489,83 @@ pub fn youtube_render() {
     app::set_root(node);
 }
 
+/// The Rust arm of the Wonderous comparison.
+///
+/// Builds the same ten screens the ArkTS arm builds, at the same page size,
+/// and reports ms and node count for each. Timed here rather than in ArkTS so
+/// no napi round trip is counted against it -- the ArkTS arm is timed in ArkTS
+/// for the same reason.
+#[napi(js_name = "wondersBench")]
+pub fn wonders_bench() {
+    use splash_oh_native::wonders;
+    const W: f32 = 406.15;
+    const H: f32 = 805.23;
+    let names = [
+        "intro",
+        "home",
+        "editorial",
+        "photos",
+        "artifacts",
+        "events",
+        "menu",
+        "collection",
+        "timeline",
+        "search",
+        "artifact",
+    ];
+    // Two warm-up passes, discarded, so both arms are measured warm.
+    for _ in 0..2 {
+        for i in 0..names.len() {
+            let n = match i {
+                0 => wonders::screens::intro(0, W, H),
+                1 => wonders::home::build(0, W, H),
+                2 => wonders::details::build(0, 0, W, H),
+                3 => wonders::details::build(0, 1, W, H),
+                4 => wonders::details::build(0, 2, W, H),
+                5 => wonders::details::build(0, 3, W, H),
+                6 => wonders::screens::menu(0, W, H),
+                7 => wonders::screens::collection(W, H),
+                8 => wonders::timeline::build(0, W, H),
+                9 => wonders::search::build(0, None, W, H),
+                _ => wonders::screens::artifact(0, W, H),
+            };
+            drop(n);
+        }
+    }
+    let mut total_us = 0u128;
+    let mut total_nodes = 0usize;
+    for (i, name) in names.iter().enumerate() {
+        let before = splash_oh_native::ui::count();
+        let t0 = std::time::Instant::now();
+        let node = match i {
+            0 => wonders::screens::intro(0, W, H),
+            1 => wonders::home::build(0, W, H),
+            2 => wonders::details::build(0, 0, W, H),
+            3 => wonders::details::build(0, 1, W, H),
+            4 => wonders::details::build(0, 2, W, H),
+            5 => wonders::details::build(0, 3, W, H),
+            6 => wonders::screens::menu(0, W, H),
+            7 => wonders::screens::collection(W, H),
+            8 => wonders::timeline::build(0, W, H),
+            9 => wonders::search::build(0, None, W, H),
+            _ => wonders::screens::artifact(0, W, H),
+        };
+        let us = t0.elapsed().as_micros();
+        let nodes = splash_oh_native::ui::count().saturating_sub(before);
+        total_us += us;
+        total_nodes += nodes;
+        splash_oh_native::log(&format!(
+            "wonderous/rust: {name} {:.2} ms, {nodes} nodes",
+            us as f64 / 1000.0
+        ));
+        drop(node);
+    }
+    splash_oh_native::log(&format!(
+        "wonderous/rust: TOTAL {:.2} ms, {total_nodes} nodes",
+        total_us as f64 / 1000.0
+    ));
+}
+
 /// Build every screen once and keep them all alive, for the memory arm.
 #[napi(js_name = "wechatKeepAll")]
 pub fn wechat_keep_all() -> u32 {
