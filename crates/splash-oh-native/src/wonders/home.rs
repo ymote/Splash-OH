@@ -68,6 +68,13 @@ struct Pages {
 /// `$styles.times.med`, which is what the home screen's cross-fade runs at.
 const FADE_MS: i32 = 300;
 
+/// Drop the handles this module holds. See `details::forget_nodes`.
+pub fn forget_nodes() {
+    if let Ok(mut g) = PAGES.lock() {
+        *g = None;
+    }
+}
+
 /// Fade to `index`. Nothing is rebuilt; eight opacities move.
 pub fn fade_to(index: usize) {
     let Ok(g) = PAGES.lock() else { return };

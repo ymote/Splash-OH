@@ -25,6 +25,13 @@ pub mod tabbar;
 pub mod timeline;
 pub mod timeline_data;
 
+/// The id a screen root reports the moment ArkUI mounts it.
+///
+/// Declared here rather than beside its only user in `splash-oh`, so that
+/// `ids_are_unique` can see it: a constant the test cannot reach is a constant
+/// that can collide silently.
+pub const SCREEN_APPEAR: i32 = 7440;
+
 /// Every tap target on a screen, in one overlay.
 ///
 /// Three facts, each of which hid the next.
@@ -172,6 +179,7 @@ mod tests {
         ("details::BROWSE_TAP", super::details::BROWSE_TAP),
         ("details::ARTIFACT_OPEN", super::details::ARTIFACT_OPEN),
         ("details::SCROLL_TICK", super::details::SCROLL_TICK),
+        ("SCREEN_APPEAR", super::SCREEN_APPEAR),
         ("search::SEARCH_CLOSE", super::search::SEARCH_CLOSE),
         ("search::SEARCH_TYPED", super::search::SEARCH_TYPED),
         ("search::RANGE_TOGGLE", super::search::RANGE_TOGGLE),

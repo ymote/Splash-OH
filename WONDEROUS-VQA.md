@@ -73,8 +73,12 @@ mid-flight, and put back:
 - `wonderous-gallery-tween.png` — the wall mid-slide, three frames.
 - `wonderous-transitions.png` — the home cross-fade with two wonders
   superimposed, and a route fading up from transparent.
-- The hero parallax was measured rather than eyeballed at the old photo hero:
-  0.51× the article over it.
+- The editorial band fades rather than parallaxes, which is what
+  `editorial_screen.dart` does: opacity `1 - scroll/700`, and the masthead
+  slides at .3 of the scroll. An earlier version of this port used a
+  photograph with a half-rate parallax — measured at 0.51× on the device —
+  but that motion was this port's invention, not the app's, and went with the
+  photograph when the hero became the app's own illustration.
 
 Search was checked against the corpus rather than by eye: at Petra's default
 500 BCE – 500 CE the grid is nine, starting "Figure of ibex", "Unguentarium",

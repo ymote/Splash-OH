@@ -10,13 +10,18 @@ use super::tabbar;
 use crate::arkui::{attr, ty, Node};
 use crate::ui::*;
 
-/// The hero's photograph and its title block, kept so a scroll can move them
-/// without rebuilding the tree.
+/// The hero band and its title block, kept so a scroll can move them without
+/// rebuilding the tree.
 ///
-/// Wonderous collapses the hero as the article scrolls: the image drifts up at
-/// half the scroll rate — parallax — and the title fades toward the top. That
-/// is per-frame, so rebuilding the whole screen for each event is not an
-/// option; these two handles get their attributes set directly.
+/// `editorial_screen.dart` fades the band out over the first 700 of scroll and
+/// slides the title down at .3 of it. Neither is a parallax: the band is a
+/// fixed-height box behind the article, not a layer moving at its own rate, and
+/// `_TopIllustration`'s only translate is a constant horizontal one. An earlier
+/// version of this screen used a photograph with a half-rate parallax, which
+/// was this port's invention rather than the app's.
+///
+/// Both are per-frame, so rebuilding the screen for each event is not an
+/// option; these handles get their attributes set directly.
 static HERO_IMAGE: AtomicUsize = AtomicUsize::new(0);
 static HERO_TITLE: AtomicUsize = AtomicUsize::new(0);
 static HERO_SCROLL: AtomicUsize = AtomicUsize::new(0);
@@ -31,12 +36,13 @@ const TITLE_FADE_OVER: f32 = 150.0;
 
 /// Apply the current scroll offset to the hero. Called from the scroll event.
 ///
-/// Both handles are cleared whenever the screen is rebuilt, so a stale one is
-/// never written to.
-pub fn apply_parallax() {
-    let hero_h = HERO_H.lock().map(|h| *h).unwrap_or(0.0);
+/// Every handle here is cleared by `forget_nodes` before any screen is built,
+/// and the dispatcher only routes a scroll tick while a details screen is up,
+/// so a late event cannot write through a handle whose node has been dropped.
+pub fn apply_scroll() {
+    let band = HERO_H.lock().map(|h| *h).unwrap_or(0.0);
     let scroll = HERO_SCROLL.load(Ordering::Relaxed);
-    if hero_h <= 0.0 || scroll == 0 {
+    if band <= 0.0 || scroll == 0 {
         return;
     }
     // Ask the Scroll where it is. Accumulating the deltas the event carries
@@ -47,7 +53,6 @@ pub fn apply_parallax() {
     else {
         return;
     };
-    let _ = hero_h;
     let img = HERO_IMAGE.load(Ordering::Relaxed);
     let title = HERO_TITLE.load(Ordering::Relaxed);
 
@@ -171,21 +176,35 @@ pub fn set_artifact_sel(i: usize) {
     ARTIFACT_SEL.store(i, Ordering::Relaxed);
 }
 
-pub fn build(index: usize, tab: usize, w: f32, h: f32) -> Option<Node> {
-    // The old tree is about to be dropped. Forget its hero before anything can
-    // write to those handles; only the editorial tab puts them back.
+/// Drop every handle this module holds.
+///
+/// Called before *any* screen is built, not just a details screen. Clearing
+/// them only when another details screen was built left them pointing into a
+/// tree that navigating away had already dropped, and a scroll or swipe event
+/// still in flight would then write through them.
+pub fn forget_nodes() {
     HERO_IMAGE.store(0, Ordering::Relaxed);
     HERO_TITLE.store(0, Ordering::Relaxed);
     HERO_SCROLL.store(0, Ordering::Relaxed);
+    if let Ok(mut g) = HERO_H.lock() {
+        *g = 0.0;
+    }
     if let Ok(mut g) = WALL.lock() {
         *g = None;
     }
     if let Ok(mut g) = CAROUSEL.lock() {
         *g = None;
     }
-    if let Ok(mut g) = HERO_H.lock() {
-        *g = 0.0;
-    }
+}
+
+/// Put the gallery and the carousel back to where a fresh route starts them:
+/// the middle cell, and the first piece.
+pub fn reset_selection() {
+    PHOTO_SEL.store(13, Ordering::Relaxed);
+    ARTIFACT_SEL.store(0, Ordering::Relaxed);
+}
+
+pub fn build(index: usize, tab: usize, w: f32, h: f32) -> Option<Node> {
     let wonder = &WONDERS[index % WONDERS.len()];
     let bar_h = tabbar::height();
     let mut root = stack(w, h, wonder.bg)?;

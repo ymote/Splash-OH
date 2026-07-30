@@ -137,7 +137,7 @@ fn apply_filter() {
     let hits = matches(grid.index, term.as_deref());
     for (i, &(tile, label)) in grid.tiles.iter().enumerate() {
         // ARKUI_VISIBILITY_VISIBLE / _NONE.
-        let vis = if i < hits.len() { 0 } else { 2 };
+        let vis = if i < hits.len().min(GRID_MAX) { 0 } else { 2 };
         unsafe {
             Node::set_i32_raw(tile as crate::arkui::NodeHandle, attr::visibility(), vis);
             Node::set_i32_raw(label as crate::arkui::NodeHandle, attr::visibility(), vis);
@@ -176,6 +176,17 @@ fn apply_filter() {
     }
 }
 
+/// Adopt a term chosen some other way than typing — a suggestion chip.
+///
+/// The chip used to live only in the route, so it filtered the build and then
+/// nothing else knew about it: opening the year panel and dragging a handle
+/// re-filtered on an empty field and threw the chip's results away.
+pub fn set_term(t: &str) {
+    if let Ok(mut g) = TYPED.lock() {
+        *g = t.to_string();
+    }
+}
+
 /// What is in the field now. Returns true if it changed.
 pub fn read_typed() -> bool {
     let node = FIELD.lock().map(|g| *g).unwrap_or(0);
@@ -207,17 +218,26 @@ pub fn typed() -> String {
 }
 
 /// Forget the field when the screen goes away, so a stale handle is never read.
-pub fn clear_field() {
-    if let Ok(mut g) = FIELD.lock() {
-        *g = 0;
-    }
+/// Forget what was searched for, when the screen is left for good.
+///
+/// Separate from `forget_nodes`: the handles go stale on every rebuild, but a
+/// chip tap rebuilds too and the term has to survive that.
+pub fn reset_query() {
     if let Ok(mut g) = TYPED.lock() {
         g.clear();
     }
-    if let Ok(mut g) = GRID.lock() {
+    if let Ok(mut g) = RANGE.lock() {
         *g = None;
     }
-    if let Ok(mut g) = RANGE.lock() {
+    RANGE_OPEN.store(false, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Drop every handle this module holds. See `details::forget_nodes`.
+pub fn forget_nodes() {
+    if let Ok(mut g) = FIELD.lock() {
+        *g = 0;
+    }
+    if let Ok(mut g) = GRID.lock() {
         *g = None;
     }
     if let Ok(mut g) = HANDLES.lock() {
@@ -226,7 +246,6 @@ pub fn clear_field() {
     if let Ok(mut g) = RANGE_LABELS.lock() {
         *g = (0, 0, 0);
     }
-    RANGE_OPEN.store(false, std::sync::atomic::Ordering::Relaxed);
 }
 pub const CHIP_BASE: i32 = 7390;
 
@@ -243,13 +262,15 @@ fn matches(index: usize, term: Option<&str>) -> Vec<&'static super::corpus::Foun
     let list = super::corpus::CORPUS[index % super::corpus::CORPUS.len()];
     let (lo, hi) = range_for(index);
     let word = term.map(|t| t.to_ascii_lowercase());
+    // No `take` here. Capping inside the filter made the count line report the
+    // number of tiles rather than the number of matches -- "9 artifact(s)" for
+    // a term that matches two hundred. The caller takes what it can show.
     list.iter()
         .filter(|a| a.year >= lo && a.year <= hi)
         .filter(|a| match word.as_deref() {
             None => true,
             Some(t) => a.title.to_ascii_lowercase().contains(t) || a.keywords.contains(t),
         })
-        .take(GRID_MAX)
         .collect()
 }
 

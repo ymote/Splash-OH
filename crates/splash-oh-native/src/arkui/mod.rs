@@ -477,10 +477,10 @@ pub const CURVE_EASE_OUT: i32 = 3;
 /// `anchor` must be a live, mounted node handle.
 pub unsafe fn animate<F: FnOnce()>(anchor: NodeHandle, duration_ms: i32, curve: i32, f: F) {
     extern "C" fn trampoline(user: *mut std::ffi::c_void) {
-        // The shim guarantees this runs exactly once, before splash_animate
-        // returns: on every path where the animation cannot be set up it calls
-        // the closure itself. (If ArkUI were to accept the callback and then
-        // never run it, this would leak one boxed closure and nothing worse.)
+        // Exactly once, before splash_animate returns. The shim guards it with
+        // a flag and calls it itself on every path where the animation could
+        // not be set up -- including a rejected animateTo, which previously
+        // leaked the box and dropped the update it was carrying.
         let b: Box<Box<dyn FnOnce()>> = unsafe { Box::from_raw(user as *mut _) };
         (*b)();
     }

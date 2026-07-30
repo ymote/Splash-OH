@@ -141,19 +141,30 @@ fn step_artifact(d: i32) -> bool {
 
 /// Handle a tap. `true` if it was ours and the tree should be rebuilt.
 pub fn handle(target: i32) -> bool {
+    // Events that write through a stored node handle are only honoured while
+    // the screen that published that handle is up.
+    //
+    // Without this an event still in flight when you navigate away -- an
+    // inertial scroll, the tail of a swipe -- reached a handle whose node
+    // `set_root` had already dropped.
+    let on_details = matches!(screen(), Screen::Details(_));
+    let on_search = matches!(screen(), Screen::Search(_));
+
     // A scroll tick moves the hero directly and does not rebuild: the tree is
     // unchanged, only two attributes on nodes that are already mounted.
     if target == wonders::details::SCROLL_TICK {
-        wonders::details::apply_parallax();
+        if on_details {
+            wonders::details::apply_scroll();
+        }
         return false;
     }
     // A keystroke in the search field: read the text back and redraw the
     // results if it actually changed.
     if target == wonders::search::SEARCH_TYPED {
-        return wonders::search::read_typed();
+        return on_search && wonders::search::read_typed();
     }
     if target == wonders::search::RANGE_START || target == wonders::search::RANGE_END {
-        return wonders::search::read_range();
+        return on_search && wonders::search::read_range();
     }
     if target == SCREEN_APPEAR {
         fade_in_screen();
@@ -178,27 +189,30 @@ pub fn handle(target: i32) -> bool {
     if target >= wonders::search::CHIP_BASE
         && target < wonders::search::CHIP_BASE + wonders::search::CHIPS as i32
     {
-        go(Screen::Search(Some(
-            (target - wonders::search::CHIP_BASE) as usize,
-        )));
+        let i = (target - wonders::search::CHIP_BASE) as usize;
+        let words = wonders::search_data::SUGGESTIONS[current() % 8];
+        if let Some(word) = words.get(i) {
+            wonders::search::set_term(word);
+        }
+        go(Screen::Search(Some(i)));
         return true;
     }
     // Swipes. The shim measures the drag and reports base + 1..4 for left,
     // right, up and down; each of these is the same move as the tap next to it.
     if let Some(d) = swipe_of(target, wonders::home::HOME_SWIPE) {
+        // `step` cross-fades the mounted tree and returns false on purpose.
+        // Forcing `true` here rebuilt Home a frame after handing its nodes to
+        // animateTo, so the swipe fell back to a route fade.
         return match d {
-            SWIPE_LEFT => {
-                step(1);
-                true
-            }
-            SWIPE_RIGHT => {
-                step(-1);
-                true
-            }
+            SWIPE_LEFT => step(1),
+            SWIPE_RIGHT => step(-1),
             _ => false,
         };
     }
     if let Some(d) = swipe_of(target, wonders::details::PHOTO_SWIPE) {
+        if !on_details {
+            return false;
+        }
         // `_handleSwipe`: a horizontal swipe moves one cell against the drag,
         // a vertical one moves a whole row.
         let (dx, dy) = match d {
@@ -210,6 +224,9 @@ pub fn handle(target: i32) -> bool {
         return wonders::details::move_photo_sel(dx, dy);
     }
     if let Some(d) = swipe_of(target, wonders::details::ARTIFACT_SWIPE) {
+        if !on_details {
+            return false;
+        }
         return match d {
             SWIPE_LEFT => step_artifact(1),
             SWIPE_RIGHT => step_artifact(-1),
@@ -222,7 +239,9 @@ pub fn handle(target: i32) -> bool {
         wonders::details::PHOTO_UP
         | wonders::details::PHOTO_DOWN
         | wonders::details::PHOTO_LEFT
-        | wonders::details::PHOTO_RIGHT => {
+        | wonders::details::PHOTO_RIGHT
+            if on_details =>
+        {
             let (dx, dy) = match target {
                 wonders::details::PHOTO_UP => (0, -1),
                 wonders::details::PHOTO_DOWN => (0, 1),
@@ -241,7 +260,7 @@ pub fn handle(target: i32) -> bool {
         }
         wonders::search::RANGE_TOGGLE => wonders::search::toggle_range(),
         wonders::search::SEARCH_CLOSE => {
-            wonders::search::clear_field();
+            wonders::search::reset_query();
             go(Screen::Details(2));
             true
         }
@@ -296,6 +315,7 @@ pub fn handle(target: i32) -> bool {
         }
         // The chevron and the title both open the details, as they do in the app.
         wonders::home::DETAILS_TAP => {
+            wonders::details::reset_selection();
             TAB.store(0, Ordering::Relaxed);
             go(Screen::Details(0));
             true
@@ -306,12 +326,7 @@ pub fn handle(target: i32) -> bool {
     }
 }
 
-/// The id the screen root reports the moment it is mounted.
-///
-/// A route change in Wonderous fades; the new tree cannot be animated before
-/// it exists, so it is built transparent and asks to be faded in as soon as
-/// ArkUI tells it that it is on screen.
-const SCREEN_APPEAR: i32 = 7440;
+use wonders::SCREEN_APPEAR;
 /// `$styles.times.fast`, the app's route transition.
 const SCREEN_FADE_MS: i32 = 200;
 /// The newest screen root. An appear from an older tree would find this
@@ -339,6 +354,13 @@ fn fade_in_screen() {
 
 pub fn build() -> Option<Node> {
     let (w, h) = page();
+    // Whatever tree is about to replace the mounted one, the handles the old
+    // screen published are now worthless: `set_root` drops that tree. Forget
+    // them before building, so a half-built screen cannot leave a live handle
+    // behind either.
+    wonders::details::forget_nodes();
+    wonders::search::forget_nodes();
+    wonders::home::forget_nodes();
     let node = build_screen(w, h)?;
     // Every screen fades in, including home: home changes wonder by
     // cross-fading in place rather than rebuilding, so it only ever appears
