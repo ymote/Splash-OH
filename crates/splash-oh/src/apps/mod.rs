@@ -19,6 +19,7 @@
 
 pub mod browser;
 pub mod files;
+pub mod frontend;
 pub mod native;
 
 pub mod weather_web;
@@ -43,6 +44,12 @@ pub enum App {
     /// 482 lines of DSL evaluated on device, and every widget it produces is a
     /// real ArkUI node. No makepad anywhere in the path.
     Catalog,
+    /// The shipped frontend bundle, served over `splash://` by `assets.rs`.
+    ///
+    /// The one app here that is a web page this crate did not generate: it
+    /// arrives as separate files through the scheme handler, the way a real
+    /// frontend build would.
+    Frontend,
     /// Every bridge tool on one screen with live values. The fixture the
     /// bridge is verified against, so a new capability is one row rather than
     /// a new panel bolted onto whichever card was nearest.
@@ -67,6 +74,7 @@ impl App {
             App::WeatherWeb => "weatherweb",
             App::Files => "files",
             App::Native => "native",
+            App::Frontend => "frontend",
             App::Catalog => "catalog",
         }
     }
@@ -79,6 +87,7 @@ impl App {
             "weatherweb" => App::WeatherWeb,
             "files" => App::Files,
             "native" => App::Native,
+            "frontend" => App::Frontend,
             "catalog" => App::Catalog,
             _ => App::WeChat,
         }
@@ -103,6 +112,7 @@ impl App {
             App::WeatherWeb => &["0|root", "1|root", "2|root", "3|root", "0|root", "1|root"],
             App::Files => &["0|root", "1|root", "2|root", "3|root", "4|root", "0|root"],
             App::Native => &["0|root", "0|root", "0|root", "0|root", "0|root", "0|root"],
+            App::Frontend => &["0|root"],
             App::Catalog => &[
                 "0|root",
                 "0|buttons",
@@ -252,6 +262,7 @@ pub fn handle(target: i32) -> bool {
             },
             // No navigation: one page, every tool live on it.
             App::Native => false,
+            App::Frontend => false,
             // The DSL owns the ids: NAV_BASE + row index opens a screen, and
             // NAV_BACK returns to the index. `sub` carries the screen, with 0
             // meaning the index itself.
@@ -314,13 +325,20 @@ pub fn build() -> (Option<Node>, usize, f64) {
         App::WeatherWeb => weather_web::build(tab),
         App::Files => files::build(tab),
         App::Native => native::build(),
+        App::Frontend => frontend::build(),
         App::Catalog => {
-            let screen = if sub == 0 {
-                ""
-            } else {
-                splash_oh_native::dsl::CATALOG_SCREENS[sub - 1]
-            };
-            splash_oh_native::dsl::build_screen(screen, None)
+            // The flutter/samples kit, not the Material catalog: the same
+            // `.splash` the makepad backend renders, walked into ArkUI. Taps
+            // re-enter through `app::rebuild`, which keeps the route — but a
+            // rebuild that comes from anywhere else lands here, and this used
+            // to hardcode "index". So background data arriving for the screen
+            // you were looking at threw you back to the list: the compass
+            // location card asked for a redraw when its fix landed and the
+            // redraw was the index. Ask for the route that is actually current.
+            let _ = sub;
+            let route = splash_oh_native::app::current_screen();
+            let route = if route.is_empty() { "index".to_string() } else { route };
+            splash_oh_native::dsl::build_flutter(&route, false)
         }
         App::WeChat => unreachable!(),
     };
@@ -367,11 +385,12 @@ pub fn build_route(app: App, tab: usize, route: &str) -> (usize, f64) {
         App::WeatherWeb => weather_web::build(tab),
         App::Files => files::build(tab),
         App::Native => native::build(),
+        App::Frontend => frontend::build(),
         App::Catalog => {
             // The tour names screens directly ("0|chips"), so "root" is the
-            // index and anything else is the screen id verbatim.
-            let screen = if route == "root" { "" } else { route };
-            splash_oh_native::dsl::build_screen(screen, None)
+            // index and anything else is the route verbatim.
+            let screen = if route == "root" { "index" } else { route };
+            splash_oh_native::dsl::build_flutter(screen, false)
         }
         App::WeChat => unreachable!(),
     };

@@ -96,15 +96,54 @@ fn section(s)  { return ltext(s, 12, 6, LABEL, PANW_IN) }
 fn panel(kids) { return {t: "column", w: PANELW, bg: PANELBG, radius: 22, pad: 16, c: kids} }
 
 // ---- hero (floats over the map) -------------------------------------------
+//
+// The metrics under the condition were one dot-joined string —
+// "Feels 29°  ·  H 77%  ·  Wind 2 km/h" — three unrelated numbers run together
+// at one weight with nothing to read them by. Two things were wrong with it.
+//
+// The smaller one is that `H` meant humidity. Every weather app on a phone uses
+// H for the day's high, next to L for its low, and this card had no high or low
+// anywhere except buried in the forecast rows — so the one line a reader
+// actually scans first was missing the number they were looking for and using
+// its letter for something else.
+//
+// The larger one is that a value with no label is not a metric. Each of these
+// now gets its own cell with the name above it, which is what makes the row
+// scannable rather than a sentence to parse.
+
+// A metric under the hero: label over value, on nothing. Sits on the satellite
+// image rather than in a panel, so it stays as light as the text around it.
+fn metric(label, value, w) {
+    return {t: "column", w: w, h: 44, alignx: 0.5, c: [
+        {t: "text", text: label, size: 11, weight: 5, color: DIM,
+         w: w, h: 15, talign: 1},
+        {t: "text", text: value, size: 17, weight: 5, color: WHITE,
+         w: w, h: 23, talign: 1},
+    ]}
+}
+
 fn hero() {
     let code = fetch_num(WX, "current.weather_code", -1)
-    let summary = "Feels " + fetch_fmt(WX, "current.apparent_temperature", -1, "°") + "   ·   H " + fetch_fmt(WX, "current.relative_humidity_2m", -1, "%") + "   ·   Wind " + fetch_fmt(WX, "current.wind_speed_10m", -1, " km/h")
+    // Today's high and low, the pair a reader looks for first. Index 0 of the
+    // same daily series the forecast rows below are drawn from.
+    let hilo = "H " + fetch_fmt(WX, "daily.temperature_2m_max", 0, "°")
+             + "   L " + fetch_fmt(WX, "daily.temperature_2m_min", 0, "°")
+    let mw = 116
     return [
         ctext("Tokyo", 30, 5, WHITE),
         {t: "text", text: fetch_fmt(WX, "current.temperature_2m", -1, "°"),
          size: 76, weight: 3, color: WHITE, w: 140, h: 112},
         ctext(wmo_word(code), 22, 4, LIGHT),
-        ctext(summary, 15, 4, LIGHT),
+        ctext(hilo, 17, 6, WHITE),
+        spacer(10),
+        {t: "row", w: mw * 3, h: 44, c: [
+            metric("FEELS LIKE",
+                   fetch_fmt(WX, "current.apparent_temperature", -1, "°"), mw),
+            metric("HUMIDITY",
+                   fetch_fmt(WX, "current.relative_humidity_2m", -1, "%"), mw),
+            metric("WIND",
+                   fetch_fmt(WX, "current.wind_speed_10m", -1, " km/h"), mw),
+        ]},
     ]
 }
 

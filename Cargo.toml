@@ -1,6 +1,11 @@
 [workspace]
 resolver = "2"
-members = ["crates/splash-oh-native", "crates/splash-oh"]
+members = [
+    "crates/splash-oh-native",
+    "crates/splash-oh-core",
+    "crates/splash-oh-plugin-demo",
+    "crates/splash-oh",
+]
 
 [profile.release]
 opt-level = 3

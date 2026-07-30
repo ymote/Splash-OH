@@ -88,6 +88,28 @@ pub fn init(slot: NodeContentHandle) {
 
 /// ArkUI event thread → here. Only the target id matters.
 extern "C" fn on_event(target_id: i32, _event_type: i32) {
+    // Checked FIRST, ahead of the router hand-off below.
+    //
+    // The flutter kit names its targets with route strings, interned during the
+    // walk into ids at or above FLUTTER_NAV_BASE. Those ids belong to no other
+    // app, so claiming them here is unambiguous — and it has to happen before
+    // the `WECHAT_ACTIVE` branch, which returns unconditionally once a bridge
+    // app is mounted. `catalogScreen` sets that flag, so every tap in the kit
+    // was being handed to a router that knows nothing about route strings and
+    // then dropped. Nothing was clickable.
+    if let Some(route) = crate::dsl::flutter_route(target_id) {
+        // A target is either somewhere to go or something to change. The kit
+        // names the second kind "set:key=…" and it rides the same interning as
+        // a route, so a control needs no new node attribute and both backends
+        // get it from the one place a tap already lands.
+        if crate::state::apply(&route) {
+            rebuild();
+        } else {
+            set_screen(route);
+        }
+        return;
+    }
+
     // Whichever ported app owns the surface handles the id and rebuilds.
     //
     // This used to call `wechat::handle` + `wechat::build` directly, from
@@ -128,6 +150,29 @@ extern "C" fn on_event(target_id: i32, _event_type: i32) {
         // widgets are real, so ArkUI already handled the visual state itself.
         _ => {}
     }
+}
+
+/// The route currently mounted.
+pub fn current_screen() -> String {
+    APP.with(|a| {
+        a.borrow()
+            .as_ref()
+            .map(|app| app.screen.clone())
+            .unwrap_or_default()
+    })
+}
+
+/// Record the current route without rebuilding.
+///
+/// `catalogScreen` builds and mounts its own tree, so it never went through
+/// `set_screen` and `app.screen` stayed empty — which made `is_animating()`
+/// always false and the animation tick a permanent no-op.
+pub fn set_screen_quiet(s: String) {
+    APP.with(|a| {
+        if let Some(app) = a.borrow_mut().as_mut() {
+            app.screen = s;
+        }
+    });
 }
 
 fn set_screen(s: String) {
@@ -182,7 +227,9 @@ pub fn set_root(new_root: Option<Node>) {
             Err(e) => crate::log(&format!("app: mount failed: {e}")),
         }
     });
+
 }
+
 
 /// Remove the mounted tree without putting anything back, so another owner can
 /// use the slot.
@@ -199,6 +246,18 @@ pub fn detach_root() {
     });
 }
 
+/// Whether the current screen is one that moves.
+///
+/// Re-mounting rebuilds the whole native tree, so it is only worth doing on a
+/// timer for screens that animate. Everything else is static and costs nothing.
+pub fn is_animating() -> bool {
+    APP.with(|a| {
+        a.borrow()
+            .as_ref()
+            .is_some_and(|app| app.screen.starts_with("animations/"))
+    })
+}
+
 /// Re-evaluate the DSL for the current screen and swap the tree in.
 pub fn rebuild() {
     let (slot, screen) = APP.with(|a| {
@@ -208,14 +267,36 @@ pub fn rebuild() {
     });
     let bench = crate::bench::report();
 
-    // DEMO: mount the LLM-generated weather card instead of the catalog. The
-    // weather DSL is self-contained (data inlined), so screen/bench are unused.
-    let _ = (&screen, &bench);
-    let Some(new_root) = crate::dsl::build_weather() else {
+    // Mount the flutter/samples kit — the same `.splash` the makepad backend
+    // renders, walked into ArkUI here. `screen` carries the route; empty means
+    // the index. `bench` is unused by this kit.
+    let _ = &bench;
+    let route = if screen.is_empty() { "index" } else { &screen };
+
+    // Where the old tree was scrolled to, read before it is dropped.
+    //
+    // Only carried across when the route is unchanged: a tap that ticks a
+    // checkbox should leave you looking at the checkbox, and a tap that
+    // navigates should start the new screen at the top, the way every phone
+    // does it.
+    let keep = crate::dsl::built_route() == route;
+    let offset = if keep {
+        let h = crate::dsl::scroll_node();
+        if h.is_null() {
+            None
+        } else {
+            crate::arkui::Node::get_f32(h, crate::arkui::attr::scroll_offset(), 1)
+        }
+    } else {
+        None
+    };
+
+    let Some(new_root) = crate::dsl::build_flutter(route, false) else {
         crate::log("app: DSL build failed");
         return;
     };
 
+    crate::ui::record_total(crate::ui::count());
     APP.with(|a| {
         let mut b = a.borrow_mut();
         let app = b.as_mut().unwrap();
@@ -230,4 +311,18 @@ pub fn rebuild() {
             Err(e) => crate::log(&format!("app: mount failed: {e}")),
         }
     });
+
+    // After mounting, not before: the node has no content to scroll over until
+    // it is in the tree, and setting an offset on a zero-height Scroll is a
+    // no-op that looks exactly like this working.
+    if let Some(y) = offset {
+        let h = crate::dsl::scroll_node();
+        if !h.is_null() && y > 0.0 {
+            crate::arkui::Node::set_f32v_raw(
+                h,
+                crate::arkui::attr::scroll_offset(),
+                &[0.0, y],
+            );
+        }
+    }
 }

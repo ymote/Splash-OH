@@ -262,28 +262,9 @@ pub fn json_str(s: &str) -> String {
 /// struct Thumb { path: String, #[serde(default)] max_edge: Option<u32> }
 /// let a: Thumb = args.parse()?;
 /// ```
-pub struct Args(String);
-
-impl Args {
-    /// Deserialize into `T`, naming the tool and the failure rather than
-    /// falling back to a default that hides the mistake.
-    pub fn parse<T: serde::de::DeserializeOwned>(&self) -> Result<T, String> {
-        serde_json::from_str(&self.0).map_err(|e| format!("bad arguments: {e}"))
-    }
-
-    /// The raw JSON, for the few tools that genuinely want it.
-    pub fn raw(&self) -> &str {
-        &self.0
-    }
-
-    /// A single string argument. `invoke('echo', 'hi')` now arrives as `"hi"`,
-    /// so this is a parse rather than the quote-trimming every tool used to do
-    /// by hand -- and it is correct for a string containing a quote, which the
-    /// trimming was not.
-    pub fn text(&self) -> String {
-        self.parse::<String>().unwrap_or_else(|_| self.0.clone())
-    }
-}
+/// Moved to `splash-oh-core` so a plugin crate can take one without depending
+/// on this cdylib. Re-exported because every tool arm below uses the name.
+pub use splash_oh_core::Args;
 
 // --- Typed arguments -------------------------------------------------------
 //
@@ -382,7 +363,7 @@ struct PrefsSetArgs {
 /// Anything that can block runs on a worker. The caller here is ArkTS's JS
 /// thread, and blocking it is what `net::mark_ui_thread` exists to catch.
 pub fn invoke(slot: u32, call_id: String, tool: String, args_raw: String) {
-    let args = Args(args_raw);
+    let args = Args::new(args_raw);
     // Tracked before dispatch, so a tool that never replies is still answered.
     // slot.ready is fire-and-forget by design and has no promise waiting.
     if tool != "slot.ready" {
@@ -406,7 +387,27 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args_raw: String) {
         return;
     }
 
+    // Plugins first. A registered tool wins over a built-in of the same name --
+    // but `Registry::add` refuses a duplicate, so the only way to reach here
+    // with a clash is for a plugin to have claimed a name before the bridge
+    // knew about it, and honouring the plugin is the useful answer then.
+    if let Some(result) = splash_oh_core::dispatch(&tool, &args) {
+        match result {
+            Ok(payload) => reply(slot, call_id, ok(payload)),
+            Err(why) => reply(slot, call_id, err(&why)),
+        }
+        return;
+    }
+
     match tool.as_str() {
+        // Every tool a plugin has registered, so a page can see what this build
+        // actually contains rather than what the documentation claims.
+        "plugin.list" => {
+            let names = splash_oh_core::registered();
+            let joined: Vec<String> = names.iter().map(|n| json_str(n)).collect();
+            reply(slot, call_id, ok(format!("[{}]", joined.join(","))));
+        }
+
         // A page reporting that its script is running. See SHIM: this is the
         // only signal that a generated page actually rendered, because
         // loadData succeeding and onPageEnd firing both happen when it did not.
@@ -890,7 +891,13 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args_raw: String) {
             } else {
                 format!("[{}]", json_str(&args.text()))
             };
-            park_arkts(slot, call_id, "permission.request", &list);
+            match vet_permissions(&list) {
+                Ok(vetted) => park_arkts(slot, call_id, "permission.request", &vetted),
+                Err(why) => {
+                    crate::log(&format!("bridge: slot {slot} asked for {why}"));
+                    reply(slot, call_id, err(&why));
+                }
+            }
         }
 
         // Cellular network state: operator, technology, roaming. A page has
@@ -1208,6 +1215,60 @@ pub fn invoke(slot: u32, call_id: String, tool: String, args_raw: String) {
 /// an open one turns every card into a proxy for reaching anything the phone
 /// can reach. Suffix-matched on a label boundary, so `open-meteo.com` covers
 /// `api.` and `geocoding-api.` but not `evil-open-meteo.com`.
+/// Permissions a page is allowed to ask the user for.
+///
+/// The app declares eleven in `module.json5`, but declaring one and letting a
+/// *page* prompt for it are different decisions. This tool used to forward
+/// whatever names arrived straight to `requestPermissionsFromUser`, so any
+/// trusted page could raise a camera or microphone dialog at any moment, in any
+/// context — and trust is still one bit, so every trusted page had that power.
+///
+/// Only the user_grant permissions are here, because they are the only ones a
+/// runtime prompt means anything for. The rest (INTERNET, VIBRATE,
+/// GET_NETWORK_INFO, GET_WIFI_INFO, ACCELEROMETER, GYROSCOPE) are granted at
+/// install; asking for them is a mistake rather than a risk, and it is refused
+/// as one so the mistake is visible instead of silently doing nothing.
+///
+/// This is a static list, which is the honest minimum rather than the finished
+/// answer. The real shape is per-page capability declarations — the same place
+/// the HTTP host allowlist below should end up.
+const PAGE_REQUESTABLE_PERMISSIONS: &[&str] = &[
+    "ohos.permission.LOCATION",
+    "ohos.permission.APPROXIMATELY_LOCATION",
+    "ohos.permission.CAMERA",
+    "ohos.permission.MICROPHONE",
+    "ohos.permission.ACCESS_BLUETOOTH",
+];
+
+/// At most this many permissions in one request. A page with a legitimate
+/// reason asks for one or two; a list of thirty is a prompt-fatigue attack.
+const MAX_PERMISSIONS_PER_REQUEST: usize = 4;
+
+/// Check a requested permission list, or say why it was refused.
+///
+/// Fails the whole call rather than filtering the bad names out. Silently
+/// dropping one would leave the page believing it had asked, and the user
+/// believing they had answered.
+fn vet_permissions(list_json: &str) -> Result<String, String> {
+    let names: Vec<String> = serde_json::from_str(list_json)
+        .map_err(|_| "a permission list that is not an array of strings".to_string())?;
+    if names.is_empty() {
+        return Err("no permissions at all".to_string());
+    }
+    if names.len() > MAX_PERMISSIONS_PER_REQUEST {
+        return Err(format!(
+            "{} permissions at once, more than the limit of {MAX_PERMISSIONS_PER_REQUEST}",
+            names.len()
+        ));
+    }
+    for n in &names {
+        if !PAGE_REQUESTABLE_PERMISSIONS.contains(&n.as_str()) {
+            return Err(format!("{n:?}, which pages may not request"));
+        }
+    }
+    Ok(list_json.to_string())
+}
+
 const HTTP_GET_ALLOWED_HOSTS: &[&str] = &[
     "open-meteo.com",
     "api.open-meteo.com",
@@ -1639,8 +1700,12 @@ pub fn drain() -> Vec<String> {
 /// `splash_native` is the raw proxy ArkWeb injects: synchronous and void. This
 /// wraps it in the promise API a page actually wants, and provides `_resolve`
 /// for ArkTS to call back into.
-pub const SHIM: &str = r#"<script>
-(function(){
+/// The bridge shim as bare JavaScript, with no `<script>` wrapper.
+///
+/// Split out from [`SHIM`] so the asset server can serve it as a real file.
+/// A page that Rust did not generate cannot have the shim prepended to it,
+/// so it has to be fetchable at a URL like any other script.
+pub const SHIM_JS: &str = r#"(function(){
   var n = 0, pending = {};
   window.splash = {
     // ARGS ARE ALWAYS JSON. Whatever is passed is stringified, so a tool
@@ -1702,4 +1767,9 @@ pub const SHIM: &str = r#"<script>
     window.splash_native.invoke('ready', 'slot.ready', '');
   }
 })();
-</script>"#;
+"#;
+
+/// The shim wrapped in a `<script>` tag, for markup Rust generates.
+pub fn shim() -> String {
+    format!("<script>{SHIM_JS}</script>")
+}

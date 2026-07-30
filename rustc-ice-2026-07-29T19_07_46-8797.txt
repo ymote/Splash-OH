@@ -1,0 +1,24 @@
+thread 'rustc' panicked at /rustc-dev/873d4682c7d285540b8f28bfe637006cef8918a6/compiler/rustc_codegen_llvm/src/back/lto.rs:93:54:
+couldn't open rlib: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+stack backtrace:
+   0:        0x1136cd20c - <std[c44d8a5c45bc4d56]::backtrace::Backtrace>::create
+   1:        0x11158bb20 - std[c44d8a5c45bc4d56]::panicking::update_hook::<alloc[7265a125e68d7721]::boxed::Box<rustc_driver_impl[acccd67a08ebe7b0]::install_ice_hook::{closure#1}>>::{closure#0}
+   2:        0x1136de61c - std[c44d8a5c45bc4d56]::panicking::panic_with_hook
+   3:        0x1136c262c - std[c44d8a5c45bc4d56]::panicking::panic_handler::{closure#0}
+   4:        0x1136b9154 - std[c44d8a5c45bc4d56]::sys::backtrace::__rust_end_short_backtrace::<std[c44d8a5c45bc4d56]::panicking::panic_handler::{closure#0}, !>
+   5:        0x1136c3c44 - __rustc[9332e2cd43e84cb0]::rust_begin_unwind
+   6:        0x116438924 - core[6fb13342c4fa825a]::panicking::panic_fmt
+   7:        0x11643868c - core[6fb13342c4fa825a]::result::unwrap_failed
+   8:        0x1111d4a5c - rustc_codegen_llvm[b735f4178576410e]::back::lto::prepare_lto
+   9:        0x111217278 - <rustc_codegen_llvm[b735f4178576410e]::LlvmCodegenBackend as rustc_codegen_ssa[d0bb36d9a31060ca]::traits::write::WriteBackendMethods>::run_and_optimize_fat_lto
+  10:        0x111233c40 - <rustc_codegen_llvm[b735f4178576410e]::LlvmCodegenBackend as rustc_codegen_ssa[d0bb36d9a31060ca]::traits::backend::CodegenBackend>::join_codegen
+  11:        0x111ebc8a4 - <rustc_interface[2317000e233d086e]::queries::Linker>::link
+  12:        0x11158ab10 - rustc_interface[2317000e233d086e]::interface::run_compiler::<(), rustc_driver_impl[acccd67a08ebe7b0]::run_compiler::{closure#0}>::{closure#1}
+  13:        0x111580d48 - std[c44d8a5c45bc4d56]::sys::backtrace::__rust_begin_short_backtrace::<rustc_interface[2317000e233d086e]::util::run_in_thread_with_globals<rustc_interface[2317000e233d086e]::util::run_in_thread_pool_with_globals<rustc_interface[2317000e233d086e]::interface::run_compiler<(), rustc_driver_impl[acccd67a08ebe7b0]::run_compiler::{closure#0}>::{closure#1}, ()>::{closure#0}, ()>::{closure#0}::{closure#0}, ()>
+  14:        0x111590a40 - <std[c44d8a5c45bc4d56]::thread::lifecycle::spawn_unchecked<rustc_interface[2317000e233d086e]::util::run_in_thread_with_globals<rustc_interface[2317000e233d086e]::util::run_in_thread_pool_with_globals<rustc_interface[2317000e233d086e]::interface::run_compiler<(), rustc_driver_impl[acccd67a08ebe7b0]::run_compiler::{closure#0}>::{closure#1}, ()>::{closure#0}, ()>::{closure#0}::{closure#0}, ()>::{closure#1} as core[6fb13342c4fa825a]::ops::function::FnOnce<()>>::call_once::{shim:vtable#0}
+  15:        0x1136e9210 - <std[c44d8a5c45bc4d56]::sys::thread::unix::Thread>::new::thread_start
+  16:        0x18d3fdc58 - __pthread_cond_wait
+
+
+rustc version: 1.95.0-nightly (873d4682c 2026-01-25)
+platform: aarch64-apple-darwin

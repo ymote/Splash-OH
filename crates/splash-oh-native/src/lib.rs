@@ -22,6 +22,7 @@ pub mod arkui;
 pub mod bench;
 pub mod catalog;
 pub mod dsl;
+pub mod state;
 pub mod mem;
 pub mod net;
 pub mod taobao;
@@ -58,5 +59,77 @@ pub fn log(msg: &str) {
                 c.as_ptr(),
             );
         }
+    }
+}
+
+/// A host capability call: a tool name in, an answer out.
+///
+/// The renderer must not depend on the bridge — that one-directional rule is
+/// the point of the crate split — so the capabilities are reached through a
+/// hook the bridge installs at mount, exactly as `app::set_router` does for
+/// navigation.
+pub type HostInvoke = fn(&str) -> String;
+
+static HOST_INVOKE: std::sync::Mutex<Option<HostInvoke>> = std::sync::Mutex::new(None);
+
+/// Installed once by the crate that owns the capabilities.
+pub fn set_host_invoke(f: HostInvoke) {
+    if let Ok(mut h) = HOST_INVOKE.lock() {
+        *h = Some(f);
+    }
+}
+
+/// Call a capability by name. Answers with a marker when no host is installed,
+/// so a screen renders on a backend that has none rather than failing.
+pub fn host_invoke(tool: &str) -> String {
+    match HOST_INVOKE.lock().ok().and_then(|h| *h) {
+        Some(f) => f(tool),
+        None => "unavailable".to_string(),
+    }
+}
+
+/// Declare a web surface: source, x, y, w, h -> slot id.
+///
+/// The renderer cannot own this — WebViews live in ArkTS and the slot registry
+/// is the bridge's — so it is another hook the bridge installs at mount.
+pub type WebDeclare = fn(&str, f32, f32, f32, f32) -> u32;
+
+static WEB_DECLARE: std::sync::Mutex<Option<WebDeclare>> = std::sync::Mutex::new(None);
+
+pub fn set_web_declare(f: WebDeclare) {
+    if let Ok(mut w) = WEB_DECLARE.lock() {
+        *w = Some(f);
+    }
+}
+
+/// Reserve a web surface. Returns 0 when no host is installed.
+pub fn web_declare(src: &str, x: f32, y: f32, w: f32, h: f32) -> u32 {
+    match WEB_DECLARE.lock().ok().and_then(|w| *w) {
+        Some(f) => f(src, x, y, w, h),
+        None => 0,
+    }
+}
+
+/// Drop every slot declared by the previous build.
+///
+/// A slot is declared while the tree is being walked, so the registry has to be
+/// emptied before each walk or the surfaces accumulate. Without this the
+/// flutter kit's web_embedding screen left its WebView floating over every
+/// screen visited afterwards — the index included, where it covered half the
+/// list. Same hook inversion as `web_declare`: the registry belongs to the
+/// bridge, so the bridge installs the reset.
+pub type WebReset = fn();
+
+static WEB_RESET: std::sync::Mutex<Option<WebReset>> = std::sync::Mutex::new(None);
+
+pub fn set_web_reset(f: WebReset) {
+    if let Ok(mut w) = WEB_RESET.lock() {
+        *w = Some(f);
+    }
+}
+
+pub fn web_reset() {
+    if let Some(f) = WEB_RESET.lock().ok().and_then(|w| *w) {
+        f();
     }
 }

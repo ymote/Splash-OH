@@ -129,3 +129,21 @@ pub fn spacer(w: f32, h: f32) -> Option<Node> {
 pub fn divider(w: f32, color: u32) -> Option<Node> {
     col(w, 1.0, color)
 }
+
+/// Nodes built by the most recently completed tree.
+///
+/// `count()` is live: read during a build it reports the tree so far, which for
+/// a screen asking about itself is zero. This is the last finished number, which
+/// is the one worth showing.
+pub fn last_total() -> usize {
+    LAST_TOTAL.with(|c| *c.borrow())
+}
+
+/// Called by the host once a tree is built.
+pub fn record_total(n: usize) {
+    LAST_TOTAL.with(|c| *c.borrow_mut() = n);
+}
+
+thread_local! {
+    static LAST_TOTAL: std::cell::RefCell<usize> = const { std::cell::RefCell::new(0) };
+}

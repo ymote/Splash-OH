@@ -18,6 +18,7 @@ extern "C" {
     fn splash_set_string(n: NodeHandle, attr: c_int, s: *const c_char) -> c_int;
     fn splash_set_i32_string(n: NodeHandle, attr: c_int, v: i32, s: *const c_char) -> c_int;
     fn splash_set_f32(n: NodeHandle, attr: c_int, v: f32) -> c_int;
+    fn splash_get_f32(n: NodeHandle, attr: c_int, index: c_int, out: *mut f32) -> c_int;
     fn splash_set_i32(n: NodeHandle, attr: c_int, v: i32) -> c_int;
     fn splash_set_u32(n: NodeHandle, attr: c_int, v: u32) -> c_int;
     fn splash_set_f32v(n: NodeHandle, attr: c_int, v: *const f32, count: c_int) -> c_int;
@@ -59,6 +60,22 @@ mod raw {
         pub static splash_a_progress_value: i32;
         pub static splash_a_progress_total: i32;
         pub static splash_a_input_placeholder: i32;
+        pub static splash_a_width_percent: i32;
+        pub static splash_a_height_percent: i32;
+        pub static splash_a_font_family: i32;
+        pub static splash_a_row_align: i32;
+        pub static splash_a_row_justify: i32;
+        pub static splash_a_col_align: i32;
+        pub static splash_a_col_justify: i32;
+        pub static splash_a_shadow: i32;
+        pub static splash_a_layout_weight: i32;
+        pub static splash_a_slider_value: i32;
+        pub static splash_a_slider_min: i32;
+        pub static splash_a_slider_max: i32;
+        pub static splash_a_checkbox_shape: i32;
+        pub static splash_a_loading_color: i32;
+        pub static splash_a_progress_color: i32;
+        pub static splash_a_scroll_offset: i32;
 
         pub static splash_t_text: i32;
         pub static splash_t_image: i32;
@@ -132,6 +149,22 @@ pub mod attr {
         image_src => splash_a_image_src,
         image_fit => splash_a_image_fit,
         textpicker_range => splash_a_textpicker_range,
+        width_percent => splash_a_width_percent,
+        height_percent => splash_a_height_percent,
+        font_family => splash_a_font_family,
+        row_align => splash_a_row_align,
+        row_justify => splash_a_row_justify,
+        col_align => splash_a_col_align,
+        col_justify => splash_a_col_justify,
+        shadow => splash_a_shadow,
+        layout_weight => splash_a_layout_weight,
+        slider_value => splash_a_slider_value,
+        slider_min => splash_a_slider_min,
+        slider_max => splash_a_slider_max,
+        checkbox_shape => splash_a_checkbox_shape,
+        loading_color => splash_a_loading_color,
+        progress_color => splash_a_progress_color,
+        scroll_offset => splash_a_scroll_offset,
     }
 }
 
@@ -168,6 +201,16 @@ impl Node {
             raw,
             children: Vec::new(),
         })
+    }
+
+    /// Read one f32 out of an attribute, or `None` if it has none.
+    pub fn get_f32(raw: NodeHandle, a: i32, index: i32) -> Option<f32> {
+        let mut out = 0.0f32;
+        if unsafe { splash_get_f32(raw, a, index, &mut out) } == 0 {
+            Some(out)
+        } else {
+            None
+        }
     }
 
     pub fn raw(&self) -> NodeHandle {
@@ -227,6 +270,15 @@ impl Node {
     pub fn u32_attr(self, a: i32, v: u32) -> Self {
         unsafe { splash_set_u32(self.raw, a, v) };
         self
+    }
+
+    /// Set an f32 vector on a handle this `Node` does not own.
+    ///
+    /// The scroll-offset restore needs it: by the time the offset is written
+    /// the tree is mounted and owned by the app, so there is no `Node` to
+    /// consume.
+    pub fn set_f32v_raw(raw: NodeHandle, a: i32, v: &[f32]) {
+        unsafe { splash_set_f32v(raw, a, v.as_ptr(), v.len() as c_int) };
     }
 
     pub fn f32v_attr(self, a: i32, v: &[f32]) -> Self {

@@ -99,6 +99,20 @@ int splash_set_f32(ArkUI_NodeHandle n, int attr, float v) {
     return g_api->setAttribute(n, (ArkUI_NodeAttributeType)attr, &item);
 }
 
+// Read one f32 out of an attribute. 0 on success.
+//
+// The only getter here, and it exists for one reason: a tap rebuilds the whole
+// tree, ArkUI's Scroll is a new node each time, and the view snapped back to
+// the top. Checking a checkbox halfway down a screen left you at the top of it.
+int splash_get_f32(ArkUI_NodeHandle n, int attr, int index, float *out) {
+    if (!g_api || !n || !out || index < 0) return -1;
+    const ArkUI_AttributeItem *item =
+        g_api->getAttribute(n, (ArkUI_NodeAttributeType)attr);
+    if (!item || !item->value || item->size <= index) return -1;
+    *out = item->value[index].f32;
+    return 0;
+}
+
 int splash_set_i32(ArkUI_NodeHandle n, int attr, int32_t v) {
     if (!g_api || !n) return -1;
     ArkUI_NumberValue nv[1];
@@ -293,6 +307,27 @@ SPLASH_CONST(splash_a_radio_checked,     NODE_RADIO_CHECKED)
 SPLASH_CONST(splash_a_toggle_value,      NODE_TOGGLE_VALUE)
 SPLASH_CONST(splash_a_toggle_color,      NODE_TOGGLE_SELECTED_COLOR)
 SPLASH_CONST(splash_a_textpicker_range,  NODE_TEXT_PICKER_OPTION_RANGE)
+
+// Added for the flutter/samples kit, which is authored against the makepad
+// backend's richer attribute set. Percent sizing is how that kit's `fillw`/
+// `fillh` (makepad's Fill) express themselves in ArkUI; the layout attributes
+// carry its `alignx`/`aligny`, and FONT_FAMILY carries `icon`.
+SPLASH_CONST(splash_a_width_percent,  NODE_WIDTH_PERCENT)
+SPLASH_CONST(splash_a_height_percent, NODE_HEIGHT_PERCENT)
+SPLASH_CONST(splash_a_font_family,    NODE_FONT_FAMILY)
+SPLASH_CONST(splash_a_row_align,      NODE_ROW_ALIGN_ITEMS)
+SPLASH_CONST(splash_a_row_justify,    NODE_ROW_JUSTIFY_CONTENT)
+SPLASH_CONST(splash_a_col_align,      NODE_COLUMN_ALIGN_ITEMS)
+SPLASH_CONST(splash_a_col_justify,    NODE_COLUMN_JUSTIFY_CONTENT)
+SPLASH_CONST(splash_a_shadow,         NODE_SHADOW)
+SPLASH_CONST(splash_a_layout_weight,  NODE_LAYOUT_WEIGHT)
+SPLASH_CONST(splash_a_slider_value,   NODE_SLIDER_VALUE)
+SPLASH_CONST(splash_a_slider_min,     NODE_SLIDER_MIN_VALUE)
+SPLASH_CONST(splash_a_slider_max,     NODE_SLIDER_MAX_VALUE)
+SPLASH_CONST(splash_a_checkbox_shape, NODE_CHECKBOX_SHAPE)
+SPLASH_CONST(splash_a_loading_color,  NODE_LOADING_PROGRESS_COLOR)
+SPLASH_CONST(splash_a_progress_color, NODE_PROGRESS_COLOR)
+SPLASH_CONST(splash_a_scroll_offset,  NODE_SCROLL_OFFSET)
 
 SPLASH_CONST(splash_t_text,     ARKUI_NODE_TEXT)
 SPLASH_CONST(splash_t_image,    ARKUI_NODE_IMAGE)

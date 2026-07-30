@@ -37,6 +37,15 @@ pub enum Source {
     /// Render markup the app generated. Delivered by `loadData` rather than a
     /// `data:` URL, which has a length limit a real page overruns.
     Html(String),
+    /// A page from the bundle this app ships, served over the `splash://`
+    /// scheme by `assets.rs`. The string is the path within the bundle.
+    ///
+    /// Distinct from `Url` even though it navigates to one, because the trust
+    /// answer is opposite: a `Url` is somebody else's page and gets no bridge,
+    /// while this is the app's own frontend and is exactly what the bridge is
+    /// for. Folding it into `Url` would have made "is this trusted" a question
+    /// about string prefixes.
+    App(String),
 }
 
 /// A web surface the DSL asked for, in vp, relative to the page.
@@ -55,11 +64,37 @@ thread_local! {
     /// of every build, because a stale slot leaves a webview floating over a
     /// screen that no longer has one.
     static SLOTS: RefCell<Vec<WebSlot>> = const { RefCell::new(Vec::new()) };
+    /// Reset per build, so the Nth slot of a screen keeps the same id every
+    /// time that screen is built. See `reset`.
     static NEXT_ID: RefCell<u32> = const { RefCell::new(1) };
 }
 
+/// Start a build's slot list over.
+///
+/// **`NEXT_ID` resets too, and that is the point.** It used to increase
+/// monotonically for the life of the process, which meant every rebuild minted
+/// fresh ids for the same slots. ArkTS keys its `ForEach` on the encoded slot
+/// string, and that string begins with the id — so a new id was a new key, and
+/// a new key destroys the `Web` component and builds another one.
+///
+/// The consequences were all the ones you would predict and none of them were
+/// being attributed here:
+///
+///   - a page reloaded from scratch on every `appRerender`, so nothing in it
+///     could hold state across a native data update;
+///   - `controllerFor` cached a `WebviewController` per id, so the map grew by
+///     one dead controller per rebuild for the life of the process;
+///   - a surface that went white on reload looked like a load bug rather than
+///     a component that had just been thrown away and replaced.
+///
+/// Per-build ids are stable because a screen declares its slots in the same
+/// order every time it is built. They are *positional*, not identities: slot 1
+/// of one app and slot 1 of another are different pages. Nothing downstream
+/// assumes otherwise — ArkTS keys `loaded` on id *and content*, so a different
+/// page at the same id still reloads.
 pub fn reset() {
     SLOTS.with(|s| s.borrow_mut().clear());
+    NEXT_ID.with(|n| *n.borrow_mut() = 1);
 }
 
 /// Record a web surface. Returns its id, which ArkTS uses to address the
@@ -71,6 +106,11 @@ pub fn declare(url: &str, x: f32, y: f32, w: f32, h: f32) -> u32 {
 /// Declare a surface showing generated markup.
 pub fn declare_html(html: String, x: f32, y: f32, w: f32, h: f32) -> u32 {
     declare_source(Source::Html(html), x, y, w, h)
+}
+
+/// Declare a surface showing a page from the shipped bundle.
+pub fn declare_app(path: &str, x: f32, y: f32, w: f32, h: f32) -> u32 {
+    declare_source(Source::App(path.to_string()), x, y, w, h)
 }
 
 fn declare_source(source: Source, x: f32, y: f32, w: f32, h: f32) -> u32 {
@@ -102,19 +142,89 @@ fn declare_source(source: Source, x: f32, y: f32, w: f32, h: f32) -> u32 {
 /// `http.get` on it.
 impl Source {
     pub fn trusted(&self) -> bool {
-        matches!(self, Source::Html(_))
+        matches!(self, Source::Html(_) | Source::App(_))
     }
+}
+
+/// The origin a slot's declared source should produce.
+///
+/// `None` for a `Url` slot, which is untrusted whatever it loads.
+pub fn expected_origin(id: u32) -> Option<String> {
+    SLOTS.with(|s| {
+        s.borrow()
+            .iter()
+            .find(|x| x.id == id)
+            .and_then(|x| match &x.source {
+                Source::App(_) => Some(format!("{}://app", crate::assets::SCHEME)),
+                // Generated markup is installed with WEB_BASE as its baseUrl.
+                Source::Html(_) => Some("https://localhost".to_string()),
+                Source::Url(_) => None,
+            })
+    })
+}
+
+thread_local! {
+    /// The origin each slot has actually been observed on, reported by ArkTS
+    /// when a document starts loading.
+    ///
+    /// Deliberately NOT cleared by `reset`: a rebuild re-declares the slots but
+    /// does not reload their documents, so dropping this would let a slot that
+    /// had navigated away look untainted again on the very next rerender.
+    static OBSERVED: RefCell<Vec<(u32, String)>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Record where a slot's document actually came from.
+pub fn set_observed_origin(id: u32, origin: &str) {
+    OBSERVED.with(|o| {
+        let mut o = o.borrow_mut();
+        match o.iter_mut().find(|(i, _)| *i == id) {
+            Some(e) => e.1 = origin.to_string(),
+            None => o.push((id, origin.to_string())),
+        }
+    });
+}
+
+fn observed_origin(id: u32) -> Option<String> {
+    OBSERVED.with(|o| {
+        o.borrow()
+            .iter()
+            .find(|(i, _)| *i == id)
+            .map(|(_, s)| s.clone())
+    })
 }
 
 /// Is `id` a slot this app generated? Unknown ids are untrusted.
 pub fn is_trusted(id: u32) -> bool {
-    SLOTS.with(|s| {
+    let by_source = SLOTS.with(|s| {
         s.borrow()
             .iter()
             .find(|x| x.id == id)
             .map(|x| x.source.trusted())
             .unwrap_or(false)
-    })
+    });
+    if !by_source {
+        return false;
+    }
+    // The source says trusted. That is not enough on its own, because trust was
+    // recorded per *slot* while `javaScriptProxy` attaches to the *component*:
+    // a trusted page that navigated itself elsewhere kept the bridge, and both
+    // gates agreed. Measured, not theorised -- a document served by
+    // example.com called the `log` tool and Rust wrote its text to hilog.
+    //
+    // So the document's actual origin has to match the one the slot's source
+    // implies. An unobserved slot is allowed through: the first call from a
+    // page can arrive before onPageBegin has reported, and ArkTS also refuses
+    // the navigation that would create the mismatch in the first place.
+    match (expected_origin(id), observed_origin(id)) {
+        (Some(want), Some(got)) if want != got => {
+            crate::log(&format!(
+                "webslot: slot {id} declared {want} but its document is on {got} \
+                 -- refusing to treat it as trusted"
+            ));
+            false
+        }
+        _ => true,
+    }
 }
 
 pub fn slots() -> Vec<WebSlot> {
@@ -170,10 +280,14 @@ pub fn encoded() -> Vec<String> {
                 // data:, so the surface stayed white with no error. They are
                 // fetched by id and installed with loadData + a baseUrl.
                 Source::Html(_) => String::new(),
+                // A real URL, because this one does navigate: the scheme
+                // handler answers it. Nothing is pushed through loadData.
+                Source::App(p) => format!("{}://app{}", crate::assets::SCHEME, p),
             };
             let kind = match &s.source {
                 Source::Url(_) => "url",
                 Source::Html(_) => "html",
+                Source::App(_) => "app",
             };
             // `kind` doubles as the trust marker: ArkTS attaches the bridge
             // only to `html` slots. Rust re-checks anyway -- see bridge::invoke.
@@ -189,7 +303,9 @@ pub fn html_for(id: u32) -> String {
         .find(|s| s.id == id)
         .and_then(|s| match &s.source {
             Source::Html(h) => Some(h.clone()),
-            Source::Url(_) => None,
+            // Neither of these is pushed as markup: a URL navigates, and an app
+            // slot navigates to a splash:// URL the scheme handler answers.
+            Source::Url(_) | Source::App(_) => None,
         })
         .unwrap_or_default()
 }
@@ -225,7 +341,7 @@ pub fn web(url: &str, x: f32, y: f32, w: f32, h: f32) -> Option<Node> {
 /// The bridge shim is prepended, so every generated page can call
 /// `splash.invoke(tool, args)` without having to carry the plumbing itself.
 pub fn web_html(html: String, x: f32, y: f32, w: f32, h: f32) -> Option<Node> {
-    let with_shim = format!("{}{}", crate::bridge::SHIM, html);
+    let with_shim = format!("{}{}", crate::bridge::shim(), html);
     self::declare_html(with_shim, x, y, w, h);
     col(w, h, 0x00000000)
 }

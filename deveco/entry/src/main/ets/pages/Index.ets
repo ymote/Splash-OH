@@ -1,6 +1,8 @@
 import { NodeContent, FrameNode } from '@kit.ArkUI';
 import { systemDateTime } from '@kit.BasicServicesKit';
 import { webview } from '@kit.ArkWeb';
+import { WebNetErrorList } from '@ohos.web.netErrorList';
+import { BusinessError } from '@kit.BasicServicesKit';
 import { picker, fileUri } from '@kit.CoreFileKit';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { abilityAccessCtrl, Permissions, PermissionRequestResult } from '@kit.AbilityKit';
@@ -31,13 +33,30 @@ const START_APP: string = 'catalog';
  */
 const CATALOG_WALK_MS: number = 0;
 /** The sweep's order: the index, then every screen the catalog defines. */
-const CATALOG_WALK: Array<string> = ['', 'buttons', 'fab', 'checkbox', 'radio', 'switch',
-  'slider', 'progress', 'textfield', 'chips', 'cards', 'lists', 'dividers',
-  'badges', 'tabs', 'appbar', 'bottomnav', 'datepicker', 'timepicker',
-  'textpicker', 'swiper', 'grid', 'waterflow', 'refresh', 'image',
-  'typography', 'color', 'layout', 'bench'];
+const CATALOG_WALK: Array<string> = [];
 /** Origin given to generated pages. Content loaded with no baseUrl gets an
  *  opaque origin in ArkWeb and never paints; it needs a real https one. */
+/**
+ * Force a native rerender this often, or 0 for normal behaviour.
+ *
+ * Exists to make one specific claim measurable: that a web slot now survives a
+ * rebuild. Before slot ids were reset per build, every rerender destroyed the
+ * `Web` component and reloaded its document. Proving the fix needs rerenders to
+ * happen on demand rather than whenever background data lands — set this, watch
+ * the frontend bundle's uptime row, and compare it against the wall clock.
+ */
+const RERENDER_EVERY_MS: number = 0;
+/**
+ * Navigate slot 1 to this origin after it loads, or '' to leave it alone.
+ *
+ * Answers one question: trust is recorded per *slot*, but `javaScriptProxy` is
+ * attached to the *component*. If a trusted `splash://` page navigates itself
+ * somewhere else, does the bridge go with it? Rust's `is_trusted` reads the
+ * slot's Source, which is still App — so if ArkTS re-injects the proxy into the
+ * new document, both gates say yes and a remote page holds all 48 tools.
+ */
+const NAV_PROBE_URL: string = '';
+const NAV_PROBE_AFTER_MS: number = 12000;
 const WEB_BASE: string = 'https://localhost/';
 /** Which app the single-app mode is showing, so a background-data redraw
  *  rebuilds the right one. */
@@ -129,6 +148,16 @@ class SplashNativeBridge {
 @Component
 struct Index {
   private content: NodeContent = new NodeContent();
+
+  /**
+   * System back gesture: pop one level of the kit's route instead of leaving
+   * the app. Returning false at the index lets the platform close it, which is
+   * what a back gesture should do there.
+   */
+  onBackPress(): boolean {
+    return splash.goBack() as boolean;
+  }
+
   private wc: WeChatArkTs | null = null;
   private load: LoadGenerator = new LoadGenerator();
   private useRust: boolean = true;
@@ -149,6 +178,13 @@ struct Index {
   /** What each controller was last told to load, so a rebuild that did not
    *  change the URL does not reload the page out from under the user. */
   private loaded: Map<string, string> = new Map();
+  /** One scheme handler per slot id, installed once when its controller
+   *  attaches. Kept out of @State for the same reason the controllers are. */
+  private handlers: Map<string, webview.WebSchemeHandler> = new Map();
+  private lastForcedRerender: number = 0;
+  private forcedRerenders: number = 0;
+  private navProbeState: number = 0;
+  private startedAt: number = Date.now();
   /** What each slot has actually finished rendering, set from onPageEnd.
    *
    *  Separate from `loaded` because they are different facts and conflating
@@ -482,6 +518,77 @@ struct Index {
     }
   }
 
+  /**
+   * Install the `splash://` handler on a slot's controller.
+   *
+   * Called from `onControllerAttached`, which is the only window that works.
+   * The scheme is registered before the engine starts (EntryAbility.onCreate),
+   * but a *handler* binds to a controller, and a controller has none until a
+   * `Web` attaches it — while the component's `src` starts navigating as soon
+   * as it exists. `onControllerAttached` is the documented point that is after
+   * the first and before the second, so it is what catches the very first
+   * main-frame request instead of letting it through unanswered.
+   *
+   * Everything served comes from Rust. This function decides nothing about
+   * content; it moves bytes and reports failures.
+   */
+  private installSchemeHandler(id: string): void {
+    if (this.handlers.has(id)) {
+      return;
+    }
+    try {
+      const handler: webview.WebSchemeHandler = new webview.WebSchemeHandler();
+      handler.onRequestStart((req: webview.WebSchemeHandlerRequest,
+                             res: webview.WebResourceHandler): boolean => {
+        const url: string = req.getRequestUrl();
+        try {
+          const a: ESObject = splash.assetGet(url);
+          console.info('SPLASHASSET probe ' + url + ' typeof=' + typeof a
+            + ' mime=' + (a === undefined ? 'n/a' : String(a.mime))
+            + ' status=' + (a === undefined ? 'n/a' : String(a.status))
+            + ' hasBody=' + (a !== undefined && a.body !== undefined)
+            + ' len=' + (a === undefined || a.body === undefined ? -1 : (a.body as Uint8Array).byteLength));
+          const mime: string = a.mime as string;
+          const status: number = a.status as number;
+          // A napi Buffer arrives here as an ArrayBuffer, NOT as a Uint8Array
+          // view over one: it reports a byteLength and has no `.buffer`. An
+          // earlier version sliced `.buffer` to the view and every asset failed
+          // with "cannot read property slice of undefined" -- which reads like
+          // a missing body, but the body was there the whole time.
+          const body: ArrayBuffer = a.body as ArrayBuffer;
+
+          const resp: webview.WebSchemeHandlerResponse = new webview.WebSchemeHandlerResponse();
+          resp.setStatus(status);
+          resp.setStatusText(status === 200 ? 'OK' : 'Not Found');
+          resp.setMimeType(mime);
+          resp.setEncoding('utf-8');
+          // The bundle is compiled into the binary, so it cannot change under
+          // a running app; but a stale cache across an install would look
+          // exactly like a fix that did not take.
+          resp.setHeaderByName('Cache-Control', 'no-store', true);
+          res.didReceiveResponse(resp);
+          res.didReceiveResponseBody(body);
+          res.didFinish();
+          console.info('SPLASHASSET ' + status + ' ' + url + ' (' + body.byteLength + 'B ' + mime + ')');
+        } catch (e) {
+          // Failing loudly matters more here than anywhere else in this file:
+          // a custom scheme has no default resolver, so a request that is
+          // neither answered nor failed is a hang with no console error.
+          const err = e as BusinessError;
+          console.error('SPLASHASSET error ' + url + ': code=' + err.code
+            + ' msg=' + err.message + ' raw=' + String(e));
+          res.didFail(WebNetErrorList.ERR_FAILED);
+        }
+        return true;
+      });
+      this.controllerFor(id).setWebSchemeHandler('splash', handler);
+      this.handlers.set(id, handler);
+      console.info('SPLASHSCHEME handler installed on slot ' + id);
+    } catch (e) {
+      console.error('SPLASHSCHEME handler install failed on slot ' + id + ': ' + JSON.stringify(e));
+    }
+  }
+
   private controllerFor(id: string): webview.WebviewController {
     let c = this.controllers.get(id);
     if (c === undefined) {
@@ -588,6 +695,11 @@ struct Index {
 
   aboutToAppear(): void {
     splash.mount(this.content);
+    // Animation frames. The DSL evaluates a tree once per mount, so a screen can
+    // only move if it is re-mounted against a changing clock; `animTick` does
+    // exactly that and returns false (doing nothing) on every static screen, so
+    // this costs nothing anywhere but the animation demos.
+    setInterval(() => { splash.animTick(); }, 33);
     if (START_APP !== '') {
       // Prove the VM works on this build. The ported apps build in Rust and
       // never evaluate a script, so a broken VM would stay hidden until a
@@ -624,6 +736,50 @@ struct Index {
         // to the first tab -- making the tap look like it had done nothing.
         if ((splash.appTakeDirty() as number) === 1) {
           splash.appRerender();
+        }
+        if (NAV_PROBE_URL !== '' && this.navProbeState < 3) {
+          const t: number = Date.now() - this.startedAt;
+          if (this.navProbeState === 0 && t > NAV_PROBE_AFTER_MS) {
+            this.navProbeState = 1;
+            console.info('NAVPROBE navigating slot 1 away to ' + NAV_PROBE_URL);
+            try {
+              this.controllerFor('1').loadUrl(NAV_PROBE_URL);
+            } catch (e) {
+              console.error('NAVPROBE navigation threw: ' + String(e));
+            }
+          } else if (this.navProbeState === 1 && t > NAV_PROBE_AFTER_MS + 8000) {
+            this.navProbeState = 2;
+            try {
+              // Gate 1: did ArkTS put the proxy into the new document?
+              this.controllerFor('1').runJavaScript(
+                "(function(){return location.origin+' proxy='+(typeof window.splash_native)})()",
+                (err, r) => { console.info('NAVPROBE gate1 ' + (err ? 'err ' + String(err) : String(r))); });
+              // Gate 2: if it is there, does Rust answer a call from it?
+              this.controllerFor('1').runJavaScript(
+                "(function(){if(!window.splash_native)return 'no-proxy';"
+                // `log` writes page-controlled text into hilog, so a line
+                // appearing there is proof Rust *served* the call rather than
+                // merely proof that invoke() did not throw. Absence of a
+                // refusal log would not have shown that.
+                + "try{window.splash_native.invoke('navprobe','log',"
+                + "JSON.stringify('SPOKE FROM '+location.origin));return 'invoked'}"
+                + "catch(e){return 'threw '+e}})()",
+                (err, r) => { console.info('NAVPROBE gate2 ' + (err ? 'err ' + String(err) : String(r))); });
+            } catch (e) {
+              console.error('NAVPROBE probe threw: ' + String(e));
+            }
+            this.navProbeState = 3;
+          }
+        }
+        if (RERENDER_EVERY_MS > 0) {
+          const now: number = Date.now();
+          if (now - this.lastForcedRerender >= RERENDER_EVERY_MS) {
+            this.lastForcedRerender = now;
+            splash.appRerender();
+            this.forcedRerenders++;
+            console.info('RERENDERPROBE n=' + this.forcedRerenders
+              + ' slots=' + (splash.webSlots() as Array<string>).join(','));
+          }
         }
         this.syncWebSlots();
         // Still drained, but only ever catches traffic produced before
@@ -1121,6 +1277,9 @@ struct Index {
           // A URL slot navigates directly. A generated slot starts on a real
           // https origin and is then replaced by loadData against that same
           // origin -- see loadSlot for why it cannot be data: or origin-less.
+          // 'html' starts on a real https origin and is filled by loadData;
+          // 'url' and 'app' both navigate straight to their src -- for 'app'
+          // that is a splash:// URL the scheme handler answers.
           src: slot.split('|')[1] === 'html' ? WEB_BASE : slot.split('|')[6],
           controller: this.controllerFor(slot.split('|')[0])
         })
@@ -1134,16 +1293,55 @@ struct Index {
           //
           // Rust re-checks on every call regardless. This check sits next to
           // the untrusted content, which makes it the wrong place to depend on.
-          .javaScriptProxy(slot.split('|')[1] === 'html' ? {
+          .javaScriptProxy(slot.split('|')[1] !== 'url' ? {
             object: this.bridgeFor(slot.split('|')[0]),
             name: 'splash_native',
             methodList: ['invoke'],
             controller: this.controllerFor(slot.split('|')[0]),
           } : undefined)
           // Stops ArkWeb demanding a tap before it will play media.
+          .onControllerAttached(() => {
+            this.installSchemeHandler(slot.split('|')[0]);
+          })
+          // Refuse to navigate a trusted slot off its own origin.
+          //
+          // Trust is recorded per slot, but javaScriptProxy attaches to the
+          // component -- so a splash:// page that navigated itself to a remote
+          // site kept the bridge, and Rust, checking only the slot, agreed. A
+          // document served by example.com called the `log` tool and Rust wrote
+          // its text to hilog. This is where that stops.
+          //
+          // Returning true cancels the load.
+          .onLoadIntercept((event) => {
+            const id: string = slot.split('|')[0];
+            const want: string = splash.slotExpectedOrigin(Number(id)) as string;
+            if (want === '') {
+              return false;  // a url slot is untrusted whatever it loads
+            }
+            const url: string = event.data.getRequestUrl();
+            if (url.indexOf(want) === 0 || url.indexOf('about:') === 0) {
+              return false;
+            }
+            console.error('NAVGUARD slot ' + id + ' refused navigation to ' + url
+              + ' (expected origin ' + want + ')');
+            return true;
+          })
+          .onPageBegin((event) => {
+            // Report where the document actually came from, so Rust can refuse
+            // to believe a slot whose page is not where it should be.
+            const id: string = slot.split('|')[0];
+            const u: string = event.url as string;
+            const i: number = u.indexOf('/', u.indexOf('://') + 3);
+            splash.slotOrigin(Number(id), i < 0 ? u : u.substring(0, i));
+          })
           .mediaPlayGestureAccess(false)
+          // These are vp, which is what a declarer has to know. A width of 0
+          // means "as wide as the page": a screen that just wants a full-bleed
+          // surface would otherwise have to hardcode a device pixel count, and
+          // the flutter web_embedding screen did exactly that -- 1320, this
+          // display's *physical* width, applied as 1320vp, about 4300px.
           .position({ x: Number(slot.split('|')[2]), y: Number(slot.split('|')[3]) })
-          .width(Number(slot.split('|')[4]))
+          .width(Number(slot.split('|')[4]) > 0 ? Number(slot.split('|')[4]) : '100%')
           .height(Number(slot.split('|')[5]))
 
       }, (slot: string) => slot)

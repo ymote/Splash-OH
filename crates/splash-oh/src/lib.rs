@@ -20,6 +20,7 @@ pub use splash_oh_native::{app, arkui, bench, catalog, dsl, log, mem, net};
 
 pub mod apps;
 pub mod arkweb;
+pub mod assets;
 pub mod audio;
 pub mod bridge;
 pub mod capture;
@@ -81,7 +82,107 @@ pub fn mount(env: Env, content: JsObject) -> napi_ohos::Result<()> {
         return Ok(());
     }
 
+    // Link the plugins this build ships into the registry. The cdylib is the
+    // only place that can: a plugin crate cannot register itself into a library
+    // it is not part of. See splash-oh-core's module docs.
+    splash_oh_core::with_registry_mut(|r| {
+        splash_oh_plugin_demo::register(r);
+    });
+    log(&format!(
+        "plugins: {} tool(s) registered: {:?}",
+        splash_oh_core::registered().len(),
+        splash_oh_core::registered()
+    ));
+    log(&splash_oh_core::self_test());
+    assets::self_test();
     app::init(slot);
+    // Hand the capability registry to the renderer's DSL. `platform_channels`
+    // and `pedometer` are not "no analogue" samples on this stack — a script
+    // calling the platform and getting a typed answer back is exactly what a
+    // MethodChannel is, and the bridge already carries ~45 of these for web
+    // pages. This exposes the same registry to the Splash DSL.
+    // A `web` node in the DSL reserves space and asks for a real WebView there.
+    splash_oh_native::set_web_reset(webslot::reset);
+    splash_oh_native::set_web_declare(|src, x, y, w, h| {
+        if let Some(path) = src.strip_prefix("app:") {
+            webslot::declare_app(path, x, y, w, h)
+        } else {
+            webslot::declare(src, x, y, w, h)
+        }
+    });
+    splash_oh_native::set_host_invoke(|tool| match tool {
+        "device.info" => device::info(0),
+        "device.display" => device::display(),
+        "device.battery" => device::battery(),
+        "device.time" => device::time(),
+        "device.notifications" => device::notifications_enabled(),
+        // compass_app: the sample is a travel planner, and the one thing a
+        // travel planner on a phone can know that a mock cannot is where the
+        // phone is. `enabled` is a cheap system-switch read; `fix` is the
+        // cached position, refreshed on a worker, because a real request takes
+        // seconds and this runs while the tree is being built.
+        "location.enabled" => location::enabled_word(),
+        "location.fix" => location::cached(),
+        "location.state" => location::cached_state(),
+        "sensor.list" => sensor::list().unwrap_or_else(|e| e),
+        // 0 is ARKUI/OH's accelerometer id; the pedometer sample reads step
+        // data, which is the same shape of platform call.
+        "sensor.accelerometer" => sensor::sample(0, 400).unwrap_or_else(|e| e),
+        "sensor.steps" => sensor::sample(
+            sensor::type_from_name("pedometer").unwrap_or(266),
+            400,
+        )
+        .unwrap_or_else(|e| e),
+        // asset_transformation: the splash:// protocol resolves a request URL
+        // to bytes at serve time, which is this stack's asset pipeline.
+        "assets.shim" => {
+            let a = assets::get("splash://app/__splash.js");
+            format!(
+                "{{\"path\":\"/__splash.js\",\"mime\":\"{}\",\"status\":{},\"bytes\":{}}}",
+                a.mime,
+                a.status,
+                a.body.len()
+            )
+        }
+        "assets.index" => {
+            let a = assets::get("splash://app/index.html");
+            format!(
+                "{{\"path\":\"/index.html\",\"mime\":\"{}\",\"status\":{},\"bytes\":{}}}",
+                a.mime,
+                a.status,
+                a.body.len()
+            )
+        }
+        "assets.missing" => {
+            let a = assets::get("splash://app/nope.bin");
+            format!(
+                "{{\"path\":\"/nope.bin\",\"mime\":\"{}\",\"status\":{},\"bytes\":{}}}",
+                a.mime,
+                a.status,
+                a.body.len()
+            )
+        }
+        // add_to_app: facts about this very embed.
+        "embed.nodes" => format!("{}", splash_oh_native::ui::last_total()),
+        // platform_view_swift: a real native rendering surface composited into
+        // the same tree, which is what that sample is about.
+        "surface.state" => xcomp::state(),
+        "embed.shape" => "ArkTS hands over one NodeContent at startup; every \
+node after that is created, configured, laid out and event-wired from Rust"
+            .to_string(),
+        // background_isolate_channels: a call that does its work off the UI
+        // thread and returns when it is done.
+        "thread.offmain" => {
+            let t0 = std::time::Instant::now();
+            let r = sensor::sample(0, 250).unwrap_or_else(|e| e);
+            format!(
+                "{{\"blocked_ui_ms\":{},\"answer\":{}}}",
+                t0.elapsed().as_millis(),
+                r.len()
+            )
+        }
+        other => format!("no such tool: {other}"),
+    });
     Ok(())
 }
 
@@ -183,6 +284,53 @@ pub fn wechat_render() -> Vec<f64> {
 /// ArkTS positions a real `Web` component at each of these, above the
 /// `ContentSlot`. There is no `ARKUI_NODE_WEB`, so this is the only way a
 /// Splash tree can contain a webview -- see `webslot.rs`.
+/// One asset from the shipped bundle, for the `splash://` scheme handler.
+///
+/// ArkTS owns `customizeSchemes`/`setWebSchemeHandler` because those are ArkTS
+/// APIs; it owns none of the policy. It asks here for a URL and streams back
+/// whatever comes out, including the 404 -- a custom scheme has no default
+/// resolver, so a request this declines to answer is not a miss, it is a hang.
+#[napi(js_name = "assetGet")]
+pub fn asset_get(url: String) -> AssetReply {
+    let a = assets::get(&url);
+    AssetReply {
+        mime: a.mime.to_string(),
+        status: a.status as u32,
+        body: a.body.into(),
+    }
+}
+
+/// What `assetGet` hands back. `body` crosses as a napi Buffer, which ArkTS
+/// receives as a Uint8Array -- see Index.ets for why the ArrayBuffer behind it
+/// has to be sliced to the view rather than passed whole.
+#[napi(object)]
+pub struct AssetReply {
+    pub mime: String,
+    pub status: u32,
+    pub body: napi_ohos::bindgen_prelude::Buffer,
+}
+
+/// Report where a slot's document actually came from.
+///
+/// Called by ArkTS when a page starts loading in a slot. Trust used to be a
+/// property of the slot alone, which a navigation could invalidate without
+/// anything noticing; this is how Rust finds out.
+#[napi(js_name = "slotOrigin")]
+pub fn slot_origin(slot: u32, origin: String) {
+    webslot::set_observed_origin(slot, &origin);
+}
+
+/// The origin a slot is allowed to be on, or "" if it is an untrusted URL slot.
+///
+/// ArkTS asks so it can refuse the navigation outright rather than let the
+/// document load and be disowned afterwards. Both checks exist on purpose: this
+/// one stops the page arriving, and `is_trusted` stops it being believed if it
+/// does.
+#[napi(js_name = "slotExpectedOrigin")]
+pub fn slot_expected_origin(slot: u32) -> String {
+    webslot::expected_origin(slot).unwrap_or_default()
+}
+
 #[napi(js_name = "webSlots")]
 pub fn web_slots() -> Vec<String> {
     webslot::encoded()
@@ -304,7 +452,9 @@ pub fn web_slots_painted() -> Vec<String> {
 /// Polled by ArkTS alongside the web-slot list.
 #[napi(js_name = "appTakeDirty")]
 pub fn app_take_dirty() -> u32 {
-    if apps::weather_web::take_dirty() {
+    // `|` not `||`: both flags have to be cleared, or whichever is checked
+    // second stays set and every poll after this one reports dirty forever.
+    if apps::weather_web::take_dirty() | location::take_dirty() {
         1
     } else {
         0
@@ -400,18 +550,58 @@ pub fn app_render(app: String) -> Vec<f64> {
 /// An unknown name lands on the index rather than failing — the caller is a
 /// capture script, and a silent no-op there would be harder to spot than a
 /// screen that visibly is not the one asked for.
+/// Handle the system back gesture: pop one level of the route.
+///
+/// The kit's routes are hierarchical strings — `cupertino_gallery/button` sits
+/// under `cupertino_gallery`, which sits under the index — so "back" is just
+/// dropping the last segment. Returns false at the index so the platform does
+/// its own thing (leaving the app), which is what a back gesture should do
+/// there.
+///
+/// Without this, ArkTS never implemented `onBackPress`, so the system back
+/// gesture closed the app from any screen rather than navigating.
+#[napi(js_name = "goBack")]
+pub fn go_back() -> bool {
+    let screen = app::current_screen();
+    let cur = if screen.is_empty() { "index" } else { screen.as_str() };
+    if cur == "index" {
+        return false;
+    }
+    let parent = match cur.rfind('/') {
+        Some(i) => cur[..i].to_string(),
+        None => "index".to_string(),
+    };
+    app::set_screen_quiet(parent.clone());
+    let node = splash_oh_native::dsl::build_flutter(&parent, false);
+    app::set_root(node);
+    true
+}
+
+/// One animation frame: re-mount only if the current screen animates.
+///
+/// ArkTS calls this on a short interval. It is a no-op on every static screen,
+/// which is all of them but the animation demos.
+#[napi(js_name = "animTick")]
+pub fn anim_tick() -> bool {
+    if !app::is_animating() {
+        return false;
+    }
+    app::rebuild();
+    true
+}
+
 #[napi(js_name = "catalogScreen")]
 pub fn catalog_screen(name: String) -> u32 {
     apps::set_app(apps::App::Catalog);
     app::set_wechat_active(true);
-    // +1 because index 0 is the index page and screen 0 is the first entry.
-    let idx = splash_oh_native::dsl::CATALOG_SCREENS
-        .iter()
-        .position(|s| *s == name)
-        .map(|i| i + 1)
-        .unwrap_or(0);
-    apps::set_catalog_screen(idx);
-    let (node, n, _) = apps::build();
+    // The flutter kit routes by *string*, so the name passes straight through
+    // rather than being looked up in CATALOG_SCREENS. Empty means the index.
+    let route = if name.is_empty() { "index" } else { name.as_str() };
+    // Record it, or the animation tick cannot tell what is on screen.
+    app::set_screen_quiet(route.to_string());
+    let node = splash_oh_native::dsl::build_flutter(route, false);
+    let n = splash_oh_native::ui::count();
+    splash_oh_native::ui::record_total(n);
     app::set_root(node);
     n as u32
 }

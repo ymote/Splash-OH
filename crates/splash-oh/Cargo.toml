@@ -13,6 +13,11 @@ crate-type = ["cdylib"]
 
 [dependencies]
 splash-oh-native = { path = "../splash-oh-native" }
+splash-oh-core = { path = "../splash-oh-core" }
+# The cdylib is what links a plugin in. A plugin crate cannot register itself
+# into a library it is not part of, which is why this dependency lives here and
+# not in splash-oh-core -- see the module docs there.
+splash-oh-plugin-demo = { path = "../splash-oh-plugin-demo" }
 # The Splash VM, via ymote/Splash rather than straight from makepad.
 splash-core = { git = "https://github.com/ymote/Splash.git", branch = "main" }
 napi-derive-ohos = "0.0.9"
