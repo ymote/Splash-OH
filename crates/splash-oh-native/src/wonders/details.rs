@@ -174,6 +174,9 @@ pub fn build(index: usize, tab: usize, w: f32, h: f32) -> Option<Node> {
     HERO_IMAGE.store(0, Ordering::Relaxed);
     HERO_TITLE.store(0, Ordering::Relaxed);
     HERO_SCROLL.store(0, Ordering::Relaxed);
+    if let Ok(mut g) = WALL.lock() {
+        *g = None;
+    }
     if let Ok(mut g) = HERO_H.lock() {
         *g = 0.0;
     }
@@ -485,6 +488,19 @@ pub const GRID: usize = 5;
 const GALLERY_PHOTOS: usize = 24;
 /// `_index` starts in the middle: `round(25 / 2)` is 13.
 static PHOTO_SEL: AtomicUsize = AtomicUsize::new(13);
+/// The 25 cells and the step between them, kept so a pan can move them where
+/// they are instead of rebuilding the screen.
+///
+/// The scrim never moves: the selected cell is always the middle of the frame,
+/// whichever cell it is, so the hole it leaves is in the same place every time.
+/// Only the wall slides under it.
+static WALL: std::sync::Mutex<Option<Wall>> = std::sync::Mutex::new(None);
+
+struct Wall {
+    cells: Vec<usize>,
+    origin: (f32, f32),
+    step: (f32, f32),
+}
 
 pub fn photo_sel() -> usize {
     PHOTO_SEL.load(Ordering::Relaxed)
@@ -492,6 +508,9 @@ pub fn photo_sel() -> usize {
 
 /// Move the selection one cell, refusing the moves the app refuses: off the
 /// grid, and wrapping round a row edge.
+///
+/// Returns false either way: the wall is slid to its new place here rather
+/// than rebuilt, which is what lets the move be animated.
 pub fn move_photo_sel(dx: i32, dy: i32) -> bool {
     let cur = photo_sel() as i32;
     let next = cur + dx + dy * GRID as i32;
@@ -502,7 +521,50 @@ pub fn move_photo_sel(dx: i32, dy: i32) -> bool {
         return false;
     }
     PHOTO_SEL.store(next as usize, Ordering::Relaxed);
-    true
+    slide_wall(next as usize);
+    false
+}
+
+/// Put every cell where the new selection wants it, tweened.
+///
+/// `$styles.times.med * .4` is the app's swipe duration and `Curves.easeOut`
+/// its curve.
+fn slide_wall(sel: usize) {
+    let Ok(g) = WALL.lock() else { return };
+    let Some(wall) = g.as_ref() else { return };
+    let anchor = match wall.cells.first() {
+        Some(&c) if c != 0 => c,
+        _ => return,
+    };
+    let (ox, oy) = wall.origin;
+    let ((sx, sy), (col, row)) = (wall.step, (sel % GRID, sel / GRID));
+    let places: Vec<(usize, f32, f32)> = wall
+        .cells
+        .iter()
+        .enumerate()
+        .filter(|(_, &c)| c != 0)
+        .map(|(i, &c)| {
+            (
+                c,
+                ox + (i % GRID) as f32 * sx - col as f32 * sx,
+                oy + (i / GRID) as f32 * sy - row as f32 * sy,
+            )
+        })
+        .collect();
+    unsafe {
+        crate::arkui::animate(
+            anchor as crate::arkui::NodeHandle,
+            120,
+            crate::arkui::CURVE_EASE_OUT,
+            move || {
+                for (c, x, y) in places {
+                    unsafe {
+                        Node::set_f32v_raw(c as crate::arkui::NodeHandle, attr::position(), &[x, y])
+                    };
+                }
+            },
+        )
+    };
 }
 
 /// The photo gallery: a 5×5 wall of the wonder's own Unsplash collection,
@@ -518,39 +580,46 @@ fn photos(wonder: &Wonder, w: f32, h: f32) -> Option<Node> {
     let pad = 24.0; // $styles.insets.md
     let (sx, sy) = (iw + pad, ih + pad);
 
-    // Where the grid's own top-left corner ends up: centre it, then shift by
-    // the selected cell so that cell is the one in the middle.
-    let gw = GRID as f32 * iw + (GRID - 1) as f32 * pad;
-    let gh = GRID as f32 * ih + (GRID - 1) as f32 * pad;
-    let ox = (w - gw) / 2.0 + (2.0 - (sel % GRID) as f32) * sx;
-    let oy = (h - gh) / 2.0 + (2.0 - (sel / GRID) as f32) * sy;
+    // Cell (0,0)'s place when cell (0,0) is the selected one. Every other
+    // arrangement is this minus the selected column and row, which is what
+    // `slide_wall` applies -- and what makes the selected cell the middle one.
+    let ox = (w - iw) / 2.0;
+    let oy = (h - ih) / 2.0;
 
     let mut root = stack(w, h, wonder.bg)?
         .i32_attr(attr::clip(), 1)
         .on_event(crate::arkui::event::touch(), PHOTO_SWIPE);
+    // All 25 are built, not just the nine that can be seen: a cell has to
+    // exist to be slid into view.
+    let mut cells = Vec::with_capacity(GRID * GRID);
     for i in 0..GRID * GRID {
-        let (c, r) = (i % GRID, i / GRID);
-        let (x, y) = (ox + c as f32 * sx, oy + r as f32 * sy);
-        // Only the nine cells around the selection can be on screen.
-        if x > w || y > h || x + iw < 0.0 || y + ih < 0.0 {
-            continue;
-        }
-        root = root.child(
-            photo(
-                APP,
-                &format!("{}/gallery/{:02}.jpg", wonder.dir, i % GALLERY_PHOTOS),
-                iw,
-                ih,
-                0.0,
-            )?
-            .f32v_attr(attr::position(), &[x, y]),
+        let (x, y) = (
+            ox + (i % GRID) as f32 * sx - (sel % GRID) as f32 * sx,
+            oy + (i / GRID) as f32 * sy - (sel / GRID) as f32 * sy,
         );
+        let cell = photo(
+            APP,
+            &format!("{}/gallery/{:02}.jpg", wonder.dir, i % GALLERY_PHOTOS),
+            iw,
+            ih,
+            0.0,
+        )?
+        .f32v_attr(attr::position(), &[x, y]);
+        cells.push(cell.raw() as usize);
+        root = root.child(cell);
+    }
+    if let Ok(mut g) = WALL.lock() {
+        *g = Some(Wall {
+            cells,
+            origin: (ox, oy),
+            step: (sx, sy),
+        });
     }
 
     // `_AnimatedCutoutOverlay`: a 70% scrim over everything except the selected
     // cell. Four rectangles around the hole — ArkUI has no cut-out shape, and
     // four solid edges are exactly what the cut-out leaves behind.
-    let (hx, hy) = (ox + (sel % GRID) as f32 * sx, oy + (sel / GRID) as f32 * sy);
+    let (hx, hy) = (ox, oy);
     let scrim = 0xB3000000;
     for (x, y, rw, rh) in [
         (0.0, 0.0, w, hy),
