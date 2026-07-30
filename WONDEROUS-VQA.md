@@ -1,9 +1,21 @@
 # Wonderous — visual comparison against the reference
 
 Scored against `web/screenshots/mobile1..4.png` from
-gskinnerTeam/flutter-wonderous-app, on a HUAWEI Pura X (VDE-AL10, HarmonyOS
-6.1, 1320×2120, ratio 3). The scores are mine, from looking at the pairs. They
-are not a model's output and not a pixel metric.
+gskinnerTeam/flutter-wonderous-app. The scores are mine, from looking at the
+pairs. They are not a model's output and not a pixel metric.
+
+Two devices, and the second one is why the page is measured rather than
+assumed:
+
+| device | display | ratio | content area |
+|---|---|---|---|
+| HUAWEI Pura X (VDE-AL10) | 1320×2120 | 3.0 | 440 × 662 vp |
+| HUAWEI Mate 70 Air (SUP-AL90) | 1320×2760 | **3.25** | 406 × 805 vp |
+
+The app asks ArkUI how much room it was actually given — the earlier version
+subtracted a status-bar and gesture-bar constant measured on one phone, which
+is only right by luck. It happens to be right on both of these; it would not
+be on a device with a different inset.
 
 ## Reading the pairs fairly
 

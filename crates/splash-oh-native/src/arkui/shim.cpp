@@ -252,6 +252,22 @@ int splash_animate(ArkUI_NodeHandle anchor, int duration_ms, int curve,
     return rc;
 }
 
+// Where a mounted node actually ended up, in px.
+//
+// The content area is not the display: the system keeps a strip at the top for
+// the status bar and one at the bottom for the navigation gesture. Those differ
+// per device, so asking the node beats subtracting constants measured on one
+// phone.
+int splash_layout_size(ArkUI_NodeHandle n, int32_t *w, int32_t *h) {
+    if (!n || !w || !h) return -1;
+    ArkUI_IntSize size = {0, 0};
+    int rc = OH_ArkUI_NodeUtils_GetLayoutSize(n, &size);
+    if (rc != 0) return rc;
+    *w = size.width;
+    *h = size.height;
+    return 0;
+}
+
 // ---- mounting into the page ----------------------------------------------
 // The ONE place ArkTS is involved: it hands us a NodeContent slot once, at
 // startup. After that the whole tree lives here.
