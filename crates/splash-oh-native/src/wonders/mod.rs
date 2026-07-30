@@ -9,14 +9,17 @@
 //! the ArkUI NDK from Rust.
 
 pub mod artifact_data;
+pub mod corpus;
 pub mod data;
 pub mod details;
 pub mod editorial_data;
 pub mod home;
 pub mod illustration;
+pub mod met;
 pub mod screens;
 pub mod search;
 pub mod search_data;
+pub mod short;
 pub mod tabbar;
 pub mod timeline;
 pub mod timeline_data;
@@ -166,8 +169,10 @@ mod tests {
         ("details::ARTIFACT_PREV", super::details::ARTIFACT_PREV),
         ("details::ARTIFACT_NEXT", super::details::ARTIFACT_NEXT),
         ("details::BROWSE_TAP", super::details::BROWSE_TAP),
+        ("details::ARTIFACT_OPEN", super::details::ARTIFACT_OPEN),
         ("details::SCROLL_TICK", super::details::SCROLL_TICK),
         ("search::SEARCH_CLOSE", super::search::SEARCH_CLOSE),
+        ("search::SEARCH_TYPED", super::search::SEARCH_TYPED),
     ];
 
     /// The ids that are the base of a run, and how long the run is.

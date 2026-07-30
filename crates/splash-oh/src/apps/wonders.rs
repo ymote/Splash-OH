@@ -109,13 +109,18 @@ fn swipe_of(target: i32, base: i32) -> Option<i32> {
 }
 
 /// Move the home pager, wrapping. Only meaningful on the home screen.
+///
+/// Returns false: all eight wonders are already mounted, so the page change is
+/// a cross-fade over the tree that is there rather than a new one.
 fn step(d: i32) -> bool {
     if screen() != Screen::Home {
         return false;
     }
     let n = wonders::data::WONDERS.len();
-    set(((current() + n) as i32 + d) as usize % n);
-    true
+    let next = ((current() + n) as i32 + d) as usize % n;
+    set(next);
+    wonders::home::fade_to(next);
+    false
 }
 
 /// Move the artifact carousel, wrapping as the app's `PageView` does.
@@ -126,8 +131,12 @@ fn step_artifact(d: i32) -> bool {
     }
     let n = list.len();
     let cur = wonders::details::artifact_sel() % n;
-    wonders::details::set_artifact_sel(((cur + n) as i32 + d) as usize % n);
-    true
+    let next = ((cur + n) as i32 + d) as usize % n;
+    wonders::details::set_artifact_sel(next);
+    // Every piece is already mounted, so this collapses the carousel around
+    // the new one rather than rebuilding the screen.
+    wonders::details::collapse_carousel(next);
+    false
 }
 
 /// Handle a tap. `true` if it was ours and the tree should be rebuilt.
@@ -136,6 +145,15 @@ pub fn handle(target: i32) -> bool {
     // unchanged, only two attributes on nodes that are already mounted.
     if target == wonders::details::SCROLL_TICK {
         wonders::details::apply_parallax();
+        return false;
+    }
+    // A keystroke in the search field: read the text back and redraw the
+    // results if it actually changed.
+    if target == wonders::search::SEARCH_TYPED {
+        return wonders::search::read_typed();
+    }
+    if target == SCREEN_APPEAR {
+        fade_in_screen();
         return false;
     }
     let n = wonders::data::WONDERS.len();
@@ -210,11 +228,16 @@ pub fn handle(target: i32) -> bool {
             };
             wonders::details::move_photo_sel(dx, dy)
         }
+        wonders::details::ARTIFACT_OPEN => {
+            go(Screen::Artifact);
+            true
+        }
         wonders::details::BROWSE_TAP => {
             go(Screen::Search(None));
             true
         }
         wonders::search::SEARCH_CLOSE => {
+            wonders::search::clear_field();
             go(Screen::Details(2));
             true
         }
@@ -252,8 +275,14 @@ pub fn handle(target: i32) -> bool {
             go(Screen::Home);
             true
         }
-        wonders::screens::COLLECTION_CLOSE | wonders::screens::ARTIFACT_CLOSE => {
+        wonders::screens::COLLECTION_CLOSE => {
             go(Screen::Home);
+            true
+        }
+        // Closing an artifact goes back to the carousel it was opened from,
+        // not to the home screen.
+        wonders::screens::ARTIFACT_CLOSE => {
+            go(Screen::Details(2));
             true
         }
         wonders::tabbar::HOME_TAP => {
@@ -273,8 +302,52 @@ pub fn handle(target: i32) -> bool {
     }
 }
 
+/// The id the screen root reports the moment it is mounted.
+///
+/// A route change in Wonderous fades; the new tree cannot be animated before
+/// it exists, so it is built transparent and asks to be faded in as soon as
+/// ArkUI tells it that it is on screen.
+const SCREEN_APPEAR: i32 = 7440;
+/// `$styles.times.fast`, the app's route transition.
+const SCREEN_FADE_MS: i32 = 200;
+/// The newest screen root. An appear from an older tree would find this
+/// pointing at the tree that is actually on screen, which is the one that
+/// should be opaque, so there is nothing to guard against.
+static SCREEN_ROOT: AtomicUsize = AtomicUsize::new(0);
+
+fn fade_in_screen() {
+    let root = SCREEN_ROOT.load(Ordering::Relaxed);
+    if root == 0 {
+        return;
+    }
+    let n = root as splash_oh_native::arkui::NodeHandle;
+    unsafe {
+        splash_oh_native::arkui::animate(
+            n,
+            SCREEN_FADE_MS,
+            splash_oh_native::arkui::CURVE_EASE_OUT,
+            move || unsafe {
+                Node::set_f32_attr_raw(n, splash_oh_native::arkui::attr::opacity(), 1.0)
+            },
+        )
+    };
+}
+
 pub fn build() -> Option<Node> {
     let (w, h) = page();
+    let node = build_screen(w, h)?;
+    // Every screen fades in, including home: home changes wonder by
+    // cross-fading in place rather than rebuilding, so it only ever appears
+    // when arriving from somewhere else -- which is exactly when a route fade
+    // is wanted.
+    let node = node
+        .f32_attr(splash_oh_native::arkui::attr::opacity(), 0.0)
+        .on_event(splash_oh_native::arkui::event::appear(), SCREEN_APPEAR);
+    SCREEN_ROOT.store(node.raw() as usize, Ordering::Relaxed);
+    Some(node)
+}
+
+fn build_screen(w: f32, h: f32) -> Option<Node> {
     match screen() {
         Screen::Intro(p) => wonders::screens::intro(p, w, h),
         Screen::Menu => wonders::screens::menu(current(), w, h),

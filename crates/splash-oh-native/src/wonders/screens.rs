@@ -14,6 +14,8 @@ const APP: &str = "wonders";
 const SHEET: u32 = 0xFFF8ECE5;
 const BODY: u32 = 0xFF514F4D;
 const GREY_STRONG: u32 = 0xFF272625;
+/// `$styles.colors.greyMedium`, which is what an info row's label is set in.
+const LABEL: u32 = 0xFF9D9995;
 const ACCENT: u32 = 0xFFE4935D;
 const DISPLAY: &str = "YesevaOne";
 const SERIF_UI: &str = "TenorSans";
@@ -268,36 +270,91 @@ pub fn collection(w: f32, h: f32) -> Option<Node> {
     Some(root)
 }
 
-/// One artifact, full screen: the piece on a pale ground with its name, date
-/// and a line about it — `artifact_details_screen.dart`.
+/// One artifact, full screen — `artifact_details_screen.dart`.
+///
+/// The piece on a pale ground with its culture, its name, and the Met's own
+/// record of it: date, period, geography, medium, dimensions, classification.
+/// Those six come from the API, not from anything that ships, so until the
+/// response lands the screen shows what it has and fills in the rest when it
+/// arrives.
 pub fn artifact(index: usize, w: f32, h: f32) -> Option<Node> {
-    let wo = &WONDERS[index % WONDERS.len()];
-    let e = &EDITORIAL[index % EDITORIAL.len()];
+    let list = super::artifact_data::ARTIFACTS[index % 8];
+    if list.is_empty() {
+        return Some(stack(w, h, SHEET)?);
+    }
+    let art = &list[super::details::artifact_sel() % list.len()];
+    super::met::prefetch(art.id);
+    let live = super::met::record(art.id);
+
     let mut root = stack(w, h, SHEET)?;
 
+    // The piece itself, on the sheet, as the app frames it.
     let ih = h * 0.46;
     root = root.child(
-        photo(APP, &format!("{}/photo-3.jpg", wo.dir), w, ih, 0.0)?
+        photo(APP, &format!("artifacts/{}.jpg", art.id), w, ih, 0.0)?
             .f32v_attr(attr::position(), &[0.0, 0.0]),
     );
 
+    let mut y = ih + 26.0;
+    if let Some(c) = live
+        .as_ref()
+        .map(|r| r.culture.clone())
+        .filter(|c| !c.is_empty())
+    {
+        root = root.child(
+            text(&c.to_uppercase(), 12.0, ACCENT, w - 56.0, 22.0)?
+                .string_attr(attr::font_family(), SERIF_UI)
+                .f32v_attr(attr::position(), &[28.0, y]),
+        );
+        y += 26.0;
+    }
+
+    let title = live
+        .as_ref()
+        .map(|r| r.title.as_str())
+        .filter(|t| !t.is_empty())
+        .unwrap_or(art.title);
+    let title_lines = if title.chars().count() > 24 { 2.0 } else { 1.0 };
     root = root.child(
-        text(wo.title, 30.0, GREY_STRONG, w - 56.0, 44.0)?
+        text(title, 28.0, GREY_STRONG, w - 56.0, 40.0 * title_lines)?
             .string_attr(attr::font_family(), DISPLAY)
-            .f32v_attr(attr::position(), &[28.0, ih + 26.0]),
+            .f32v_attr(attr::position(), &[28.0, y]),
     );
-    root = root.child(
-        text(e.region, 13.0, ACCENT, w - 56.0, 24.0)?
-            .string_attr(attr::font_family(), SERIF_UI)
-            .f32v_attr(attr::position(), &[28.0, ih + 74.0]),
-    );
-    root = root
-        .child(col(w - 56.0, 1.0, 0x33272625)?.f32v_attr(attr::position(), &[28.0, ih + 106.0]));
-    root = root.child(
-        text(e.callout1, 15.0, BODY, w - 56.0, h * 0.3)?
-            .string_attr(attr::font_family(), BODY_FONT)
-            .f32v_attr(attr::position(), &[28.0, ih + 124.0]),
-    );
+    y += 40.0 * title_lines + 14.0;
+    root = root.child(col(w - 56.0, 1.0, 0x33272625)?.f32v_attr(attr::position(), &[28.0, y]));
+    y += 18.0;
+
+    // `_InfoRow`: a small label over the value, one after another.
+    let rows: Vec<(&str, String)> = match live.as_ref() {
+        Some(r) => r
+            .rows()
+            .into_iter()
+            .map(|(k, v)| (k, v.to_string()))
+            .collect(),
+        // Nothing has arrived yet. The date is the one field that ships, so it
+        // is the one field shown -- an empty screen that later fills in reads
+        // as broken, and a spinner over data we already have reads as slow.
+        None => vec![("Date", art.date.to_string())],
+    };
+    for (label, value) in rows {
+        if y > h - 60.0 {
+            break;
+        }
+        root = root.child(
+            text(label, 11.0, LABEL, w - 56.0, 18.0)?
+                .string_attr(attr::font_family(), SERIF_UI)
+                .f32v_attr(attr::position(), &[28.0, y]),
+        );
+        y += 18.0;
+        let lines = (value.chars().count() as f32 / ((w - 56.0) * 2.163 * 0.94 / 14.0)).ceil();
+        let vh = lines.max(1.0) * 21.0;
+        root = root.child(
+            text(&value, 14.0, BODY, w - 56.0, vh)?
+                .string_attr(attr::font_family(), BODY_FONT)
+                .f32v_attr(attr::position(), &[28.0, y]),
+        );
+        y += vh + 12.0;
+    }
 
     root = root.child(
         stack(46.0, 46.0, 0x33272625)?

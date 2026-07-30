@@ -461,7 +461,10 @@ pub fn web_slots_painted() -> Vec<String> {
 pub fn app_take_dirty() -> u32 {
     // `|` not `||`: both flags have to be cleared, or whichever is checked
     // second stays set and every poll after this one reports dirty forever.
-    if apps::weather_web::take_dirty() | location::take_dirty() {
+    if apps::weather_web::take_dirty()
+        | location::take_dirty()
+        | splash_oh_native::wonders::met::take_dirty()
+    {
         1
     } else {
         0

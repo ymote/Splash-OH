@@ -22,14 +22,12 @@ static HERO_TITLE: AtomicUsize = AtomicUsize::new(0);
 static HERO_SCROLL: AtomicUsize = AtomicUsize::new(0);
 static HERO_H: std::sync::Mutex<f32> = std::sync::Mutex::new(0.0);
 
-/// The photograph is drawn half again as tall as the frame that clips it, so
-/// there is something to slide. At rest it is centred, a quarter of the excess
-/// hidden above and a quarter below; at the end of the travel those swap. Any
-/// less and the bottom edge of the frame would run off the picture.
-const PARALLAX_OVERDRAW: f32 = 1.5;
-/// How much of the hero the title survives — it is gone well before the
-/// picture is, which is what makes the two read as separate planes.
-const TITLE_FADE: f32 = 1.6;
+/// How far the article scrolls before the illustration band is gone —
+/// `opacity = (1 - value / 700)` in `editorial_screen.dart`.
+const BAND_FADE_OVER: f32 = 700.0;
+/// And how far the title slides before it has faded out: the app slides it at
+/// .3 of the scroll and fades over 150 of that slide.
+const TITLE_FADE_OVER: f32 = 150.0;
 
 /// Apply the current scroll offset to the hero. Called from the scroll event.
 ///
@@ -49,29 +47,34 @@ pub fn apply_parallax() {
     else {
         return;
     };
-    let t = (y / hero_h).clamp(0.0, 1.0);
+    let _ = hero_h;
     let img = HERO_IMAGE.load(Ordering::Relaxed);
     let title = HERO_TITLE.load(Ordering::Relaxed);
 
     if img != 0 {
-        // The Stack has already been carried up by the whole scroll, so pushing
-        // the photograph back *down* by half of it leaves the photograph
-        // climbing the screen at half the rate of the article over it.
-        let travel = hero_h * (PARALLAX_OVERDRAW - 1.0) / 2.0;
+        // `editorial_screen.dart`: the band's opacity is 1 - scroll / 700.
         unsafe {
-            Node::set_f32v_raw(
+            Node::set_f32_attr_raw(
                 img as crate::arkui::NodeHandle,
-                attr::position(),
-                &[0.0, travel * (2.0 * t - 1.0)],
+                attr::opacity(),
+                (1.0 - y / BAND_FADE_OVER).clamp(0.0, 1.0),
             );
         }
     }
     if title != 0 {
+        // And the title slides down at .3 of the scroll while fading over 150
+        // of that slide, so it settles behind the bar rather than under it.
+        let slide = (y * 0.3).max(0.0);
         unsafe {
+            Node::set_f32v_raw(
+                title as crate::arkui::NodeHandle,
+                attr::translate(),
+                &[0.0, slide, 0.0],
+            );
             Node::set_f32_attr_raw(
                 title as crate::arkui::NodeHandle,
                 attr::opacity(),
-                (1.0 - t * TITLE_FADE).clamp(0.0, 1.0),
+                (1.0 - slide / TITLE_FADE_OVER).clamp(0.0, 1.0),
             );
         }
     }
@@ -177,6 +180,9 @@ pub fn build(index: usize, tab: usize, w: f32, h: f32) -> Option<Node> {
     if let Ok(mut g) = WALL.lock() {
         *g = None;
     }
+    if let Ok(mut g) = CAROUSEL.lock() {
+        *g = None;
+    }
     if let Ok(mut g) = HERO_H.lock() {
         *g = 0.0;
     }
@@ -244,8 +250,15 @@ pub fn build(index: usize, tab: usize, w: f32, h: f32) -> Option<Node> {
         let browse_y = h - bar_h - browse_h - 14.0;
         targets.push((w * 0.14, browse_y, w * 0.72, browse_h, BROWSE_TAP));
         let (ay, ah) = artifact_arch(w, h - bar_h);
-        targets.push((0.0, ay, w * 0.5, ah, ARTIFACT_PREV));
-        targets.push((w * 0.5, ay, w * 0.5, ah, ARTIFACT_NEXT));
+        // Three across the arch: the selected piece in the middle opens, and
+        // the space either side of it pages, which is what tapping a neighbour
+        // does in the app.
+        let body_h = h - bar_h;
+        let iw = (body_h - 200.0 - body_h / 2.75).clamp(250.0, 400.0) * 0.666;
+        let cx = (w - iw) / 2.0;
+        targets.push((0.0, ay, cx, ah, ARTIFACT_PREV));
+        targets.push((cx, ay, iw, ah, ARTIFACT_OPEN));
+        targets.push((cx + iw, ay, w - cx - iw, ah, ARTIFACT_NEXT));
     }
     // The wall and the carousel both swipe in the app; which base is live
     // depends on which tab is up, and only one of them is ever on screen.
@@ -276,7 +289,7 @@ fn editorial(wonder: &Wonder, index: usize, w: f32, h: f32) -> Option<Node> {
     let pad = 24.0;
     let cw = w - pad * 2.0;
 
-    let hero_h = w * 1.05;
+    let hero_h = super::short::HERO_H;
     let sec_h = w * 0.62 * 0.16 + 70.0 + 62.0;
 
     let mut b = Stack1::new(col(cw, 0.0, 0x00000000)?);
@@ -327,7 +340,12 @@ fn editorial(wonder: &Wonder, index: usize, w: f32, h: f32) -> Option<Node> {
     let (body, body_h) = b.done(cw);
 
     let mut sheet = Stack1::new(col(w, 0.0, SHEET)?);
-    sheet = sheet.push(hero(wonder, e, w), hero_h);
+    sheet = sheet.push(hero(wonder, index, e, w, h), hero_h);
+    let title = title_text(wonder, e, w);
+    if let Some(t) = title {
+        HERO_TITLE.store(t.raw() as usize, Ordering::Relaxed);
+        sheet = sheet.push(Some(t), 150.0);
+    }
     sheet = sheet.push(
         Some(
             col(w, body_h + 68.0, 0x00000000)?
@@ -350,68 +368,69 @@ fn editorial(wonder: &Wonder, index: usize, w: f32, h: f32) -> Option<Node> {
 /// The id the editorial's Scroll reports under.
 pub const SCROLL_TICK: i32 = 7399;
 
-/// The collapsing hero: a photo, the name in the display face, the region and
-/// the dates beneath it.
-fn hero(wonder: &Wonder, e: &super::editorial_data::Editorial, w: f32) -> Option<Node> {
-    let hh = w * 1.05;
-    // Clipped, because the photograph inside is deliberately taller than the
-    // frame it sits in and would otherwise paint over the article.
-    let mut st = stack(w, hh, wonder.fg)?.i32_attr(attr::clip(), 1);
-    let img = photo(
-        APP,
-        &format!("{}/photo-1.jpg", wonder.dir),
-        w,
-        hh * PARALLAX_OVERDRAW,
-        0.0,
-    )?
-    .f32v_attr(
-        attr::position(),
-        &[0.0, -hh * (PARALLAX_OVERDRAW - 1.0) / 2.0],
-    );
-    HERO_IMAGE.store(img.raw() as usize, Ordering::Relaxed);
+/// The band across the top of an article, and the title under it.
+///
+/// Not a photograph: `_TopIllustration` draws the wonder's own illustration in
+/// `shortMode` — background and mid-ground, no foreground — and the title
+/// follows underneath as part of the scrolling content rather than sitting over
+/// the picture. Both move as the article scrolls: the band fades out over the
+/// first 700 of scroll, the title slides down at .3 and fades over 150.
+fn hero(
+    wonder: &Wonder,
+    index: usize,
+    e: &super::editorial_data::Editorial,
+    w: f32,
+    screen_h: f32,
+) -> Option<Node> {
+    let band = super::short::HERO_H;
+    let mut st = stack(w, band, wonder.fg)?.i32_attr(attr::clip(), 1);
+
+    let art = super::short::hero(index, w, screen_h)?;
+    HERO_IMAGE.store(art.raw() as usize, Ordering::Relaxed);
     if let Ok(mut g) = HERO_H.lock() {
-        *g = hh;
+        *g = band;
     }
-    st = st.child(img);
-
-    // The scrim and the title are one layer, because they fade together: the
-    // scrim exists only to hold the title over the photograph.
-    //
-    // ARKUI_LINEAR_GRADIENT_DIRECTION_BOTTOM. A flat rectangle of black left a
-    // hard horizontal seam straight across the pyramids once the hero started
-    // moving under it.
-    let mut veil = stack(w, hh, 0x00000000)?;
-    veil = veil.child(
-        col(w, hh * 0.62, 0x00000000)?
-            .gradient(3, &[0x00000000, 0x66000000, 0xB3000000], &[0.0, 0.55, 1.0])
-            .f32v_attr(attr::position(), &[0.0, hh * 0.38]),
-    );
-
-    let size = (w * 0.10).clamp(26.0, 40.0);
-    let mut cap = col(w, 130.0, 0x00000000)?.f32v_attr(attr::position(), &[0.0, hh - 140.0]);
-    cap = cap.child(
-        text(wonder.title, size, SHEET, w - 48.0, size * 1.4)?
-            .string_attr(attr::font_family(), DISPLAY)
-            .i32_attr(attr::text_align(), 1)
-            .f32v_attr(attr::padding(), &[0.0, 24.0, 0.0, 24.0]),
-    );
-    cap = cap.child(
-        text(e.sub_title, 14.0, 0xCCF8ECE5, w - 48.0, 22.0)?
-            .string_attr(attr::font_family(), BODY_ITALIC)
-            .i32_attr(attr::text_align(), 1),
-    );
-    cap = cap.child(
-        text(e.region, 12.0, 0xB3F8ECE5, w - 48.0, 20.0)?
-            .string_attr(attr::font_family(), SERIF_UI)
-            .i32_attr(attr::text_align(), 1),
-    );
-    veil = veil.child(cap);
-    HERO_TITLE.store(veil.raw() as usize, Ordering::Relaxed);
-    st = st.child(veil);
+    st = st.child(art);
     Some(st)
 }
 
-/// A section break: the arc label with its icon under it.
+/// `_TitleText`: a rule, the sub-title in caps, a rule, then the name and the
+/// region. On the sheet, under the band.
+fn title_text(wonder: &Wonder, e: &super::editorial_data::Editorial, w: f32) -> Option<Node> {
+    let size = (w * 0.10).clamp(26.0, 40.0);
+    let mut cap = col(w, 150.0, 0x00000000)?;
+    // The sub-title between two rules, which is the app's masthead rule.
+    let label_w = (e.sub_title.chars().count() as f32 * 7.0 + 24.0).min(w - 96.0);
+    let rule_w = ((w - 48.0 - label_w) / 2.0).max(8.0);
+    let mut row_ = row(w, 30.0, 0x00000000)?.f32v_attr(attr::padding(), &[10.0, 24.0, 0.0, 24.0]);
+    row_ = row_.child(col(rule_w, 1.0, wonder.fg)?);
+    row_ = row_.child(
+        text(
+            &e.sub_title.to_uppercase(),
+            11.0,
+            GREY_STRONG,
+            label_w,
+            20.0,
+        )?
+        .string_attr(attr::font_family(), SERIF_UI)
+        .i32_attr(attr::text_align(), 1),
+    );
+    row_ = row_.child(col(rule_w, 1.0, wonder.fg)?);
+    cap = cap.child(row_);
+    cap = cap.child(
+        text(wonder.title, size, GREY_STRONG, w - 48.0, size * 1.5)?
+            .string_attr(attr::font_family(), DISPLAY)
+            .i32_attr(attr::text_align(), 1)
+            .f32v_attr(attr::padding(), &[6.0, 24.0, 0.0, 24.0]),
+    );
+    cap = cap.child(
+        text(e.region, 12.0, CAPTION, w - 48.0, 22.0)?
+            .string_attr(attr::font_family(), BODY_FONT)
+            .i32_attr(attr::text_align(), 1),
+    );
+    Some(cap)
+}
+
 fn section(w: f32, arc: &str, glyph: &str) -> Option<Node> {
     let mut c = col(w, 150.0, 0x00000000)?.f32v_attr(attr::margin(), &[44.0, 0.0, 18.0, 0.0]);
     c = c.child(
@@ -663,6 +682,9 @@ pub const ARTIFACT_SWIPE: i32 = 7420;
 pub const ARTIFACT_PREV: i32 = 7370;
 pub const ARTIFACT_NEXT: i32 = 7371;
 pub const BROWSE_TAP: i32 = 7372;
+/// Tapping the selected piece opens its details; tapping past it pages.
+/// `_handleArtifactTap` makes the same distinction.
+pub const ARTIFACT_OPEN: i32 = 7373;
 
 /// Where the centre artifact sits, so the tap targets and the arch agree.
 ///
@@ -679,29 +701,171 @@ fn artifact_arch(w: f32, h: f32) -> (f32, f32) {
     ((h - tall) / 2.0 - tall * 0.25, tall)
 }
 
+/// Every carousel item's nodes, so paging is a collapse rather than a rebuild.
+///
+/// `_CollapsingCarouselItem` gives each item a geometry that depends only on
+/// how far it is from the selected one, so the whole move is a set of sizes and
+/// positions -- exactly what `animateTo` tweens. The pieces either side of the
+/// selection are square, the selected one is a portrait capsule, and anything
+/// three away is invisible.
+static CAROUSEL: std::sync::Mutex<Option<Carousel>> = std::sync::Mutex::new(None);
+
+struct Carousel {
+    /// (blurred background, frame, photo, title block, dot) per artifact.
+    items: Vec<(usize, usize, usize, usize, usize)>,
+    /// Frame width, the tall height, and where a centred item sits.
+    iw: f32,
+    tall: f32,
+    centre: (f32, f32),
+    /// The dot's unexpanded width, so the tween knows what twice as wide means.
+    dot_d: f32,
+}
+
+/// `$styles.times.fast`, which is what the carousel animates at.
+const CAROUSEL_MS: i32 = 200;
+
+/// One item's place, given how many steps it is from the selected one.
+///
+/// The vertical offsets are the app's: half a width for the neighbour, .825
+/// for the one beyond it, a full width past that.
+fn carousel_place(k: i32, iw: f32, tall: f32, centre: (f32, f32)) -> (f32, f32, f32, f32, f32) {
+    let drop = match k.abs() {
+        0 => 0.0,
+        1 => iw * 0.5,
+        2 => iw * 0.825,
+        _ => iw,
+    };
+    let ih = if k == 0 { tall } else { iw };
+    let x = centre.0 + k as f32 * iw;
+    // `Center` inside the page slot, then translated up by a quarter of the
+    // tall height and back down by the drop.
+    let y = centre.1 + (tall - ih) / 2.0 + drop;
+    let opacity = if k.abs() <= 2 { 1.0 } else { 0.0 };
+    (x, y, iw, ih, opacity)
+}
+
+/// Collapse the carousel around `sel`.
+pub fn collapse_carousel(sel: usize) {
+    let Ok(g) = CAROUSEL.lock() else { return };
+    let Some(c) = g.as_ref() else { return };
+    let n = c.items.len();
+    if n == 0 {
+        return;
+    }
+    let Some(&(anchor, _, _, _, _)) = c.items.first() else {
+        return;
+    };
+    // Steps, not raw index difference: the carousel wraps, so the item before
+    // the first is the last one and it should come in from the left.
+    let step = |i: usize| -> i32 {
+        let d = (i as i32 - sel as i32).rem_euclid(n as i32);
+        if d * 2 > n as i32 {
+            d - n as i32
+        } else {
+            d
+        }
+    };
+    let moves: Vec<(usize, usize, usize, usize, usize, i32)> = c
+        .items
+        .iter()
+        .enumerate()
+        .map(|(i, &(bg, frame, pic, title, dot))| (bg, frame, pic, title, dot, step(i)))
+        .collect();
+    let (iw, tall, centre) = (c.iw, c.tall, c.centre);
+    let dot_d = c.dot_d;
+    unsafe {
+        crate::arkui::animate(
+            anchor as crate::arkui::NodeHandle,
+            CAROUSEL_MS,
+            crate::arkui::CURVE_EASE_OUT,
+            move || {
+                for (bg, frame, pic, title, dot, k) in moves {
+                    let (x, y, fw, fh, op) = carousel_place(k, iw, tall, centre);
+                    let inset = if k == 0 { 8.0 } else { iw * 0.1 };
+                    unsafe {
+                        set_box(frame, x, y, fw, fh, op);
+                        set_box(
+                            pic,
+                            x + inset,
+                            y + inset,
+                            fw - inset * 2.0,
+                            fh - inset * 2.0,
+                            op,
+                        );
+                        // Only the selected piece's backdrop, name and dot are
+                        // lit; the rest go dark under it.
+                        let on = if k == 0 { 1.0 } else { 0.0 };
+                        Node::set_f32_attr_raw(bg as crate::arkui::NodeHandle, attr::opacity(), on);
+                        Node::set_f32_attr_raw(
+                            title as crate::arkui::NodeHandle,
+                            attr::opacity(),
+                            on,
+                        );
+                        Node::set_f32_attr_raw(
+                            dot as crate::arkui::NodeHandle,
+                            attr::width(),
+                            if k == 0 { dot_d * 2.0 } else { dot_d },
+                        );
+                    }
+                }
+            },
+        )
+    };
+}
+
+/// Move a mounted node's box: position, size, radius and opacity together.
+///
+/// # Safety
+/// `raw` must be a live node handle.
+unsafe fn set_box(raw: usize, x: f32, y: f32, w: f32, h: f32, opacity: f32) {
+    let n = raw as crate::arkui::NodeHandle;
+    unsafe {
+        Node::set_f32_attr_raw(n, attr::width(), w);
+        Node::set_f32_attr_raw(n, attr::height(), h);
+        // radius 999 in the app: always a capsule, whatever the box.
+        Node::set_f32v_raw(
+            n,
+            attr::border_radius(),
+            &[w / 2.0, w / 2.0, w / 2.0, w / 2.0],
+        );
+        Node::set_f32v_raw(n, attr::position(), &[x, y]);
+        Node::set_f32_attr_raw(n, attr::opacity(), opacity);
+    }
+}
+
 fn artifacts(wonder: &Wonder, index: usize, sel: usize, w: f32, h: f32) -> Option<Node> {
     let list = super::artifact_data::ARTIFACTS[index % 8];
     if list.is_empty() {
         return stack(w, h, wonder.bg);
     }
     let n = list.len();
-    let art = &list[sel % n];
+    let sel = sel % n;
     let mut st = stack(w, h, wonder.bg)?.i32_attr(attr::clip(), 1);
+
+    let bottom_h = h / 2.75;
+    let item_h = (h - 200.0 - bottom_h).clamp(250.0, 400.0);
+    let iw = item_h * 0.666;
+    let (ay, tall) = artifact_arch(w, h);
+    let centre = ((w - iw) / 2.0, ay);
 
     // `_BlurredImageBg`: the current piece, scaled up, blurred, under a black
     // wash. The screen takes its colour from the object on it rather than from
-    // the wonder.
-    st = st.child(
-        photo(
+    // the wonder -- so every piece's backdrop is mounted and they cross-fade.
+    let mut bgs = Vec::with_capacity(n);
+    for (i, a) in list.iter().enumerate() {
+        let bg = photo(
             APP,
-            &format!("artifacts/{}.jpg", art.id),
+            &format!("artifacts/{}.jpg", a.id),
             w * 1.25,
             h * 1.25,
             0.0,
         )?
         .f32_attr(attr::blur(), 6.0)
-        .f32v_attr(attr::position(), &[-w * 0.125, -h * 0.05]),
-    );
+        .f32_attr(attr::opacity(), if i == sel { 1.0 } else { 0.0 })
+        .f32v_attr(attr::position(), &[-w * 0.125, -h * 0.05]);
+        bgs.push(bg.raw() as usize);
+        st = st.child(bg);
+    }
     st = st.child(col(w, h, 0x99000000)?.f32v_attr(attr::position(), &[0.0, 0.0]));
 
     // `_buildBgCircle`: a 2000-wide disc pushed down by half its size, so what
@@ -714,52 +878,49 @@ fn artifacts(wonder: &Wonder, index: usize, sel: usize, w: f32, h: f32) -> Optio
             .f32v_attr(attr::position(), &[(w - dome) / 2.0, h * 0.5]),
     );
 
-    let bottom_h = h / 2.75;
-    let item_h = (h - 200.0 - bottom_h).clamp(250.0, 400.0);
-    let iw = item_h * 0.666;
-    let (ay, tall) = artifact_arch(w, h);
-
-    // The neighbours either side, square and dropped by half a width, at the
-    // page width the carousel's viewport fraction puts them at.
-    for d in [-1i32, 1] {
-        let other = &list[((sel + n) as i32 + d) as usize % n];
-        let x = (w - iw) / 2.0 + d as f32 * iw;
-        let y = (h - iw) / 2.0 - tall * 0.25 + iw * 0.5;
-        st = st.child(
-            photo(
-                APP,
-                &format!("artifacts/{}.jpg", other.id),
-                iw * 0.8,
-                iw * 0.8,
-                iw * 0.4,
-            )?
-            .f32v_attr(attr::position(), &[x + iw * 0.1, y + iw * 0.1]),
-        );
-    }
-
-    // `_DoubleBorderImage`: a capsule outlined in off-white with the piece
-    // inset by 8, clipped to the same capsule.
-    let ax = (w - iw) / 2.0;
-    st = st.child(
-        col(iw, tall, 0x00000000)?
+    // Every piece, placed by its distance from the selection. Furthest first,
+    // so the selected one ends up on top of its neighbours.
+    let step = |i: usize| -> i32 {
+        let d = (i as i32 - sel as i32).rem_euclid(n as i32);
+        if d * 2 > n as i32 {
+            d - n as i32
+        } else {
+            d
+        }
+    };
+    let mut order: Vec<usize> = (0..n).collect();
+    order.sort_by_key(|&i| -step(i).abs());
+    let mut frames = vec![0usize; n];
+    let mut pics = vec![0usize; n];
+    for &i in &order {
+        let k = step(i);
+        let (x, y, fw, fh, op) = carousel_place(k, iw, tall, centre);
+        let inset = if k == 0 { 8.0 } else { iw * 0.1 };
+        // `_DoubleBorderImage`: a capsule outlined in off-white with the piece
+        // inset inside it, clipped to the same capsule.
+        let frame = col(fw, fh, 0x00000000)?
             .f32v_attr(
                 attr::border_radius(),
-                &[iw / 2.0, iw / 2.0, iw / 2.0, iw / 2.0],
+                &[fw / 2.0, fw / 2.0, fw / 2.0, fw / 2.0],
             )
             .f32_attr(attr::border_width(), 1.0)
             .u32_attr(attr::border_color(), SHEET)
-            .f32v_attr(attr::position(), &[ax, ay]),
-    );
-    st = st.child(
-        photo(
+            .f32_attr(attr::opacity(), op)
+            .f32v_attr(attr::position(), &[x, y]);
+        let pic = photo(
             APP,
-            &format!("artifacts/{}.jpg", art.id),
-            iw - 16.0,
-            tall - 16.0,
-            (iw - 16.0) / 2.0,
+            &format!("artifacts/{}.jpg", list[i].id),
+            fw - inset * 2.0,
+            fh - inset * 2.0,
+            (fw - inset * 2.0) / 2.0,
         )?
-        .f32v_attr(attr::position(), &[ax + 8.0, ay + 8.0]),
-    );
+        .f32_attr(attr::opacity(), op)
+        .f32v_attr(attr::position(), &[x + inset, y + inset]);
+        frames[i] = frame.raw() as usize;
+        pics[i] = pic.raw() as usize;
+        st = st.child(frame);
+        st = st.child(pic);
+    }
 
     // The header: the title, and the search button that opens the search
     // screen, which the app puts in the top right corner.
@@ -778,41 +939,49 @@ fn artifacts(wonder: &Wonder, index: usize, sel: usize, w: f32, h: f32) -> Optio
 
     // Below the arc the ground is pale, so the name and date are dark here --
     // `$styles.colors.black` on `offWhite`, not the off-white used above it.
-    let title_lines = if art.title.chars().count() > 22 {
-        2.0
-    } else {
-        1.0
-    };
-    let title_h = 36.0 * title_lines;
+    // One block per piece, cross-faded with the pieces themselves.
     let text_top = h - bottom_h + 24.0;
-    let mut cap = col(w, title_h + 40.0, 0x00000000)?.f32v_attr(attr::position(), &[0.0, text_top]);
-    cap = cap.child(
-        text(art.title, 30.0, INK, w - 48.0, title_h)?
-            .string_attr(attr::font_family(), DISPLAY)
-            .i32_attr(attr::text_align(), 1)
-            .f32v_attr(attr::padding(), &[0.0, 24.0, 0.0, 24.0]),
-    );
-    cap = cap.child(
-        text(art.date, 14.0, 0xB31E1B18, w, 24.0)?
-            .string_attr(attr::font_family(), BODY_FONT)
-            .i32_attr(attr::text_align(), 1),
-    );
-    st = st.child(cap);
-
-    // `AppPageIndicator`, one dot per highlight.
-    let (d, gap) = (7.0, 10.0);
-    let total = n as f32 * d + (n as f32 - 1.0) * gap;
-    let mut dots = row(w, 24.0, 0x00000000)?
-        .f32v_attr(attr::position(), &[0.0, h - 96.0])
-        .f32v_attr(attr::padding(), &[8.0, 0.0, 0.0, (w - total) / 2.0]);
-    for i in 0..n {
-        dots = dots.child(
-            col(d, d, if i == sel % n { ACCENT } else { 0x4D1E1B18 })?
-                .radius(d / 2.0)
-                .f32v_attr(attr::margin(), &[0.0, gap / 2.0, 0.0, gap / 2.0]),
+    let mut titles = Vec::with_capacity(n);
+    for (i, a) in list.iter().enumerate() {
+        let title_lines = if a.title.chars().count() > 22 {
+            2.0
+        } else {
+            1.0
+        };
+        let title_h = 36.0 * title_lines;
+        let mut cap = col(w, title_h + 40.0, 0x00000000)?
+            .f32_attr(attr::opacity(), if i == sel { 1.0 } else { 0.0 })
+            .f32v_attr(attr::position(), &[0.0, text_top]);
+        cap = cap.child(
+            text(a.title, 30.0, INK, w - 48.0, title_h)?
+                .string_attr(attr::font_family(), DISPLAY)
+                .i32_attr(attr::text_align(), 1)
+                .f32v_attr(attr::padding(), &[0.0, 24.0, 0.0, 24.0]),
         );
+        cap = cap.child(
+            text(a.date, 14.0, 0xB31E1B18, w, 24.0)?
+                .string_attr(attr::font_family(), BODY_FONT)
+                .i32_attr(attr::text_align(), 1),
+        );
+        titles.push(cap.raw() as usize);
+        st = st.child(cap);
     }
-    st = st.child(dots);
+
+    // `AppPageIndicator`: every dot the same colour, the current one twice as
+    // wide. The width is what the tween carries, and the row keeps a fixed
+    // pitch so the dots do not shuffle sideways as it expands.
+    let (d, gap) = (6.0, 10.0);
+    let total = (n as f32 + 1.0) * d + (n as f32 - 1.0) * gap;
+    let dot_y = h - 96.0 + 8.0;
+    let dot_x = |i: usize| (w - total) / 2.0 + i as f32 * (d + gap);
+    let mut dots = Vec::with_capacity(n);
+    for i in 0..n {
+        let dot = col(if i == sel { d * 2.0 } else { d }, d, ACCENT)?
+            .radius(d / 2.0)
+            .f32v_attr(attr::position(), &[dot_x(i), dot_y]);
+        dots.push(dot.raw() as usize);
+        st = st.child(dot);
+    }
 
     st = st.child(
         col(w * 0.72, 52.0, GREY_STRONG)?
@@ -825,6 +994,18 @@ fn artifacts(wonder: &Wonder, index: usize, sel: usize, w: f32, h: f32) -> Optio
                     .f32v_attr(attr::padding(), &[18.0, 0.0, 0.0, 0.0]),
             ),
     );
+
+    if let Ok(mut g) = CAROUSEL.lock() {
+        *g = Some(Carousel {
+            items: (0..n)
+                .map(|i| (bgs[i], frames[i], pics[i], titles[i], dots[i]))
+                .collect(),
+            iw,
+            tall,
+            centre,
+            dot_d: d,
+        });
+    }
     Some(st)
 }
 fn events(wonder: &Wonder, index: usize, w: f32, h: f32) -> Option<Node> {

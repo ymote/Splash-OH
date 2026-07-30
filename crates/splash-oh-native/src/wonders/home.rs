@@ -50,15 +50,93 @@ pub const HOME_SWIPE: i32 = 7430;
 
 const APP: &str = "wonders";
 
+/// Every wonder's illustration and title, and the background behind them,
+/// kept mounted so paging is a fade rather than a rebuild.
+///
+/// This is how `wonders_home_screen.dart` does it too: it maps all eight
+/// wonders into the background and mid-ground layers at once and toggles
+/// `isShowing`, and the illustration fades itself in or out. Rebuilding for
+/// each page instead cannot cross-fade, because the wonder being left has
+/// already been dropped by the time the new one is mounted.
+static PAGES: std::sync::Mutex<Option<Pages>> = std::sync::Mutex::new(None);
+
+struct Pages {
+    /// One (background, illustration, title) per wonder, by index.
+    layers: Vec<(usize, usize, usize)>,
+}
+
+/// `$styles.times.med`, which is what the home screen's cross-fade runs at.
+const FADE_MS: i32 = 300;
+
+/// Fade to `index`. Nothing is rebuilt; eight opacities move.
+pub fn fade_to(index: usize) {
+    let Ok(g) = PAGES.lock() else { return };
+    let Some(pages) = g.as_ref() else { return };
+    let Some(&(anchor, _, _)) = pages.layers.first() else {
+        return;
+    };
+    let shown = index % pages.layers.len();
+    let set: Vec<(usize, f32)> = pages
+        .layers
+        .iter()
+        .enumerate()
+        .flat_map(|(i, &(bg, art, title))| {
+            let a = if i == shown { 1.0 } else { 0.0 };
+            [(bg, a), (art, a), (title, a)]
+        })
+        .collect();
+    unsafe {
+        crate::arkui::animate(
+            anchor as crate::arkui::NodeHandle,
+            FADE_MS,
+            crate::arkui::CURVE_EASE_OUT,
+            move || {
+                for (n, a) in set {
+                    unsafe {
+                        Node::set_f32_attr_raw(n as crate::arkui::NodeHandle, attr::opacity(), a)
+                    };
+                }
+            },
+        )
+    };
+}
+
 pub fn build(index: usize, w: f32, h: f32) -> Option<Node> {
-    let wonder = &WONDERS[index % WONDERS.len()];
+    let shown = index % WONDERS.len();
+    let wonder = &WONDERS[shown];
     let mut root = stack(w, h, wonder.bg)?;
     // The title is its own layer above the whole illustration, foreground
     // included -- `_buildFloatingUi` in wonders_home_screen.dart. Putting it
     // between mid-ground and foreground instead loses it entirely behind an
     // opaque foreground: the Pyramids dunes cover the lower half of the frame.
-    root = root.child(illustration_with(wonder, w, h, None)?);
-    root = root.child(title_block(wonder, index, w, h)?);
+    //
+    // All eight are mounted; only one is opaque. The flat colour behind each
+    // illustration is its own layer for the same reason -- the background is
+    // per wonder, so it has to fade with the artwork rather than jump.
+    let mut layers = Vec::with_capacity(WONDERS.len());
+    let mut arts = Vec::with_capacity(WONDERS.len());
+    let mut titles = Vec::with_capacity(WONDERS.len());
+    for (i, wo) in WONDERS.iter().enumerate() {
+        let a = if i == shown { 1.0 } else { 0.0 };
+        let bg = col(w, h, wo.bg)?
+            .f32_attr(attr::opacity(), a)
+            .f32v_attr(attr::position(), &[0.0, 0.0]);
+        let art = illustration_with(wo, w, h, None)?.f32_attr(attr::opacity(), a);
+        let title = title_block(wo, i, w, h)?.f32_attr(attr::opacity(), a);
+        layers.push((bg.raw() as usize, art.raw() as usize, title.raw() as usize));
+        root = root.child(bg);
+        arts.push(art);
+        titles.push(title);
+    }
+    for art in arts {
+        root = root.child(art);
+    }
+    for title in titles {
+        root = root.child(title);
+    }
+    if let Ok(mut g) = PAGES.lock() {
+        *g = Some(Pages { layers });
+    }
     root = root.child(menu_button(h)?);
     root = root.child(chevron(w, h)?);
     // Every tap target in one overlay: the menu, the two paging halves, and
@@ -153,15 +231,21 @@ fn title_block(wonder: &Wonder, index: usize, w: f32, h: f32) -> Option<Node> {
 /// Eight dots, the current one filled.
 fn dots(index: usize, w: f32) -> Option<Node> {
     let n = WONDERS.len();
-    let (d, gap) = (7.0, 11.0);
-    let total = n as f32 * d + (n as f32 - 1.0) * gap;
+    // `AppPageIndicator` at dotSize 8 with an `ExpandingDotsEffect` whose
+    // expansionFactor is 2: every dot is the same colour and the current one is
+    // twice as wide, a pill rather than a circle. Fading the others instead
+    // gets the emphasis right and the shape wrong, and the shape is the part
+    // you actually notice.
+    let (d, gap) = (8.0, 10.0);
+    let cur = index % n;
+    let total = (n as f32 + 1.0) * d + (n as f32 - 1.0) * gap;
 
     let mut r =
         row(w, 36.0, 0x00000000)?.f32v_attr(attr::padding(), &[14.0, 0.0, 0.0, (w - total) / 2.0]);
 
     for i in 0..n {
-        let on = i == index % n;
-        let dot = col(d, d, if on { TITLE } else { 0x59F8ECE5 })?
+        let dw = if i == cur { d * 2.0 } else { d };
+        let dot = col(dw, d, TITLE)?
             .radius(d / 2.0)
             .f32v_attr(attr::margin(), &[0.0, gap / 2.0, 0.0, gap / 2.0]);
         r = r.child(dot);
