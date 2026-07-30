@@ -20,7 +20,7 @@ import { Taobao, TikTok, Wonderous } from './AppsArkTs';
  */
 /** Start in the browser card, which is the app that exercises the web overlay.
  *  Empty string starts in the benchmark harness instead. */
-const START_APP: string = 'frontend';
+const START_APP: string = 'flutter';
 /**
  * Milliseconds per screen for the catalog screenshot sweep, or 0 to leave the
  * catalog interactive.

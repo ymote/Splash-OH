@@ -38,6 +38,13 @@ pub enum App {
     /// Not part of the benchmark set — it contains an ArkTS `Web` surface, so
     /// it has no ArkTS twin to be compared against and no meaningful node count.
     Browser,
+    /// The flutter/samples catalog, built in Rust straight into ArkUI nodes.
+    ///
+    /// Distinct from `Catalog`, which walks the vendored `.splash` kit. Both
+    /// exist while the port is in progress: this one is incomplete, and having
+    /// the DSL version still mountable is what makes the two comparable screen
+    /// by screen rather than all at once.
+    Flutter,
     /// The Material catalog, rendered entirely by the Splash VM.
     ///
     /// The one app here with no Rust building its tree: `catalog.splash` is
@@ -76,6 +83,7 @@ impl App {
             App::Native => "native",
             App::Frontend => "frontend",
             App::Catalog => "catalog",
+            App::Flutter => "flutter",
         }
     }
     pub fn from_id(s: &str) -> App {
@@ -89,6 +97,7 @@ impl App {
             "native" => App::Native,
             "frontend" => App::Frontend,
             "catalog" => App::Catalog,
+            "flutter" => App::Flutter,
             _ => App::WeChat,
         }
     }
@@ -113,6 +122,7 @@ impl App {
             App::Files => &["0|root", "1|root", "2|root", "3|root", "4|root", "0|root"],
             App::Native => &["0|root", "0|root", "0|root", "0|root", "0|root", "0|root"],
             App::Frontend => &["0|root"],
+            App::Flutter => &["0|root"],
             App::Catalog => &[
                 "0|root",
                 "0|buttons",
@@ -167,6 +177,32 @@ pub fn handle(target: i32) -> bool {
         let mut nav = n.borrow_mut();
         // Each app owns a range of ids, so one handler can serve all of them.
         match nav.app {
+            // The flutter catalog routes by name and changes state by name, so
+            // its ids resolve through two interning tables rather than a match
+            // on constants. `app.screen` is the route, which is what
+            // `App::Flutter`'s build arm reads back.
+            App::Flutter => {
+                if let Some(action) = splash_oh_native::flutter::action_for(target) {
+                    return splash_oh_native::state::apply(&action);
+                }
+                if let Some(route) = splash_oh_native::flutter::route_for(target) {
+                    splash_oh_native::app::set_screen_quiet(route);
+                    return true;
+                }
+                if target == splash_oh_native::flutter::BACK {
+                    let cur = splash_oh_native::app::current_screen();
+                    if cur.is_empty() || cur == "index" {
+                        return false;
+                    }
+                    let parent = match cur.rfind('/') {
+                        Some(i) => cur[..i].to_string(),
+                        None => "index".to_string(),
+                    };
+                    splash_oh_native::app::set_screen_quiet(parent);
+                    return true;
+                }
+                false
+            }
             App::Taobao => match target {
                 splash_oh_native::taobao::BACK => {
                     let was = nav.pushed;
@@ -326,6 +362,11 @@ pub fn build() -> (Option<Node>, usize, f64) {
         App::Files => files::build(tab),
         App::Native => native::build(),
         App::Frontend => frontend::build(),
+        App::Flutter => {
+            let route = splash_oh_native::app::current_screen();
+            let route = if route.is_empty() { "index".to_string() } else { route };
+            splash_oh_native::flutter::build(&route)
+        }
         App::Catalog => {
             // The flutter/samples kit, not the Material catalog: the same
             // `.splash` the makepad backend renders, walked into ArkUI. Taps
@@ -364,6 +405,9 @@ pub fn build_route(app: App, tab: usize, route: &str) -> (usize, f64) {
     splash_oh_native::ui::reset_count();
     let t0 = Instant::now();
     let node = match app {
+        // The benchmark never tours this one — it has no ArkTS twin to compare
+        // against — so its only route is the index.
+        App::Flutter => splash_oh_native::flutter::build("index"),
         App::Taobao => {
             splash_oh_native::taobao::build(tab, if route == "detail" { Some(0) } else { None })
         }
