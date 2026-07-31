@@ -873,6 +873,10 @@ struct Index {
       setTimeout(() => {
         if (WONDEROUS_ARM === 'dsl') {
           splash.wonderousDslScreen(0, 0, 0, 0);
+          // The DSL describes a screen at one instant, so movement is the host
+          // describing it again. 33 ms is the same cadence the flutter kit
+          // animates at.
+          setInterval(() => { splash.wonderousDslTick(); }, 33);
           return;
         }
         this.wonderousArkBench();

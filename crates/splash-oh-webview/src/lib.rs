@@ -1200,3 +1200,20 @@ pub fn wonderous_dsl_screen(screen: i32, wonder: u32, tab: i32, page: i32) -> Ve
     ));
     vec![n as f64, us as f64]
 }
+
+/// Re-evaluate the DSL Wonderous against the clock.
+///
+/// The DSL has no tween and no controller: a screen is described as it is at
+/// one instant, so the only way to make it move is to describe it again a
+/// moment later. ArkTS calls this on a timer, exactly as it drives the
+/// flutter kit's animation.
+#[napi(js_name = "wonderousDslTick")]
+pub fn wonderous_dsl_tick() {
+    // Only the screens that actually move. Rebuilding a static screen thirty
+    // times a second is work with nothing to show for it, and it would fight
+    // the scroll on the article.
+    if !wonderous_dsl::animates() {
+        return;
+    }
+    app::set_root(wonderous_dsl::current());
+}

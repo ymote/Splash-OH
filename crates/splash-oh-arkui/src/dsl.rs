@@ -675,6 +675,12 @@ fn walk(vm: &mut ScriptVm, value: ScriptValue, depth: usize, parent: &str) -> Op
     if let Some(v) = num_prop(vm, value, id!(align)) {
         node = node.i32_attr(attr::alignment(), v as i32);
     }
+    // Clip to the node's own box. A stack whose children are placed by margin
+    // can be taller than the band it was given, and then it draws over what
+    // follows -- which is what put the editorial's kicker on top of its hero.
+    if let Some(v) = num_prop(vm, value, id!(clip)) {
+        node = node.i32_attr(attr::clip(), v as i32);
+    }
 
     // `on: 1` is the selected state. Which attribute that maps to depends on
     // the control, so it is resolved from the tag rather than the DSL naming

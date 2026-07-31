@@ -31,6 +31,14 @@ use wonderous::timeline_data::TIMELINES;
 
 const SRC: &str = include_str!("../assets/wonderous.splash");
 
+/// Seconds since the arm was first built.
+fn elapsed() -> f64 {
+    use std::sync::OnceLock;
+    use std::time::Instant;
+    static START: OnceLock<Instant> = OnceLock::new();
+    START.get_or_init(Instant::now).elapsed().as_secs_f64()
+}
+
 /// Screen ids, matching the other two arms.
 pub const S_INTRO: i32 = 0;
 
@@ -192,6 +200,11 @@ fn prelude(screen: i32, wonder: usize, tab: i32, page: i32, w: f32, h: f32) -> S
     }
     s.push_str("]\n");
     s.push_str(&format!("let found_n = {}\n", wonderous::collectibles::found_count()));
+    // The clock. The DSL has no tween and no controller, so the only thing that
+    // can make a screen move is re-evaluating it against a changing value --
+    // the same way the flutter kit animates. `wonderousDslTick` drives it.
+    s.push_str(&format!("let t = {:.3}\n", elapsed()));
+    s.push_str(&format!("let cloud_seed = {}\n", wo.cloud_seed));
     s.push_str(&format!("let art_sel = {}\n", ART_SEL.load(Relaxed)));
     s.push_str(&format!("let photo_sel = {}\n", PHOTO_SEL.load(Relaxed)));
     // The film and the map. YouTube's mobile watch page rather than an embed:
@@ -431,6 +444,28 @@ pub fn route(id: i32) -> Option<Node> {
         PAGE.load(Relaxed)
     ));
     current()
+}
+
+/// Whether the current screen should be re-described on the clock.
+///
+/// Nothing, for now, and the reason is worth recording rather than leaving as
+/// a puzzle for whoever tries next.
+///
+/// The DSL has no tween and no controller, so movement means describing the
+/// screen again a moment later -- and *the whole* screen, because there is no
+/// way to say that only one node changed. On the home screen that rebuilds
+/// eight illustration layers thirty times a second, and an ArkUI image node
+/// destroyed and recreated on every frame never survives long enough to
+/// decode: the drifting clouds animated perfectly over a wonder that had
+/// vanished, leaving flat colour.
+///
+/// So the capability is real and demonstrated -- `t` is bound, the tick
+/// re-evaluates, the clouds moved -- but it is only usable on a screen built
+/// from shapes and text. Animating an illustrated one needs the DSL to be able
+/// to update a node rather than replace a tree, which is a change to the
+/// language.
+pub fn animates() -> bool {
+    false
 }
 
 /// Put the app back at the start, for a fresh mount.
