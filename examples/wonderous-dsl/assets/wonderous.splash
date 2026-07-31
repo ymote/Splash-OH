@@ -34,6 +34,10 @@ let BODY     = "Raleway"
 // ---- tap ids, matched to the Rust arm so the host dispatch is shared -----
 let T_INTRO_NEXT  = 7300
 let T_INTRO_ENTER = 7301
+let T_MENU        = 7103
+let T_PREV        = 7101
+let T_NEXT        = 7102
+let T_DETAILS     = 7104
 
 // ---- helpers ------------------------------------------------------------
 fn at(node, x, y) {
@@ -102,5 +106,124 @@ fn intro_screen() {
   return {t: "stack", w: W, h: H, bg: GREY_STRONG, align: 0, c: kids}
 }
 
+
+// ---- home ---------------------------------------------------------------
+// `home_screen.dart`: the wonder itself, full bleed, with its name across the
+// lower third. The illustration is layered -- background pieces, the wonder,
+// then the foreground fronds that overhang the title -- and every layer is
+// placed here from its own anchor and fractional offsets.
+fn place(pc) {
+  let ph = H * pc[2]
+  if ph < pc[3] { ph = pc[3] }
+  let pw = ph * pc[1]
+  let anchor = pc[4]
+  // Anchor: 0 centre, 1 top-left, 2 top-centre, 3 top-right,
+  //         4 bottom-left, 5 bottom-centre, 6 bottom-right.
+  let ax = 0
+  let ay = 0
+  if anchor == 0 { ax = (W - pw) / 2  ay = (H - ph) / 2 }
+  if anchor == 2 { ax = (W - pw) / 2 }
+  if anchor == 3 { ax = W - pw }
+  if anchor == 5 { ax = (W - pw) / 2  ay = H - ph }
+  if anchor == 6 { ax = W - pw        ay = H - ph }
+  if anchor == 4 { ay = H - ph }
+  return at({t: "image", src: pc[0], w: pw, h: ph, fit: 0},
+            ax + pc[5] * pw + pc[7], ay + pc[6] * ph + pc[8])
+}
+
+fn illustration() {
+  let layers = [at({t: "image", src: w_texture, w: W, h: H, fit: 1}, 0, 0)]
+  let i = 0
+  while i < pieces.len() {
+    if pieces[i][9] == 0 { layers.push(place(pieces[i])) }
+    i = i + 1
+  }
+  return layers
+}
+
+fn foreground() {
+  let layers = []
+  let i = 0
+  while i < pieces.len() {
+    if pieces[i][9] == 1 { layers.push(place(pieces[i])) }
+    i = i + 1
+  }
+  return layers
+}
+
+fn home_screen() {
+  let kids = illustration()
+
+  // The fronds and dunes that overhang the scene go on before the name: the
+  // app draws the whole illustration first and lays the masthead over all of
+  // it. Pushed after, they bury the title -- which is exactly what they did.
+  let f = foreground()
+  let k = 0
+  while k < f.len() { kids.push(f[k])  k = k + 1 }
+
+  // The name. One line when there is no second word, otherwise the small
+  // italic article rides beside the second word rather than above it -- the
+  // detail that makes the name read as a masthead instead of two stacked words.
+  let size = 56
+  let line_h = size * 1.16
+  let block_h = line_h
+  if w_line2 != "" { block_h = line_h * 2 }
+  let y = H - block_h - H * 0.115
+  if y < H * 0.5 { y = H * 0.5 }
+
+  kids.push(at(centred(w_line1, size, SHEET, DISPLAY, W, line_h), 0, y))
+  if w_line2 != "" {
+    if w_article == "" {
+      // No article, so the word is simply centred in the frame. Laying it out
+      // as a row would need the row's own justification, which the DSL has no
+      // key for -- and left-justified is what that looked like.
+      kids.push(at(centred(w_line2, size, SHEET, DISPLAY, W, line_h), 0, y + line_h))
+    } else {
+      // The article rides beside the second word in a much smaller italic,
+      // sitting on its baseline. Centring the pair is what puts "the" against
+      // the R of Redeemer rather than parking it at the margin.
+      let word_w = w_em2 * size + size * 0.25
+      let art_w = size * 0.9
+      let group = art_w + word_w
+      let line = [
+        {t: "text", text: w_article, size: size * 0.40, color: SHEET,
+         font: BODY, w: art_w, h: line_h, talign: 2, pad: line_h * 0.36},
+        centred(w_line2, size, SHEET, DISPLAY, word_w, line_h),
+      ]
+      kids.push(at({t: "row", w: group, h: line_h, bg: CLEAR, c: line},
+                   (W - group) / 2, y + line_h))
+    }
+  }
+
+  // Which of the eight is showing.
+  let d = 7
+  let gap = 10
+  let total = w_count * d + (w_count - 1) * gap
+  let dots = []
+  let i = 0
+  while i < w_count {
+    let fill = FAINT
+    if i == wonder { fill = SHEET }
+    dots.push({t: "column", w: d, h: d, bg: fill, radius: d / 2, margin: gap / 2})
+    i = i + 1
+  }
+  kids.push(at({t: "row", w: W, h: 36, bg: CLEAR, c: dots,
+                pad: 14, padx: (W - total) / 2}, 0, H * 0.90))
+
+  // The menu disc, top left.
+  kids.push(at({t: "stack", w: 44, h: 44, bg: argb(179, 39, 38, 37), radius: 22,
+                c: [{t: "image", src: "resource://RAWFILE/wonders/_common/icons/icon-menu.png",
+                     w: 22, h: 22, fit: 0}]}, 20, H * 0.055))
+
+  // Tap targets: the menu, a third of the frame each side to change wonder,
+  // and the bottom band to open the details.
+  kids.push(hit(12, H * 0.045, 62, 62, T_MENU))
+  kids.push(hit(0, H * 0.14, W * 0.35, H * 0.6, T_PREV))
+  kids.push(hit(W * 0.65, H * 0.14, W * 0.35, H * 0.6, T_NEXT))
+  kids.push(hit(0, H * 0.80, W, H * 0.17, T_DETAILS))
+
+  return {t: "stack", w: W, h: H, bg: w_bg, align: 0, c: kids}
+}
+
 // ---- dispatch -----------------------------------------------------------
-if screen == 0 { intro_screen() } else { intro_screen() }
+if screen == 0 { intro_screen() } else { home_screen() }

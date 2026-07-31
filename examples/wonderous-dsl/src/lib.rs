@@ -21,7 +21,7 @@
 //! rather than a copy, so the two cannot drift.
 
 use splash_oh_arkui::arkui::Node;
-use wonderous::data::WONDERS;
+use wonderous::data::{Anchor, WONDERS};
 use wonderous::screens::INTRO;
 
 const SRC: &str = include_str!("../assets/wonderous.splash");
@@ -65,6 +65,55 @@ fn prelude(screen: i32, wonder: usize, tab: i32, page: i32, w: f32, h: f32) -> S
         "let intro_photo = \"resource://RAWFILE/wonders/_common/{}\"\n",
         esc(p.2)
     ));
+    // The wonder's illustration, as raw layer data. The script does the
+    // placement arithmetic -- anchor, height factor, fractional offsets -- as
+    // it should: baking the geometry here would leave the DSL arm drawing a
+    // layout Rust had already decided, which is the thing this arm exists to
+    // avoid.
+    s.push_str(&format!("let w_bg = {}\n", wo.bg));
+    s.push_str(&format!("let w_fg = {}\n", wo.fg));
+    s.push_str(&format!("let w_line1 = \"{}\"\n", esc(wo.line1)));
+    s.push_str(&format!("let w_line2 = \"{}\"\n", esc(wo.line2)));
+    s.push_str(&format!("let w_article = \"{}\"\n", esc(wo.article)));
+    s.push_str(&format!("let w_em1 = {}\n", wo.em1));
+    s.push_str(&format!("let w_em2 = {}\n", wo.em2));
+    s.push_str(&format!("let w_count = {}\n", WONDERS.len()));
+    s.push_str(&format!(
+        "let w_texture = \"resource://RAWFILE/wonders/{}/texture.png\"\n",
+        esc(wo.dir)
+    ));
+    s.push_str("let pieces = [\n");
+    for p in wo.pieces {
+        let anchor = match p.anchor {
+            Anchor::Center => 0,
+            Anchor::TopLeft => 1,
+            Anchor::TopCenter => 2,
+            Anchor::TopRight => 3,
+            Anchor::BottomLeft => 4,
+            Anchor::BottomCenter => 5,
+            Anchor::BottomRight => 6,
+        };
+        // `fg` marks the layers that overhang the title. Chichen Itza's two are
+        // not named `foreground-*`, but that is where the app draws them.
+        let fg = i32::from(
+            p.file.starts_with("foreground") || p.file == "top-left.png" || p.file == "top-right.png",
+        );
+        s.push_str(&format!(
+            "  [\"resource://RAWFILE/wonders/{}/{}\", {}, {}, {}, {}, {}, {}, {}, {}, {}],\n",
+            esc(wo.dir),
+            esc(p.file),
+            p.aspect,
+            p.height_factor,
+            p.min_h,
+            anchor,
+            p.frac_x,
+            p.frac_y,
+            p.off_x,
+            p.off_y,
+            fg
+        ));
+    }
+    s.push_str("]\n");
     s
 }
 
@@ -112,6 +161,10 @@ pub const T_INTRO_NEXT: i32 = 7300;
 pub const T_INTRO_ENTER: i32 = 7301;
 
 pub const S_HOME: i32 = 1;
+pub const T_MENU: i32 = 7103;
+pub const T_PREV: i32 = 7101;
+pub const T_NEXT: i32 = 7102;
+pub const T_DETAILS: i32 = 7104;
 
 const W: f32 = 406.15;
 const H: f32 = 805.23;
@@ -139,6 +192,16 @@ pub fn route(id: i32) -> Option<Node> {
         T_INTRO_ENTER => {
             SCREEN.store(S_HOME, Relaxed);
             PAGE.store(0, Relaxed);
+            true
+        }
+        T_PREV => {
+            let n = WONDERS.len() as i32;
+            WONDER.store((WONDER.load(Relaxed) + n - 1) % n, Relaxed);
+            true
+        }
+        T_NEXT => {
+            let n = WONDERS.len() as i32;
+            WONDER.store((WONDER.load(Relaxed) + 1) % n, Relaxed);
             true
         }
         _ => false,
