@@ -55,14 +55,15 @@ SPLASH_DEV_SERVER=http://127.0.0.1:5173 ./build.sh
 自己声明可以调用哪些工具、可以访问哪些目录、可以访问哪些主机。见
 [docs/capabilities.zh-CN.md](docs/capabilities.zh-CN.md)。
 
-## 各个 crate
+## 目录结构
 
 ```
-crates/splash-oh-native/       渲染器                        rlib
-crates/splash-oh-core/         注册表、Args、Responder        rlib
-crates/splash-oh-plugin-demo/  插件示例                      rlib
-crates/splash-oh-cli/          宿主机侧工具                   bin: splash-oh
-crates/splash-oh-webview/              桥接层与应用本体               cdylib -> libsplash_oh.so
+crates/splash-oh-native/       渲染器                       rlib
+crates/splash-oh-core/         注册表、Args、Responder      rlib
+crates/splash-oh-webview/      桥接层与各项能力              cdylib -> libsplash_oh.so
+crates/splash-oh-plugin-demo/  插件示例                     rlib
+examples/<app>/                每个示例应用一个目录
+tools/splash-oh-cli/           宿主机侧工具                  bin: splash-oh
 deveco/                        ArkTS 外壳
 ```
 

@@ -9,6 +9,6 @@ name = "splash-oh"
 path = "src/main.rs"
 
 [dependencies]
-splash-oh-core = { path = "../splash-oh-core" }
+splash-oh-core = { path = "../../crates/splash-oh-core" }
 toml = "0.8"
 serde = { version = "1", features = ["derive"] }
