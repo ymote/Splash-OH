@@ -877,7 +877,7 @@ struct Index {
           // anything on it, and at frame rate that recreates the illustration's
           // image nodes faster than they can decode -- the wonder disappears
           // and only the clouds remain. See `animates()` for the measurement.
-          setInterval(() => { splash.wonderousDslTick(); }, 500);
+          setInterval(() => { splash.wonderousDslTick(); }, 100);
           return;
         }
         this.wonderousArkBench();

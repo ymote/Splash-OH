@@ -448,20 +448,23 @@ pub fn route(id: i32) -> Option<Node> {
 
 /// Whether the current screen should be re-described on the clock.
 ///
-/// The home screen is: its clouds drift. Everything else is at rest, and
-/// re-describing it would be work with nothing to show for it.
+/// The home screen is: its clouds drift. Everything else is at rest.
+///
+/// # What the cadence costs, measured rather than assumed
 ///
 /// The DSL has no tween and no way to say that one node changed, so movement
 /// means describing the whole screen again -- illustration layers included.
 /// At 33 ms that is destructive: an ArkUI image node recreated every frame
 /// never lives long enough to decode, and the clouds drifted beautifully over
-/// a wonder that had vanished. At 500 ms the images survive and the drift is
-/// still smooth, because a cloud crossing the frame over half a minute does
-/// not need sixty positions a second.
+/// a wonder that had vanished. At 100 ms the illustration survives intact.
 ///
-/// So the constraint is a rate, not a prohibition, and it is worth stating
-/// exactly: this arm can animate anything whose motion is slow enough that
-/// half a second between descriptions reads as continuous.
+/// So the rebuild path tops out around 10 frames a second here, which is not
+/// what the original does. Matching it properly means not rebuilding at all:
+/// `arkui::animate` and the `translate` attribute exist, and a node given a
+/// drift could be interpolated natively at 60 without the tree being touched.
+/// That needs the walker to hand mounted node handles back to the host, which
+/// it currently does not -- a real addition to the DSL rather than a tuning of
+/// this app.
 pub fn animates() -> bool {
     SCREEN.load(Relaxed) == S_HOME
 }
