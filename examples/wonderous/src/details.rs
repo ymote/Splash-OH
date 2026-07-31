@@ -7,8 +7,8 @@
 use super::data::{Wonder, WONDERS};
 use super::editorial_data::EDITORIAL;
 use super::tabbar;
-use splash_oh_native::arkui::{attr, ty, Node};
-use splash_oh_native::ui::*;
+use splash_oh_arkui::arkui::{attr, ty, Node};
+use splash_oh_arkui::ui::*;
 
 /// The hero band and its title block, kept so a scroll can move them without
 /// rebuilding the tree.
@@ -50,7 +50,7 @@ pub fn apply_scroll() {
     // drag, which pinned the hero at the end of its travel immediately.
     let Some(y) = (unsafe {
         Node::get_f32(
-            scroll as splash_oh_native::arkui::NodeHandle,
+            scroll as splash_oh_arkui::arkui::NodeHandle,
             attr::scroll_offset(),
             1,
         )
@@ -64,7 +64,7 @@ pub fn apply_scroll() {
         // `editorial_screen.dart`: the band's opacity is 1 - scroll / 700.
         unsafe {
             Node::set_f32_attr_raw(
-                img as splash_oh_native::arkui::NodeHandle,
+                img as splash_oh_arkui::arkui::NodeHandle,
                 attr::opacity(),
                 (1.0 - y / BAND_FADE_OVER).clamp(0.0, 1.0),
             );
@@ -76,12 +76,12 @@ pub fn apply_scroll() {
         let slide = (y * 0.3).max(0.0);
         unsafe {
             Node::set_f32v_raw(
-                title as splash_oh_native::arkui::NodeHandle,
+                title as splash_oh_arkui::arkui::NodeHandle,
                 attr::translate(),
                 &[0.0, slide, 0.0],
             );
             Node::set_f32_attr_raw(
-                title as splash_oh_native::arkui::NodeHandle,
+                title as splash_oh_arkui::arkui::NodeHandle,
                 attr::opacity(),
                 (1.0 - slide / TITLE_FADE_OVER).clamp(0.0, 1.0),
             );
@@ -401,7 +401,7 @@ fn editorial(wonder: &Wonder, index: usize, w: f32, h: f32) -> Option<Node> {
     s = s.child(sheet);
     // The scroll drives the hero. The event is only a tick — the handler reads
     // the offset back off this node.
-    s = s.on_event(splash_oh_native::arkui::event::did_scroll(), SCROLL_TICK);
+    s = s.on_event(splash_oh_arkui::arkui::event::did_scroll(), SCROLL_TICK);
     HERO_SCROLL.store(s.raw() as usize, Ordering::Relaxed);
     Some(s)
 }
@@ -527,7 +527,7 @@ fn video(wonder: &Wonder, e: &super::editorial_data::Editorial, w: f32) -> Optio
             .child(text("\u{25B6}", 20.0, SHEET, 54.0, 54.0)?.i32_attr(attr::text_align(), 1)),
     );
     // The still is a button in the app; tapping it plays the film.
-    c = c.child(frame.on_event(splash_oh_native::arkui::event::click(), VIDEO_TAP));
+    c = c.child(frame.on_event(splash_oh_arkui::arkui::event::click(), VIDEO_TAP));
     c = c.child(
         text(e.video_caption, 13.0, CAPTION, w, 60.0)?
             .string_attr(attr::font_family(), BODY_ITALIC)
@@ -613,15 +613,15 @@ fn slide_wall(sel: usize) {
         })
         .collect();
     unsafe {
-        splash_oh_native::arkui::animate(
-            anchor as splash_oh_native::arkui::NodeHandle,
+        splash_oh_arkui::arkui::animate(
+            anchor as splash_oh_arkui::arkui::NodeHandle,
             120,
-            splash_oh_native::arkui::CURVE_EASE_OUT,
+            splash_oh_arkui::arkui::CURVE_EASE_OUT,
             move || {
                 for (c, x, y) in places {
                     unsafe {
                         Node::set_f32v_raw(
-                            c as splash_oh_native::arkui::NodeHandle,
+                            c as splash_oh_arkui::arkui::NodeHandle,
                             attr::position(),
                             &[x, y],
                         )
@@ -659,7 +659,7 @@ fn photos(wonder: &Wonder, w: f32, h: f32) -> Option<Node> {
 
     let mut root = stack(w, h, wonder.bg)?
         .i32_attr(attr::clip(), 1)
-        .on_event(splash_oh_native::arkui::event::touch(), PHOTO_SWIPE);
+        .on_event(splash_oh_arkui::arkui::event::touch(), PHOTO_SWIPE);
     // All 25 are built, not just the nine that can be seen: a cell has to
     // exist to be slid into view.
     let mut cells = Vec::with_capacity(GRID * GRID);
@@ -845,10 +845,10 @@ pub fn collapse_carousel(sel: usize) {
     let (iw, tall, centre) = (c.iw, c.tall, c.centre);
     let dot_d = c.dot_d;
     unsafe {
-        splash_oh_native::arkui::animate(
-            anchor as splash_oh_native::arkui::NodeHandle,
+        splash_oh_arkui::arkui::animate(
+            anchor as splash_oh_arkui::arkui::NodeHandle,
             CAROUSEL_MS,
-            splash_oh_native::arkui::CURVE_EASE_OUT,
+            splash_oh_arkui::arkui::CURVE_EASE_OUT,
             move || {
                 for (bg, frame, pic, title, dot, k) in moves {
                     let (x, y, fw, fh, op) = carousel_place(k, iw, tall, centre);
@@ -867,17 +867,17 @@ pub fn collapse_carousel(sel: usize) {
                         // lit; the rest go dark under it.
                         let on = if k == 0 { 1.0 } else { 0.0 };
                         Node::set_f32_attr_raw(
-                            bg as splash_oh_native::arkui::NodeHandle,
+                            bg as splash_oh_arkui::arkui::NodeHandle,
                             attr::opacity(),
                             on,
                         );
                         Node::set_f32_attr_raw(
-                            title as splash_oh_native::arkui::NodeHandle,
+                            title as splash_oh_arkui::arkui::NodeHandle,
                             attr::opacity(),
                             on,
                         );
                         Node::set_f32_attr_raw(
-                            dot as splash_oh_native::arkui::NodeHandle,
+                            dot as splash_oh_arkui::arkui::NodeHandle,
                             attr::width(),
                             if k == 0 { dot_d * 2.0 } else { dot_d },
                         );
@@ -893,7 +893,7 @@ pub fn collapse_carousel(sel: usize) {
 /// # Safety
 /// `raw` must be a live node handle.
 unsafe fn set_box(raw: usize, x: f32, y: f32, w: f32, h: f32, opacity: f32) {
-    let n = raw as splash_oh_native::arkui::NodeHandle;
+    let n = raw as splash_oh_arkui::arkui::NodeHandle;
     unsafe {
         Node::set_f32_attr_raw(n, attr::width(), w);
         Node::set_f32_attr_raw(n, attr::height(), h);

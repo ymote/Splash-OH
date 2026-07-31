@@ -91,9 +91,9 @@ pub fn prefetch(id: &str) {
             if let Ok(mut d) = DIRTY.lock() {
                 *d = true;
             }
-            splash_oh_native::log(&format!("wonders/met: {id} ready"));
+            splash_oh_arkui::log(&format!("wonders/met: {id} ready"));
         } else {
-            splash_oh_native::log(&format!("wonders/met: {id} unavailable"));
+            splash_oh_arkui::log(&format!("wonders/met: {id} unavailable"));
         }
         if let Ok(mut f) = INFLIGHT.lock() {
             f.retain(|k| *k != id);
@@ -102,7 +102,7 @@ pub fn prefetch(id: &str) {
 }
 
 fn fetch(id: &str) -> Option<Record> {
-    let (code, body) = splash_oh_native::net::http_get_string(&format!("{BASE}/{id}"));
+    let (code, body) = splash_oh_arkui::net::http_get_string(&format!("{BASE}/{id}"));
     if code != 200 {
         return None;
     }

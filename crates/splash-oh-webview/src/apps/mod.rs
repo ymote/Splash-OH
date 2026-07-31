@@ -25,7 +25,7 @@ pub mod wonders;
 
 pub mod weather_web;
 
-use splash_oh_native::arkui::Node;
+use splash_oh_arkui::arkui::Node;
 use std::cell::RefCell;
 use std::time::Instant;
 
@@ -212,14 +212,14 @@ pub fn handle(target: i32) -> bool {
             // `App::Flutter`'s build arm reads back.
             App::Flutter => {
                 if let Some(action) = flutter_catalog::action_for(target) {
-                    return splash_oh_native::state::apply(&action);
+                    return splash_oh_arkui::state::apply(&action);
                 }
                 if let Some(route) = flutter_catalog::route_for(target) {
-                    splash_oh_native::app::set_screen_quiet(route);
+                    splash_oh_arkui::app::set_screen_quiet(route);
                     return true;
                 }
                 if target == flutter_catalog::BACK {
-                    let cur = splash_oh_native::app::current_screen();
+                    let cur = splash_oh_arkui::app::current_screen();
                     if cur.is_empty() || cur == "index" {
                         return false;
                     }
@@ -227,7 +227,7 @@ pub fn handle(target: i32) -> bool {
                         Some(i) => cur[..i].to_string(),
                         None => "index".to_string(),
                     };
-                    splash_oh_native::app::set_screen_quiet(parent);
+                    splash_oh_arkui::app::set_screen_quiet(parent);
                     return true;
                 }
                 false
@@ -326,13 +326,13 @@ pub fn handle(target: i32) -> bool {
             // NAV_BACK returns to the index. `sub` carries the screen, with 0
             // meaning the index itself.
             App::Catalog => match target {
-                splash_oh_native::dsl::CATALOG_NAV_BACK => {
+                splash_oh_arkui::dsl::CATALOG_NAV_BACK => {
                     let was = nav.sub != 0;
                     nav.sub = 0;
                     was
                 }
-                t if t >= splash_oh_native::dsl::CATALOG_NAV_BASE => {
-                    let idx = (t - splash_oh_native::dsl::CATALOG_NAV_BASE) as usize;
+                t if t >= splash_oh_arkui::dsl::CATALOG_NAV_BASE => {
+                    let idx = (t - splash_oh_arkui::dsl::CATALOG_NAV_BASE) as usize;
                     if idx < material_catalog::CATALOG_SCREENS.len() {
                         nav.sub = idx + 1;
                         true
@@ -355,7 +355,7 @@ pub fn set_catalog_screen(idx: usize) {
 /// Build the current app's current screen. Returns (root, nodes, µs).
 pub fn build() -> (Option<Node>, usize, f64) {
     // Whichever thread renders is a thread that must not block on the network.
-    splash_oh_native::net::mark_ui_thread();
+    splash_oh_arkui::net::mark_ui_thread();
     let (app, tab, sub, pushed, feed) = NAV.with(|n| {
         let n = n.borrow();
         (n.app, n.tab, n.sub, n.pushed, n.feed)
@@ -364,7 +364,7 @@ pub fn build() -> (Option<Node>, usize, f64) {
         // WeChat predates this module and keeps its own builder and counter.
         return wechat::build();
     }
-    splash_oh_native::ui::reset_count();
+    splash_oh_arkui::ui::reset_count();
     crate::webslot::reset();
     let t0 = Instant::now();
     let node = match app {
@@ -383,10 +383,10 @@ pub fn build() -> (Option<Node>, usize, f64) {
         App::Native => native::build(),
         App::Frontend => frontend::build(),
         App::Wonders => wonders::build(),
-        App::Weather => splash_oh_native::dsl::build_weather(),
-        App::PlanWeather => splash_oh_native::dsl::build_planweather(),
+        App::Weather => splash_oh_arkui::dsl::build_weather(),
+        App::PlanWeather => splash_oh_arkui::dsl::build_planweather(),
         App::Flutter => {
-            let route = splash_oh_native::app::current_screen();
+            let route = splash_oh_arkui::app::current_screen();
             let route = if route.is_empty() {
                 "index".to_string()
             } else {
@@ -404,18 +404,18 @@ pub fn build() -> (Option<Node>, usize, f64) {
             // location card asked for a redraw when its fix landed and the
             // redraw was the index. Ask for the route that is actually current.
             let _ = sub;
-            let route = splash_oh_native::app::current_screen();
+            let route = splash_oh_arkui::app::current_screen();
             let route = if route.is_empty() {
                 "index".to_string()
             } else {
                 route
             };
-            splash_oh_native::dsl::build_flutter(&route, false)
+            splash_oh_arkui::dsl::build_flutter(&route, false)
         }
         App::WeChat => unreachable!(),
     };
     let us = t0.elapsed().as_nanos() as f64 / 1000.0;
-    (node, splash_oh_native::ui::count(), us)
+    (node, splash_oh_arkui::ui::count(), us)
 }
 
 /// Build one named route without mounting it, for timing.
@@ -429,13 +429,13 @@ pub fn build_route(app: App, tab: usize, route: &str) -> (usize, f64) {
         };
         return wechat::build_timed(tab, r);
     }
-    splash_oh_native::ui::reset_count();
+    splash_oh_arkui::ui::reset_count();
     let t0 = Instant::now();
     let node = match app {
         // The benchmark never tours this one — it has no ArkTS twin to compare
         // against — so its only route is the index.
-        App::Weather => splash_oh_native::dsl::build_weather(),
-        App::PlanWeather => splash_oh_native::dsl::build_planweather(),
+        App::Weather => splash_oh_arkui::dsl::build_weather(),
+        App::PlanWeather => splash_oh_arkui::dsl::build_planweather(),
         App::Flutter => flutter_catalog::build("index"),
         App::Taobao => taobao::build(tab, if route == "detail" { Some(0) } else { None }),
         App::TikTok => match route {
@@ -466,12 +466,12 @@ pub fn build_route(app: App, tab: usize, route: &str) -> (usize, f64) {
             // The tour names screens directly ("0|chips"), so "root" is the
             // index and anything else is the route verbatim.
             let screen = if route == "root" { "index" } else { route };
-            splash_oh_native::dsl::build_flutter(screen, false)
+            splash_oh_arkui::dsl::build_flutter(screen, false)
         }
         App::WeChat => unreachable!(),
     };
     let us = t0.elapsed().as_nanos() as f64 / 1000.0;
-    let n = splash_oh_native::ui::count();
+    let n = splash_oh_arkui::ui::count();
     drop(node);
     (n, us)
 }

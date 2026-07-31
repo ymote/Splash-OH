@@ -58,7 +58,7 @@ SPLASH_DEV_SERVER=http://127.0.0.1:5173 ./build.sh
 ## 目录结构
 
 ```
-crates/splash-oh-native/       渲染器                       rlib
+crates/splash-oh-arkui/       渲染器                       rlib
 crates/splash-oh-core/         注册表、Args、Responder      rlib
 crates/splash-oh-webview/      桥接层与各项能力              cdylib -> libsplash_oh.so
 crates/splash-oh-plugin-demo/  插件示例                     rlib
@@ -67,14 +67,14 @@ tools/splash-oh-cli/           宿主机侧工具                  bin: splash-o
 deveco/                        ArkTS 外壳
 ```
 
-依赖是单向的，这正是插件机制能成立的原因。`splash-oh-native` 不知道 webview 的
+依赖是单向的，这正是插件机制能成立的原因。`splash-oh-arkui` 不知道 webview 的
 存在。`splash-oh-core` 不知道桥接层的存在——所以插件可以依赖它，而不必依赖应用
 本体。`splash-oh` 是 `cdylib`，是最终产物，没有别的东西链接它，因此由它来决定
 这次构建包含哪些插件。
 
 最后只产出一个 `.so`，因为 ArkTS 只加载一个。
 
-### splash-oh-native
+### splash-oh-arkui
 
 用 Rust 把 UI 树渲染成原生 ArkUI 控件。ArkTS 在启动时交出一个 `NodeContent`，
 之后每个控件的创建、配置、布局和事件绑定都由原生代码完成，没有逐控件、也没有

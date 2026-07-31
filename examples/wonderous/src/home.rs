@@ -7,8 +7,8 @@
 
 use super::data::{Wonder, WONDERS};
 use super::illustration::illustration_with;
-use splash_oh_native::arkui::{attr, ty, Node};
-use splash_oh_native::ui::*;
+use splash_oh_arkui::arkui::{attr, ty, Node};
+use splash_oh_arkui::ui::*;
 
 /// Off-white, over every illustration. Wonderous uses one title colour for all
 /// eight; each artwork is dark enough behind the name to carry it.
@@ -93,15 +93,15 @@ pub fn fade_to(index: usize) {
         })
         .collect();
     unsafe {
-        splash_oh_native::arkui::animate(
-            anchor as splash_oh_native::arkui::NodeHandle,
+        splash_oh_arkui::arkui::animate(
+            anchor as splash_oh_arkui::arkui::NodeHandle,
             FADE_MS,
-            splash_oh_native::arkui::CURVE_EASE_OUT,
+            splash_oh_arkui::arkui::CURVE_EASE_OUT,
             move || {
                 for (n, a) in set {
                     unsafe {
                         Node::set_f32_attr_raw(
-                            n as splash_oh_native::arkui::NodeHandle,
+                            n as splash_oh_arkui::arkui::NodeHandle,
                             attr::opacity(),
                             a,
                         )

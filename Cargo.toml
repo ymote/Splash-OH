@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/splash-oh-native",
+    "crates/splash-oh-arkui",
     "crates/splash-oh-core",
     "tools/splash-oh-cli",
     "crates/splash-oh-plugin-demo",

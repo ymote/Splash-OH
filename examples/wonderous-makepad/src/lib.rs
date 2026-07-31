@@ -16,8 +16,8 @@
 //! equivalent native node, and faking it would measure the fake. The static
 //! composition is built instead, and the tab is honest about that.
 
-use splash_oh_native::arkui::Node;
-use splash_oh_native::ui::*;
+use splash_oh_arkui::arkui::Node;
+use splash_oh_arkui::ui::*;
 
 const APP: &str = "wonderous";
 

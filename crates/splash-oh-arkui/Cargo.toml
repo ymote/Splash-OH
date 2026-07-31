@@ -1,5 +1,5 @@
 [package]
-name = "splash-oh-native"
+name = "splash-oh-arkui"
 version = "0.1.0"
 edition = "2021"
 description = "Splash DSL rendered to OpenHarmony native ArkUI widgets, with no ArkTS in the loop"

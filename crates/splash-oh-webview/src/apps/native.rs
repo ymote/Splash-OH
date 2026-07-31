@@ -16,8 +16,8 @@
 //! because Rust asks the system and hands the answer back across the bridge.
 
 use crate::webslot::{web, web_html};
-use splash_oh_native::arkui::Node;
-use splash_oh_native::ui::*;
+use splash_oh_arkui::arkui::Node;
+use splash_oh_arkui::ui::*;
 
 const CHROME: u32 = 0xFF14141C;
 

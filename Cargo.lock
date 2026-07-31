@@ -68,7 +68,7 @@ checksum = "5baebc0774151f905a1a2cc41989300b1e6fbb29aff0ceffa1064fdd3088d582"
 name = "flutter-catalog"
 version = "0.1.0"
 dependencies = [
- "splash-oh-native",
+ "splash-oh-arkui",
 ]
 
 [[package]]
@@ -196,7 +196,7 @@ dependencies = [
 name = "material-catalog"
 version = "0.1.0"
 dependencies = [
- "splash-oh-native",
+ "splash-oh-arkui",
 ]
 
 [[package]]
@@ -380,6 +380,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "splash-oh-arkui"
+version = "0.1.0"
+dependencies = [
+ "cc",
+ "serde_json",
+ "splash-core",
+]
+
+[[package]]
 name = "splash-oh-cli"
 version = "0.1.0"
 dependencies = [
@@ -394,15 +403,6 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
-]
-
-[[package]]
-name = "splash-oh-native"
-version = "0.1.0"
-dependencies = [
- "cc",
- "serde_json",
- "splash-core",
 ]
 
 [[package]]
@@ -425,8 +425,8 @@ dependencies = [
  "serde",
  "serde_json",
  "splash-core",
+ "splash-oh-arkui",
  "splash-oh-core",
- "splash-oh-native",
  "splash-oh-plugin-demo",
  "taobao",
  "tiktok",
@@ -461,14 +461,14 @@ dependencies = [
 name = "taobao"
 version = "0.1.0"
 dependencies = [
- "splash-oh-native",
+ "splash-oh-arkui",
 ]
 
 [[package]]
 name = "tiktok"
 version = "0.1.0"
 dependencies = [
- "splash-oh-native",
+ "splash-oh-arkui",
 ]
 
 [[package]]
@@ -528,7 +528,7 @@ checksum = "c6f5d3c3b1bf09027a88a6bc961fc00497d651009560b5463668dc81b0fa87a8"
 name = "wechat"
 version = "0.1.0"
 dependencies = [
- "splash-oh-native",
+ "splash-oh-arkui",
 ]
 
 [[package]]
@@ -551,14 +551,14 @@ name = "wonderous"
 version = "0.1.0"
 dependencies = [
  "serde_json",
- "splash-oh-native",
+ "splash-oh-arkui",
 ]
 
 [[package]]
 name = "wonderous-makepad"
 version = "0.1.0"
 dependencies = [
- "splash-oh-native",
+ "splash-oh-arkui",
 ]
 
 [[package]]

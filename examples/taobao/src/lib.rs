@@ -13,8 +13,8 @@
 //! Product titles, subtitles and prices are the reference app's own, from
 //! `home/catalog_data.rs`.
 
-use splash_oh_native::arkui::Node;
-use splash_oh_native::ui::*;
+use splash_oh_arkui::arkui::Node;
+use splash_oh_arkui::ui::*;
 
 const APP: &str = "taobao";
 

@@ -16,8 +16,8 @@
 
 use crate::caps::Caps;
 use crate::webslot::declare_app_with;
-use splash_oh_native::arkui::Node;
-use splash_oh_native::ui::*;
+use splash_oh_arkui::arkui::Node;
+use splash_oh_arkui::ui::*;
 
 const CHROME: u32 = 0xFF14161A;
 const BAR_H: f32 = 38.0;

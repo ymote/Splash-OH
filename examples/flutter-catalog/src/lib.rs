@@ -30,7 +30,7 @@
 //! navigates by *name*, and an ArkUI event carries only an i32), and state
 //! actions get their own block above them.
 
-use splash_oh_native::arkui::{attr, ty, Node};
+use splash_oh_arkui::arkui::{attr, ty, Node};
 
 mod index;
 
@@ -353,25 +353,25 @@ pub fn para(s: &str, size: f32, color: u32, w: f32) -> Option<Node> {
 /// and `SwitchListTile` do, and what a 18x18 box needs, being well under the
 /// 48dp a finger wants.
 pub fn tap_row(w: f32, h: f32, bg: u32, route: &str) -> Option<Node> {
-    Some(row(w, h, bg)?.on_event(splash_oh_native::arkui::event::click(), intern(route)))
+    Some(row(w, h, bg)?.on_event(splash_oh_arkui::arkui::event::click(), intern(route)))
 }
 
 pub fn tap_row_fit(w: f32, bg: u32, route: &str) -> Option<Node> {
-    Some(row_fit(w, bg)?.on_event(splash_oh_native::arkui::event::click(), intern(route)))
+    Some(row_fit(w, bg)?.on_event(splash_oh_arkui::arkui::event::click(), intern(route)))
 }
 
 /// A row whose tap changes state instead of navigating. The action string is
 /// the same grammar `state::apply` already parses — `key=!`, `key=+1`, `key=~n`.
 pub fn act_row(w: f32, h: f32, bg: u32, action: &str) -> Option<Node> {
     Some(row(w, h, bg)?.on_event(
-        splash_oh_native::arkui::event::click(),
+        splash_oh_arkui::arkui::event::click(),
         intern_action(action),
     ))
 }
 
 pub fn act_row_fit(w: f32, bg: u32, action: &str) -> Option<Node> {
     Some(row_fit(w, bg)?.on_event(
-        splash_oh_native::arkui::event::click(),
+        splash_oh_arkui::arkui::event::click(),
         intern_action(action),
     ))
 }

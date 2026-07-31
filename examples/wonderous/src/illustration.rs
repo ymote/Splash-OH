@@ -27,7 +27,7 @@
 //! run off the edges. The frame therefore clips, and only at its own bounds.
 
 use super::data::{Anchor, Piece, Wonder};
-use splash_oh_native::arkui::{attr, ty, Node};
+use splash_oh_arkui::arkui::{attr, ty, Node};
 
 const APP: &str = "wonders";
 
