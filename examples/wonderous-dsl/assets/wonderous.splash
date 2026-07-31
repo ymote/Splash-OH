@@ -1,0 +1,106 @@
+// Wonderous, in the Splash DSL.
+//
+// The third arm. The same app exists twice already -- hand-written Rust calling
+// the ArkUI NDK, and ArkTS building the same widgets through typeNode -- and
+// both of those describe the interface in a general-purpose language. This one
+// describes it as data, evaluated on device by the Splash VM, and Rust turns
+// what comes back into ArkUI nodes.
+//
+// The host binds these before evaluating:
+//   screen, wonder, tab, page   where the app is
+//   W, H                        the content area, in vp
+//   the current wonder's fields, and whatever the screen needs
+//
+// Everything below -- the layout arithmetic, the per-screen dispatch, the
+// loops that lay out tab bars and page dots -- is evaluated here, not in Rust.
+
+// ---- palette ------------------------------------------------------------
+// Hex literals evaluate to 0 in this VM, which would render everything
+// transparent. Compose the ARGB word arithmetically instead.
+fn argb(a, r, g, b) { return ((a * 256 + r) * 256 + g) * 256 + b }
+
+let SHEET       = argb(255, 248, 236, 229)
+let GREY_STRONG = argb(255,  39,  38,  37)
+let ACCENT      = argb(255, 228, 147,  93)
+let SCRIM       = argb(204,  39,  38,  37)
+let DIM         = argb(204, 248, 236, 229)
+let FAINT       = argb( 89, 248, 236, 229)
+let CLEAR       = argb(  0,   0,   0,   0)
+
+let DISPLAY  = "YesevaOne"
+let SERIF_UI = "TenorSans"
+let BODY     = "Raleway"
+
+// ---- tap ids, matched to the Rust arm so the host dispatch is shared -----
+let T_INTRO_NEXT  = 7300
+let T_INTRO_ENTER = 7301
+
+// ---- helpers ------------------------------------------------------------
+fn at(node, x, y) {
+  node.x = x
+  node.y = y
+  return node
+}
+
+fn centred(s, size, color, font, w, h) {
+  return {t: "text", text: s, size: size, color: color, font: font,
+          w: w, h: h, talign: 1}
+}
+
+// A tap target: an invisible cell the host maps back to an id.
+//
+// One step of alpha rather than none. A fully transparent node is not a hit
+// target in ArkUI, so a cell with no background never receives the tap even
+// though the id is attached to it.
+fn hit(x, y, w, h, id) {
+  return at({t: "stack", w: w, h: h, bg: argb(1, 0, 0, 0), tap: id}, x, y)
+}
+
+// ---- intro --------------------------------------------------------------
+// `onboarding_screen.dart`: a photograph over the top half, the wordmark, a
+// title and a line of body copy, page dots, and one button that advances.
+fn intro_screen() {
+  let ph = H * 0.52
+  let kids = [
+    at({t: "image", src: intro_photo, w: W, h: ph, fit: 1}, 0, 0),
+    at({t: "column", w: W, h: ph * 0.45, bg: SCRIM}, 0, ph * 0.55),
+    at(centred("WONDEROUS", 13, ACCENT, SERIF_UI, W, 26), 0, H * 0.60),
+    at(centred(intro_title, 32, SHEET, DISPLAY, W - 60, 48), 30, H * 0.65),
+    at(centred(intro_body, 15, DIM, BODY, W - 80, 76), 40, H * 0.72),
+  ]
+
+  // Page dots. Three of them, the current one solid.
+  let d = 7
+  let gap = 11
+  let total = intro_count * d + (intro_count - 1) * gap
+  let dots = []
+  let i = 0
+  while i < intro_count {
+    let fill = FAINT
+    if i == page { fill = SHEET }
+    dots.push({t: "column", w: d, h: d, bg: fill, radius: d / 2,
+               margin: gap / 2})
+    i = i + 1
+  }
+  kids.push(at({t: "row", w: W, h: 24, bg: CLEAR, c: dots,
+                pad: 8, padx: (W - total) / 2}, 0, H * 0.84))
+
+  // The button, and the tap cell over it.
+  let last = page + 1 == intro_count
+  let label = "NEXT"
+  let id = T_INTRO_NEXT
+  if last {
+    label = "ENTER"
+    id = T_INTRO_ENTER
+  }
+  kids.push(at({t: "column", w: W * 0.5, h: 52, bg: ACCENT, radius: 26,
+                c: [{t: "text", text: label, size: 14, color: GREY_STRONG,
+                     font: SERIF_UI, w: W * 0.5, h: 52, talign: 1, pad: 18}]},
+               W * 0.25, H * 0.89))
+  kids.push(hit(W * 0.25, H * 0.89, W * 0.5, 52, id))
+
+  return {t: "stack", w: W, h: H, bg: GREY_STRONG, align: 0, c: kids}
+}
+
+// ---- dispatch -----------------------------------------------------------
+if screen == 0 { intro_screen() } else { intro_screen() }

@@ -35,7 +35,7 @@ const START_APP: string = 'wonders';
  * by design, so nothing looked wrong. The arms are mutually exclusive now, and
  * the Rust arm's `wonders/hits` log line tells you which one answered a tap.
  */
-const WONDEROUS_ARM: string = 'arkts';
+const WONDEROUS_ARM: string = 'dsl';
 /**
  * Milliseconds per screen for the catalog screenshot sweep, or 0 to leave the
  * catalog interactive.
@@ -871,8 +871,13 @@ struct Index {
     if (!this.benchDone) {
       this.benchDone = true;
       setTimeout(() => {
+        if (WONDEROUS_ARM === 'dsl') {
+          splash.wonderousDslScreen(0, 0, 0, 0);
+          return;
+        }
         this.wonderousArkBench();
         splash.wondersBench();
+        splash.dslOverheadBench();
       }, 2500);
     }
     if (START_APP !== '') {

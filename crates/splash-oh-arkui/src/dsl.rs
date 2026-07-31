@@ -587,6 +587,15 @@ fn walk(vm: &mut ScriptVm, value: ScriptValue, depth: usize, parent: &str) -> Op
     if let Some(v) = num_prop(vm, value, id!(weight)) {
         node = node.font_weight(v as i32);
     }
+    // A named font family. Without this the DSL could only ever render in the
+    // system face, which is enough for a component catalog and not enough for
+    // an app whose identity is its typography -- Wonderous is three faces and
+    // reads wrong in any of them.
+    if let Some(v) = string_prop(vm, value, id!(font)) {
+        if !v.is_empty() {
+            node = node.string_attr(crate::arkui::attr::font_family(), &v);
+        }
+    }
     if let Some(v) = num_prop(vm, value, id!(color)) {
         node = node.font_color(v as u32);
     }
@@ -610,6 +619,23 @@ fn walk(vm: &mut ScriptVm, value: ScriptValue, depth: usize, parent: &str) -> Op
     }
     if let Some(v) = num_prop(vm, value, id!(margin)) {
         node = node.margin(v as f32);
+    }
+    // Absolute placement inside a parent aligned top-start, as margin rather
+    // than position.
+    //
+    // ArkUI hit-tests a positioned node where it was *laid out*, not where it
+    // draws, so a positioned tap target answers in the wrong place -- an
+    // overlay built that way looks right and responds nowhere. Margin is a
+    // layout property, so draw and hit-test agree. `web` reads x/y itself, to
+    // place a composited surface, and must not be offset twice.
+    if tag != "web" {
+        let px = num_prop(vm, value, id!(x));
+        let py = num_prop(vm, value, id!(y));
+        if px.is_some() || py.is_some() {
+            let l = px.unwrap_or(0.0) as f32;
+            let t = py.unwrap_or(0.0) as f32;
+            node = node.f32v_attr(attr::margin(), &[t, 0.0, 0.0, l]);
+        }
     }
     if let Some(v) = num_prop(vm, value, id!(border)) {
         node = node.f32v_attr(attr::border_width(), &[v as f32; 4]);

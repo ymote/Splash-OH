@@ -432,6 +432,7 @@ dependencies = [
  "tiktok",
  "wechat",
  "wonderous",
+ "wonderous-dsl",
  "wonderous-makepad",
 ]
 
@@ -552,6 +553,14 @@ version = "0.1.0"
 dependencies = [
  "serde_json",
  "splash-oh-arkui",
+]
+
+[[package]]
+name = "wonderous-dsl"
+version = "0.1.0"
+dependencies = [
+ "splash-oh-arkui",
+ "wonderous",
 ]
 
 [[package]]

@@ -1079,3 +1079,124 @@ pub fn run_bridge_bench() {
         tsfn.call(REFRESH, ThreadsafeFunctionCallMode::Blocking);
     });
 }
+
+/// What the Splash DSL costs against the same tree built in Rust.
+///
+/// The sample apps are hand-written Rust calling the ArkUI NDK; only the two
+/// catalogs go through the DSL. So the published Rust-vs-ArkTS figure says
+/// nothing about the DSL, and a reader could easily take it to. This measures
+/// the missing arm.
+///
+/// Both sides build the *same* tree -- a column of `ROWS` cards, each a column
+/// holding two texts -- so the node count matches and the only difference is
+/// how the tree was described. Warm-up passes are discarded because the script
+/// VM is cold on first evaluation.
+#[napi(js_name = "dslOverheadBench")]
+pub fn dsl_overhead_bench() {
+    use splash_oh_arkui::arkui::Node;
+    use splash_oh_arkui::ui::{col, text};
+
+    const ROWS: usize = 20;
+    const W: f32 = 406.0;
+    const H: f32 = 805.0;
+    const CARDW: f32 = 380.0;
+    // 1 root + ROWS * (1 card + 2 texts)
+    const NODES: usize = 1 + ROWS * 3;
+
+    const SRC: &str = r#"
+fn argb(a, r, g, b) { return ((a * 256 + r) * 256 + g) * 256 + b }
+let fg   = argb(255, 28, 27, 31)
+let sub  = argb(255, 121, 116, 126)
+let card = argb(255, 244, 241, 248)
+let kids = []
+let i = 0
+while i < 20 {
+  kids.push({t: "column", w: 380, h: 56, bg: card, c: [
+    {t: "text", text: "Item " + i, size: 15, color: fg,  w: 340, h: 20},
+    {t: "text", text: "subtitle",  size: 12, color: sub, w: 340, h: 16}
+  ]})
+  i = i + 1
+}
+{t: "column", w: 406, h: 805, c: kids}
+"#;
+
+    fn build_rust() -> Option<Node> {
+        let mut root = col(W, H, 0)?;
+        for i in 0..ROWS {
+            let mut card = col(CARDW, 56.0, 0xFFF4F1F8)?;
+            card = card.child(text(&format!("Item {i}"), 15.0, 0xFF1C1B1F, 340.0, 20.0)?);
+            card = card.child(text("subtitle", 12.0, 0xFF79747E, 340.0, 16.0)?);
+            root = root.child(card);
+        }
+        Some(root)
+    }
+
+    let now = || std::time::Instant::now();
+    // Warm up both: the VM interns and the allocator settles.
+    for _ in 0..3 {
+        let _ = splash_oh_arkui::dsl::build(SRC);
+        let _ = build_rust();
+    }
+
+    const RUNS: usize = 9;
+    let mut dsl_us: Vec<u128> = Vec::new();
+    let mut rust_us: Vec<u128> = Vec::new();
+    for _ in 0..RUNS {
+        let t = now();
+        let a = splash_oh_arkui::dsl::build(SRC);
+        dsl_us.push(t.elapsed().as_micros());
+        drop(a);
+
+        let t = now();
+        let b = build_rust();
+        rust_us.push(t.elapsed().as_micros());
+        drop(b);
+    }
+    dsl_us.sort_unstable();
+    rust_us.sort_unstable();
+    let d = dsl_us[RUNS / 2] as f64 / 1000.0;
+    let r = rust_us[RUNS / 2] as f64 / 1000.0;
+
+    // A failed evaluation returns None in microseconds, which would read as a
+    // spectacular DSL win. Report what it actually produced.
+    let probe = splash_oh_arkui::dsl::build(SRC);
+    let built = if probe.is_some() { "ok" } else { "FAILED — timing a no-op" };
+    drop(probe);
+
+    crate::log(&format!(
+        "dsl/overhead: {NODES} nodes, dsl build {built} | dsl {d:.2} ms | rust {r:.2} ms | {:.1}x | +{:.2} ms",
+        d / r.max(0.0001),
+        d - r
+    ));
+    crate::log(&format!(
+        "dsl/overhead: per node  dsl {:.1} us  rust {:.1} us",
+        dsl_us[RUNS / 2] as f64 / NODES as f64,
+        rust_us[RUNS / 2] as f64 / NODES as f64
+    ));
+}
+
+/// Mount the DSL Wonderous, and report what it built.
+///
+/// Returns [nodes, microseconds]. The node count is the honest check on
+/// whether the script evaluated: a DSL page that fails to parse returns
+/// nothing very fast, and without the count that reads as a good result.
+#[napi(js_name = "wonderousDslScreen")]
+pub fn wonderous_dsl_screen(screen: i32, wonder: u32, tab: i32, page: i32) -> Vec<f64> {
+    const W: f32 = 406.15;
+    const H: f32 = 805.23;
+    // Taps arrive as bare ids through the renderer's router hook, the same
+    // seam the catalog uses. Without `set_wechat_active` the renderer never
+    // consults a router at all.
+    app::set_wechat_active(true);
+    app::set_router(|id| wonderous_dsl::route(id));
+    wonderous_dsl::reset();
+    let (node, n, us) = wonderous_dsl::build_timed(screen, wonder as usize, tab, page, W, H);
+    let ok = node.is_some();
+    app::set_root(node);
+    crate::log(&format!(
+        "wonderous/dsl: screen {screen} wonder {wonder} tab {tab} page {page} -> {} {n} nodes, {:.2} ms",
+        if ok { "ok" } else { "BUILD FAILED" },
+        us as f64 / 1000.0
+    ));
+    vec![n as f64, us as f64]
+}

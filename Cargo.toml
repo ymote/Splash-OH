@@ -10,6 +10,7 @@ members = [
     "examples/taobao",
     "examples/tiktok",
     "examples/wonderous",
+    "examples/wonderous-dsl",
     "examples/wonderous-makepad",
     "examples/material-catalog",
     "examples/flutter-catalog",

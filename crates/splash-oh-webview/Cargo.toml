@@ -19,6 +19,7 @@ wechat = { path = "../../examples/wechat" }
 taobao = { path = "../../examples/taobao" }
 tiktok = { path = "../../examples/tiktok" }
 wonderous = { path = "../../examples/wonderous" }
+wonderous-dsl = { path = "../../examples/wonderous-dsl" }
 wonderous-makepad = { path = "../../examples/wonderous-makepad" }
 material-catalog = { path = "../../examples/material-catalog" }
 flutter-catalog = { path = "../../examples/flutter-catalog" }

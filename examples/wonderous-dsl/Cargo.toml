@@ -1,0 +1,15 @@
+[package]
+name = "wonderous-dsl"
+version = "0.1.0"
+edition = "2021"
+description = "Wonderous described in the Splash DSL, rendered to ArkUI widgets"
+
+[lib]
+name = "wonderous_dsl"
+
+[dependencies]
+splash-oh-arkui = { path = "../../crates/splash-oh-arkui" }
+# The data tables, reused rather than copied. 8 wonders, their editorials,
+# artifacts, timelines and collectibles are the same facts whichever arm draws
+# them, and a second copy would be a second thing to get out of step.
+wonderous = { path = "../wonderous" }
