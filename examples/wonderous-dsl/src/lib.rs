@@ -24,6 +24,8 @@ use splash_oh_arkui::arkui::Node;
 use wonderous::data::{Anchor, WONDERS};
 use wonderous::artifact_data::ARTIFACTS;
 use wonderous::places::{COLLECTIBLES, PLACES};
+use wonderous::search_data::SUGGESTIONS;
+use wonderous::corpus::CORPUS;
 use wonderous::details::GALLERY_PHOTOS;
 use wonderous::editorial_data::EDITORIAL;
 use wonderous::screens::INTRO;
@@ -216,6 +218,35 @@ fn prelude(screen: i32, wonder: usize, tab: i32, page: i32, w: f32, h: f32) -> S
         ));
     }
     s.push_str("]\n");
+    // The browse screen: the wonder's own suggestion words, and the artifacts
+    // that fall inside its era. Capped, because the corpus runs to hundreds an
+    // era and the screen shows a grid.
+    let sugg = SUGGESTIONS[wonder % SUGGESTIONS.len()];
+    s.push_str("let suggestions = [\n");
+    for w in sugg.iter().take(6) {
+        s.push_str(&format!("  \"{}\",\n", esc(w)));
+    }
+    s.push_str("]\n");
+    let corpus = CORPUS[wonder % CORPUS.len()];
+    let t = &TIMELINES[wonder % TIMELINES.len()];
+    s.push_str("let results = [\n");
+    for f in corpus
+        .iter()
+        .filter(|f| f.year >= t.start_yr && f.year <= t.end_yr)
+        .take(24)
+    {
+        s.push_str(&format!(
+            "  [\"{}\", \"{}\", {}],\n",
+            esc(&wonderous::corpus::thumb_url(f.id)),
+            esc(f.title),
+            f.year
+        ));
+    }
+    s.push_str("]\n");
+    s.push_str(&format!(
+        "let era_from = {}\nlet era_to = {}\n",
+        t.start_yr, t.end_yr
+    ));
     s.push_str(&format!("let found_n = {}\n", wonderous::collectibles::found_count()));
     // The clock. The DSL has no tween and no controller, so the only thing that
     // can make a screen move is re-evaluating it against a changing value --
@@ -323,6 +354,7 @@ pub const T_MAPS: i32 = 7453;
 pub const T_HOME_SWIPE: i32 = 7150;
 pub const T_SCROLLED: i32 = 7160;
 pub const T_PHOTO_SWIPE: i32 = 7170;
+pub const T_VIEWER_SWIPE: i32 = 7180;
 pub const S_VIDEO: i32 = 10;
 pub const S_MAPS: i32 = 11;
 
@@ -471,6 +503,13 @@ pub fn route(id: i32) -> Option<Node> {
         T_VIEWER_PREV => {
             let n = GALLERY_PHOTOS as i32;
             PHOTO_SEL.store((PHOTO_SEL.load(Relaxed) + n - 1) % n, Relaxed);
+            true
+        }
+        // The fullscreen photograph: a drag left or right moves one along.
+        id if id == T_VIEWER_SWIPE + 1 || id == T_VIEWER_SWIPE + 2 => {
+            let n = GALLERY_PHOTOS as i32;
+            let step = if id == T_VIEWER_SWIPE + 1 { 1 } else { n - 1 };
+            PHOTO_SEL.store((PHOTO_SEL.load(Relaxed) + step) % n, Relaxed);
             true
         }
         T_VIEWER_NEXT => {

@@ -60,6 +60,7 @@ let T_MAPS        = 7453
 let T_HOME_SWIPE  = 7150
 let T_SCROLLED    = 7160
 let T_PHOTO_SWIPE = 7170
+let T_VIEWER_SWIPE = 7180
 
 // ---- helpers ------------------------------------------------------------
 fn at(node, x, y) {
@@ -772,22 +773,80 @@ fn timeline_screen() {
 }
 
 // ---- search -------------------------------------------------------------
-// `artifact_search_screen.dart`: browse the wonder's artifacts.
+// `artifact_search_screen.dart`: a field, a row of suggestion chips drawn from
+// the wonder's own list, a time-range pill, and a grid of results -- the
+// artifacts that fall inside the wonder's era. Not a list of four titles,
+// which is what stood here.
 fn search_screen() {
-  let rows = []
-  let total = 0
+  let head = 96
+  let kids = [
+    at({t: "text", text: "BROWSE ARTIFACTS", size: 13, color: ACCENT,
+        font: SERIF_UI, w: W, h: 30, talign: 1}, 0, H * 0.05),
+  ]
+
+  // The field.
+  kids.push(at({t: "column", w: W - 48, h: 46, bg: argb(30, 248, 236, 229),
+                radius: 23,
+                c: [{t: "text", text: "Search the collection", size: 14,
+                     color: argb(120, 248, 236, 229), font: BODY,
+                     w: W - 48, h: 46, talign: 1, pad: 14}]}, 24, head))
+
+  // Suggestion chips, the app's own words for this wonder.
+  let cx = 24
+  let cy = head + 60
   let i = 0
-  while i < artifacts.len() {
-    let a = artifacts[i]
-    rows.push({t: "text", text: a[1], size: 18, color: SHEET, font: DISPLAY,
-               w: W - 56, h: 46, talign: 1, margin: 6, tap: T_ART_OPEN})
-    rows.push({t: "text", text: a[2] + "  |  " + a[3], size: 12,
-               color: argb(153, 248, 236, 229), font: BODY, w: W - 56, h: 24,
-               talign: 1})
-    total = total + 58 + 24
+  while i < suggestions.len() {
+    let cw2 = suggestions[i].len() * 8 + 28
+    if cx + cw2 > W - 24 { cx = 24  cy = cy + 40 }
+    kids.push(at({t: "column", w: cw2, h: 32, bg: argb(26, 248, 236, 229),
+                  radius: 16,
+                  c: [{t: "text", text: suggestions[i], size: 12, color: SHEET,
+                       font: BODY, w: cw2, h: 32, talign: 1, pad: 9}]}, cx, cy))
+    cx = cx + cw2 + 8
     i = i + 1
   }
-  return sheet_screen("BROWSE ARTIFACTS", rows, total, T_VIEWER_CLOSE)
+
+  // The range pill.
+  let py = cy + 48
+  kids.push(at({t: "column", w: W - 48, h: 40, bg: argb(20, 248, 236, 229),
+                radius: 20,
+                c: [{t: "text",
+                     text: year_label(era_from) + "  —  " + year_label(era_to),
+                     size: 12, color: argb(180, 248, 236, 229), font: SERIF_UI,
+                     w: W - 48, h: 40, talign: 1, pad: 12}]}, 24, py))
+
+  // The results, as a grid of thumbnails from the Met.
+  let gy = py + 56
+  let cols = 3
+  let cell = (W - 48 - 16) / cols
+  let rows = []
+  let total = 0
+  let k = 0
+  while k < results.len() {
+    let row_kids = []
+    let c = 0
+    while c < cols {
+      let n = k + c
+      if n < results.len() {
+        row_kids.push({t: "image", src: results[n][0], w: cell, h: cell * 1.2,
+                       fit: 1, radius: 4, margin: 4})
+      }
+      c = c + 1
+    }
+    rows.push({t: "row", w: W - 48, h: cell * 1.2 + 8, bg: CLEAR, c: row_kids})
+    total = total + cell * 1.2 + 8
+    k = k + cols
+  }
+  kids.push(at({t: "scroll", w: W - 48, h: H - gy - 16,
+                c: [{t: "column", w: W - 48, h: total, bg: CLEAR, c: rows}]},
+               24, gy))
+
+  kids.push(at({t: "stack", w: 46, h: 46, bg: argb(89, 0, 0, 0), radius: 23,
+                c: [{t: "image", src: icon_base + "icon-close.png", w: 20,
+                     h: 20, fit: 0}]}, W - 76, H * 0.025))
+  kids.push(hit(W - 76, H * 0.02, 66, 66, T_VIEWER_CLOSE))
+
+  return {t: "stack", w: W, h: H, bg: GREY_STRONG, align: 0, c: kids}
 }
 
 // ---- one artifact -------------------------------------------------------
@@ -835,7 +894,10 @@ fn photo_screen() {
     hit(x0, y, d, d, T_VIEWER_PREV),
     hit(x0 + d + gap, y, d, d, T_VIEWER_NEXT),
   ]
-  return {t: "stack", w: W, h: H, bg: argb(255, 0, 0, 0), align: 0, c: kids}
+  // Swiping moves between photographs, as the app does; the two circles
+  // are the same thing for a thumb that would rather tap.
+  return {t: "stack", w: W, h: H, bg: argb(255, 0, 0, 0), align: 0,
+          swipe: T_VIEWER_SWIPE, c: kids}
 }
 
 // ---- the collectible you just found -------------------------------------
