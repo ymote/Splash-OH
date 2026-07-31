@@ -873,11 +873,10 @@ struct Index {
       setTimeout(() => {
         if (WONDEROUS_ARM === 'dsl') {
           splash.wonderousDslScreen(0, 0, 0, 0);
-          // 500 ms, not 33. The DSL re-describes the whole screen to move
-          // anything on it, and at frame rate that recreates the illustration's
-          // image nodes faster than they can decode -- the wonder disappears
-          // and only the clouds remain. See `animates()` for the measurement.
-          setInterval(() => { splash.wonderousDslTick(); }, 100);
+          // Once a cycle, not once a frame. A drift is a native animation
+          // ArkUI interpolates at the display's rate; this only restarts one
+          // when it has run its course.
+          setInterval(() => { splash.wonderousDslTick(); }, 2000);
           return;
         }
         this.wonderousArkBench();

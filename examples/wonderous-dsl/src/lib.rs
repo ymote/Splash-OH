@@ -224,6 +224,9 @@ fn prelude(screen: i32, wonder: usize, tab: i32, page: i32, w: f32, h: f32) -> S
 
 /// Build the screen the app is on.
 pub fn build(screen: i32, wonder: usize, tab: i32, page: i32, w: f32, h: f32) -> Option<Node> {
+    // The previous tree's handles die with it, and starting a drift on a freed
+    // node is a use-after-free rather than a missing animation.
+    splash_oh_arkui::dsl::clear_drifts();
     let src = format!("{}{}", prelude(screen, wonder, tab, page, w, h), SRC);
     splash_oh_arkui::dsl::build(&src)
 }
@@ -466,7 +469,23 @@ pub fn route(id: i32) -> Option<Node> {
 /// it currently does not -- a real addition to the DSL rather than a tuning of
 /// this app.
 pub fn animates() -> bool {
-    SCREEN.load(Relaxed) == S_HOME
+    // Nothing re-describes itself any more. Motion is native now: `drift`
+    // hands a node to ArkUI and it interpolates at the display's rate, so the
+    // tick only has to restart a cycle when one finishes.
+    false
+}
+
+/// How many drifts the current tree declared.
+pub fn drift_count() -> usize {
+    splash_oh_arkui::dsl::drift_count()
+}
+
+/// Start the drifts the current tree declared, and return how many.
+///
+/// # Safety
+/// Must be called with that tree mounted.
+pub unsafe fn start_drifts() -> usize {
+    splash_oh_arkui::dsl::start_drifts()
 }
 
 /// Put the app back at the start, for a fresh mount.

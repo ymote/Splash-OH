@@ -181,21 +181,25 @@ fn foreground() {
 fn home_screen() {
   let kids = illustration()
 
-  // Three clouds drifting across the scene, from the wonder's own seed. The
-  // DSL has no tween: the position is a function of `t`, and the host
-  // re-evaluates the screen on a tick, which is the same way the flutter kit
-  // moves. Wonderous gives each wonder its own seed so no two drift alike.
+  // Three clouds drifting across the scene, from the wonder's own seed.
+  //
+  // `drift` hands the node to ArkUI, which interpolates its translate at the
+  // display's rate. The alternative -- recomputing a position from a clock and
+  // re-describing the screen -- caps out around ten frames a second here,
+  // because rebuilding the illustration recreates its image nodes faster than
+  // they decode. Wonderous gives each wonder its own seed so no two drift
+  // alike.
   let ci = 0
   while ci < 3 {
     let seed = cloud_seed + ci * 37
-    let speed = 6 + seed % 11
     let cy = H * 0.08 + (seed % 23) * H * 0.012
     let cw2 = W * 0.5 + (seed % 7) * 18
-    // Wrap across a span wider than the frame so a cloud leaves and returns.
     let span = W + cw2
-    let cx = (t * speed + seed * 13) % span - cw2
+    // Seconds to cross, so a wider cloud is not also a faster one.
+    let secs = 26 + seed % 13
     kids.push(at({t: "column", w: cw2, h: cw2 * 0.22,
-                  bg: argb(28, 248, 236, 229), radius: cw2 * 0.11}, cx, cy))
+                  bg: argb(28, 248, 236, 229), radius: cw2 * 0.11,
+                  drift: [span, 0, secs * 1000]}, 0 - cw2, cy))
     ci = ci + 1
   }
 

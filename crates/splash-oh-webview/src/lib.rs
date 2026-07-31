@@ -1193,6 +1193,10 @@ pub fn wonderous_dsl_screen(screen: i32, wonder: u32, tab: i32, page: i32) -> Ve
     let (node, n, us) = wonderous_dsl::build_timed(screen, wonder as usize, tab, page, W, H);
     let ok = node.is_some();
     app::set_root(node);
+    // Mounted now, so the drifts can start: `animate` reads its UI context
+    // from a live node.
+    let d = unsafe { wonderous_dsl::start_drifts() };
+    crate::log(&format!("wonderous/dsl: {d} drift(s) started"));
     crate::log(&format!(
         "wonderous/dsl: screen {screen} wonder {wonder} tab {tab} page {page} -> {} {n} nodes, {:.2} ms",
         if ok { "ok" } else { "BUILD FAILED" },
@@ -1209,26 +1213,34 @@ pub fn wonderous_dsl_screen(screen: i32, wonder: u32, tab: i32, page: i32) -> Ve
 /// flutter kit's animation.
 #[napi(js_name = "wonderousDslTick")]
 pub fn wonderous_dsl_tick() {
-    // Only the screens that actually move. Rebuilding a static screen thirty
-    // times a second is work with nothing to show for it, and it would fight
-    // the scroll on the article.
-    // Instrumented: two earlier readings of why this does not move were both
-    // wrong, and both were guesses from a screenshot.
-    static TICKS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-    let n = TICKS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let anim = wonderous_dsl::animates();
-    if n % 20 == 0 {
-        crate::log(&format!("wonderous/dsl: tick {n}, animates={anim}"));
-    }
-    if !anim {
+    // A drift is one long native animation that ArkUI interpolates at the
+    // display's rate, so this only has to start the next cycle when the last
+    // has run out -- it describes nothing again. Re-describing was the old way
+    // and it capped out near ten frames a second, because rebuilding an
+    // illustration recreates its image nodes faster than they decode.
+    if wonderous_dsl::animates() {
+        app::set_root(wonderous_dsl::current());
         return;
     }
-    let node = wonderous_dsl::current();
-    if n % 20 == 0 {
-        crate::log(&format!(
-            "wonderous/dsl: tick {n} rebuilt -> {}",
-            if node.is_some() { "some" } else { "NONE" }
-        ));
+    // Start once per mounted tree, and again only when a cycle has run out.
+    //
+    // Restarting on every tick looked like the safe thing and was not: each
+    // restart puts the node back at its origin, so a cloud two seconds into a
+    // twenty-six second crossing was returned to the start before it had gone
+    // anywhere. Three drifts were running and the screen did not move.
+    static TICKS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    static RUNNING: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let pending = wonderous_dsl::drift_count();
+    let t = TICKS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    // A different set of drifts means a different screen: start those now.
+    // Otherwise wait out the cycle -- 13 ticks of two seconds.
+    let fresh = pending != RUNNING.load(std::sync::atomic::Ordering::Relaxed);
+    if !fresh && (pending == 0 || t % 13 != 0) {
+        return;
     }
-    app::set_root(node);
+    let n = unsafe { wonderous_dsl::start_drifts() };
+    RUNNING.store(n, std::sync::atomic::Ordering::Relaxed);
+    if fresh {
+        crate::log(&format!("wonderous/dsl: {n} drift(s) running"));
+    }
 }

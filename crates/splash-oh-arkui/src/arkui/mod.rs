@@ -479,6 +479,23 @@ pub unsafe fn layout_size(raw: NodeHandle) -> Option<(i32, i32)> {
 /// for the moves this animates.
 pub const CURVE_EASE_OUT: i32 = 3;
 
+/// `ARKUI_CURVE_LINEAR`. A drift that eased would stall at the far side.
+pub const CURVE_LINEAR: i32 = 0;
+
+impl Node {
+    /// Set a mounted node's translate by handle.
+    ///
+    /// By handle rather than `&self` because a drift is started after the tree
+    /// is mounted, when the builder that owned the node is long gone.
+    ///
+    /// # Safety
+    /// `h` must be a live node handle.
+    pub unsafe fn set_translate(h: NodeHandle, x: f32, y: f32) {
+        let v = [x, y, 0.0];
+        unsafe { splash_set_f32v(h, attr::translate(), v.as_ptr(), 3) };
+    }
+}
+
 /// Run `f`, tweening whatever it changes.
 ///
 /// `anchor` only has to be some node that is mounted — it is where the UI

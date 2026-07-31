@@ -134,6 +134,10 @@ fn elapsed_secs() -> f64 {
 }
 
 thread_local! {
+    /// Nodes that declared a `drift`, with where and how long. Filled while the
+    /// tree is walked, drained by the host once it is mounted.
+    static DRIFTS: std::cell::RefCell<Vec<(crate::arkui::NodeHandle, f32, f32, i32)>> =
+        const { std::cell::RefCell::new(Vec::new()) };
     static FLUTTER_ROUTES: std::cell::RefCell<Vec<String>> =
         const { std::cell::RefCell::new(Vec::new()) };
     /// The first `scroll` node of the tree currently mounted.
@@ -221,6 +225,41 @@ pub fn build_youtube() -> Option<Node> {
 }
 
 /// Evaluate Splash source and build the native tree it describes.
+/// Start every drift the last build declared.
+///
+/// Called after the tree is mounted, because `animate` reads its UI context
+/// from a live node. Each drift is one long native animation; re-calling this
+/// on a slow timer restarts them, and ArkUI does the interpolation in between
+/// at the display's rate rather than the timer's.
+///
+/// # Safety
+/// Must be called only while the tree those handles came from is mounted.
+pub unsafe fn start_drifts() -> usize {
+    let drifts: Vec<(crate::arkui::NodeHandle, f32, f32, i32)> =
+        DRIFTS.with(|d| d.borrow().clone());
+    let n = drifts.len();
+    for (h, dx, dy, ms) in drifts {
+        // Back to the start with no animation, then out to the far side with
+        // one. A cloud that only ever eased toward its target would stall
+        // there; this is what makes the motion continuous.
+        crate::arkui::Node::set_translate(h, 0.0, 0.0);
+        crate::arkui::animate(h, ms, crate::arkui::CURVE_LINEAR, move || {
+            crate::arkui::Node::set_translate(h, dx, dy);
+        });
+    }
+    n
+}
+
+/// How many drifts the last build declared.
+pub fn drift_count() -> usize {
+    DRIFTS.with(|d| d.borrow().len())
+}
+
+/// Forget the drifts from a previous build.
+pub fn clear_drifts() {
+    DRIFTS.with(|d| d.borrow_mut().clear());
+}
+
 pub fn build(src: &str) -> Option<Node> {
     let mut std_slot = 0;
     let mut host = 0;
@@ -719,6 +758,27 @@ fn walk(vm: &mut ScriptVm, value: ScriptValue, depth: usize, parent: &str) -> Op
     // swiping.
     if let Some(v) = num_prop(vm, value, id!(swipe)) {
         node = node.on_event(event::touch(), v as i32);
+    }
+    // `drift: [dx, dy, ms]` -- move this node by (dx, dy) over ms, natively.
+    //
+    // The alternative is what this app did first: re-describe the whole screen
+    // on a timer. That works, and it caps out around ten frames a second here,
+    // because rebuilding an illustration recreates its image nodes faster than
+    // they decode. A native animation touches one node's translate and ArkUI
+    // interpolates it at the display's own rate, with the tree left alone.
+    //
+    // The handle is recorded rather than animated here: the node is not mounted
+    // yet, and `animate` needs a live one to read a context from.
+    if let Some(arr) = prop(vm, value, id!(drift)).and_then(|v| v.as_array()) {
+        if let ScriptArrayStorage::ScriptValue(vals) = vm.bx.heap.array_storage(arr) {
+            let n: Vec<f64> = vals.iter().filter_map(|v| v.as_number()).collect();
+            if n.len() >= 3 {
+                DRIFTS.with(|d| {
+                    d.borrow_mut()
+                        .push((node.raw(), n[0] as f32, n[1] as f32, n[2] as i32))
+                });
+            }
+        }
     }
     // `tapto: "<route>"` is the flutter kit's form of the same thing: a route
     // string rather than a number. Intern it and wire the resulting id.
