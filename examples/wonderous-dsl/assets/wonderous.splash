@@ -57,6 +57,7 @@ let T_COLLECT     = 7460
 let T_FOUND_CLOSE = 7490
 let T_VIDEO       = 7454
 let T_MAPS        = 7453
+let T_HOME_SWIPE  = 7150
 
 // ---- helpers ------------------------------------------------------------
 fn at(node, x, y) {
@@ -77,6 +78,13 @@ fn centred(s, size, color, font, w, h) {
 // though the id is attached to it.
 fn hit(x, y, w, h, id) {
   return at({t: "stack", w: w, h: h, bg: argb(1, 0, 0, 0), tap: id}, x, y)
+}
+
+// The same, but the node also reports drags. A gesture has to be measured on
+// the node that receives it, so the cells that cover the screen carry it.
+fn hit_swipe(x, y, w, h, id, base) {
+  return at({t: "stack", w: w, h: h, bg: argb(1, 0, 0, 0), tap: id,
+             swipe: base}, x, y)
 }
 
 // ---- intro --------------------------------------------------------------
@@ -237,8 +245,9 @@ fn home_screen() {
   // Tap targets: the menu, a third of the frame each side to change wonder,
   // and the bottom band to open the details.
   kids.push(hit(12, H * 0.045, 62, 62, T_MENU))
-  kids.push(hit(0, H * 0.14, W * 0.35, H * 0.6, T_PREV))
-  kids.push(hit(W * 0.65, H * 0.14, W * 0.35, H * 0.6, T_NEXT))
+  kids.push(hit_swipe(0, H * 0.14, W * 0.35, H * 0.6, T_PREV, T_HOME_SWIPE))
+  kids.push(hit_swipe(W * 0.35, H * 0.14, W * 0.3, H * 0.6, 0, T_HOME_SWIPE))
+  kids.push(hit_swipe(W * 0.65, H * 0.14, W * 0.35, H * 0.6, T_NEXT, T_HOME_SWIPE))
   kids.push(hit(0, H * 0.80, W, H * 0.17, T_DETAILS))
 
   return {t: "stack", w: W, h: H, bg: w_bg, align: 0, c: kids}
@@ -278,6 +287,36 @@ fn tab_bar() {
   return {t: "stack", w: W, h: BAR_H, bg: w_bg, align: 0, c: kids}
 }
 
+
+// The illustration again, scaled into a band rather than the full frame. Same
+// anchors and fractions; only the frame it is measured against changes.
+fn place_in(pc, fw, fh) {
+  let ph = fh * pc[2]
+  if ph < pc[3] { ph = pc[3] }
+  let pw = ph * pc[1]
+  let anchor = pc[4]
+  let ax = 0
+  let ay = 0
+  if anchor == 0 { ax = (fw - pw) / 2  ay = (fh - ph) / 2 }
+  if anchor == 2 { ax = (fw - pw) / 2 }
+  if anchor == 3 { ax = fw - pw }
+  if anchor == 5 { ax = (fw - pw) / 2  ay = fh - ph }
+  if anchor == 6 { ax = fw - pw        ay = fh - ph }
+  if anchor == 4 { ay = fh - ph }
+  return at({t: "image", src: pc[0], w: pw, h: ph, fit: 0},
+            ax + pc[5] * pw + pc[7], ay + pc[6] * ph + pc[8])
+}
+
+fn hero_layers(hh) {
+  let layers = [at({t: "image", src: w_texture, w: W, h: hh, fit: 1}, 0, 0)]
+  let i = 0
+  while i < pieces.len() {
+    layers.push(place_in(pieces[i], W, hh))
+    i = i + 1
+  }
+  return layers
+}
+
 // ---- tab 0: the editorial ----------------------------------------------
 fn editorial_body(bh) {
   let cw = W - 56
@@ -287,8 +326,10 @@ fn editorial_body(bh) {
   let total = 0
   let kids = []
 
+  // The illustration heads the article, as the app's collapsing header does --
+  // the layered scene, not the bare texture it is painted on.
   let hero = bh * 0.42
-  kids.push({t: "image", src: w_texture, w: W, h: hero, fit: 1})
+  kids.push({t: "stack", w: W, h: hero, bg: w_fg, c: hero_layers(hero)})
   total = total + hero
 
   kids.push({t: "text", text: "THE ANCIENT WONDER", size: 12, color: ACCENT,
@@ -353,6 +394,9 @@ fn editorial_body(bh) {
   kids.push({t: "column", w: W, h: 40, bg: CLEAR})
   total = total + 40
 
+  // At least the viewport: a column shorter than the scroll leaves the page
+  // colour showing above it, which read as a gap on every short tab.
+  if total < bh { total = bh }
   return {t: "scroll", w: W, h: bh,
           c: [{t: "column", w: W, h: total, bg: SHEET, align: 1, c: kids}]}
 }
@@ -381,6 +425,7 @@ fn photos_body(bh) {
     total = total + cell
     i = i + cols
   }
+  if total < bh { total = bh }
   return {t: "scroll", w: W, h: bh, c: [{t: "column", w: W, h: total,
                                           bg: GREY_STRONG, c: rows}]}
 }
@@ -405,6 +450,7 @@ fn artifacts_body(bh) {
     total = total + 52 + 24 + 29
     i = i + 1
   }
+  if total < bh { total = bh }
   return {t: "scroll", w: W, h: bh, c: [{t: "column", w: W, h: total,
                                           bg: GREY_STRONG, align: 1, c: kids}]}
 }
@@ -429,6 +475,7 @@ fn events_body(bh) {
     i = i + 1
   }
   kids.push({t: "column", w: W, h: 40, bg: CLEAR})
+  if total < bh { total = bh }
   return {t: "scroll", w: W, h: bh, c: [{t: "column", w: W, h: total,
                                           bg: GREY_STRONG, align: 1, c: kids}]}
 }
@@ -472,7 +519,7 @@ fn sheet_screen(title, rows, total, close_id) {
     at({t: "text", text: title, size: 13, color: ACCENT, font: SERIF_UI,
         w: W, h: 30, talign: 1}, 0, H * 0.05),
     at({t: "scroll", w: W, h: H - head,
-        c: [{t: "column", w: W, h: total, bg: CLEAR, align: 1, c: rows}]},
+        c: [{t: "column", w: W, h: total, bg: GREY_STRONG, align: 1, c: rows}]},
        0, head),
     at({t: "stack", w: 46, h: 46, bg: argb(89, 0, 0, 0), radius: 23,
         c: [{t: "image", src: icon_base + "icon-close.png", w: 20, h: 20,

@@ -706,6 +706,14 @@ fn walk(vm: &mut ScriptVm, value: ScriptValue, depth: usize, parent: &str) -> Op
     if let Some(v) = num_prop(vm, value, id!(tap)) {
         node = node.on_event(event::click(), v as i32);
     }
+    // A drag, as four ids. The shim measures the gesture on the node that
+    // receives it and reports `base + 1..4` -- left, right, up, down -- so a
+    // screen declares one base and the host reads a direction off it. Without
+    // this the DSL could only ever be tapped, and Wonderous changes wonder by
+    // swiping.
+    if let Some(v) = num_prop(vm, value, id!(swipe)) {
+        node = node.on_event(event::touch(), v as i32);
+    }
     // `tapto: "<route>"` is the flutter kit's form of the same thing: a route
     // string rather than a number. Intern it and wire the resulting id.
     if let Some(route) = string_prop(vm, value, id!(tapto)) {

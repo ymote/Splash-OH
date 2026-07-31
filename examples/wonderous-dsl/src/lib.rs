@@ -284,6 +284,7 @@ pub const T_COLLECT: i32 = 7460;
 pub const T_FOUND_CLOSE: i32 = 7490;
 pub const T_VIDEO: i32 = 7454;
 pub const T_MAPS: i32 = 7453;
+pub const T_HOME_SWIPE: i32 = 7150;
 pub const S_VIDEO: i32 = 10;
 pub const S_MAPS: i32 = 11;
 
@@ -378,6 +379,21 @@ pub fn route(id: i32) -> Option<Node> {
         }
         T_MAPS => {
             SCREEN.store(S_MAPS, Relaxed);
+            true
+        }
+        // The shim reports a drag as base + 1..4: left, right, up, down.
+        // Swiping left brings the next wonder in, as it does in the app.
+        id if id == T_HOME_SWIPE + 1 || id == T_HOME_SWIPE + 2 => {
+            let n = WONDERS.len() as i32;
+            let step = if id == T_HOME_SWIPE + 1 { 1 } else { n - 1 };
+            WONDER.store((WONDER.load(Relaxed) + step) % n, Relaxed);
+            true
+        }
+        id if id == T_HOME_SWIPE + 3 => {
+            // Up, from the home screen, opens the details -- the app's own
+            // gesture for it.
+            SCREEN.store(S_DETAILS, Relaxed);
+            TAB.store(0, Relaxed);
             true
         }
         T_VIEWER_PREV => {
