@@ -1,4 +1,4 @@
-import { NodeContent, FrameNode } from '@kit.ArkUI';
+import { NodeContent, FrameNode, typeNode } from '@kit.ArkUI';
 import { systemDateTime } from '@kit.BasicServicesKit';
 import { webview } from '@kit.ArkWeb';
 import font from '@ohos.font';
@@ -24,6 +24,18 @@ import { dataIsWellFormed } from './WonderousData';
 /** Start in the browser card, which is the app that exercises the web overlay.
  *  Empty string starts in the benchmark harness instead. */
 const START_APP: string = 'wonders';
+
+/**
+ * Which Wonderous is driveable: 'rust' or 'arkts'.
+ *
+ * They cannot both be, and the reason is worth stating. Both mount into the
+ * same NodeContent, and the Rust app re-mounts on every tap, so it ends up in
+ * front and takes the input -- which is exactly what happened, silently, while
+ * screenshots of the two were being compared. They render almost identically
+ * by design, so nothing looked wrong. The arms are mutually exclusive now, and
+ * the Rust arm's `wonders/hits` log line tells you which one answered a tap.
+ */
+const WONDEROUS_ARM: string = 'arkts';
 /**
  * Milliseconds per screen for the catalog screenshot sweep, or 0 to leave the
  * catalog interactive.
@@ -151,6 +163,19 @@ class SplashNativeBridge {
 @Component
 struct Index {
   private content: NodeContent = new NodeContent();
+
+  /**
+   * The ArkTS arm's own slot.
+   *
+   * Both arms build a FrameNode tree and both used to mount it into `content`,
+   * which cannot work: whichever mounted last owned the screen, and the Rust
+   * app re-mounts on every touch, so it always won. Two owners of one slot is
+   * the bug -- not the ordering, which is what four attempts at re-asserting
+   * the mount were chasing. Giving the ArkTS tree a slot of its own means the
+   * Rust arm can keep calling set_root into a ContentSlot that is not on
+   * screen, and nothing has to be gated for correctness.
+   */
+  private waContent: NodeContent = new NodeContent();
 
   /**
    * System back gesture: pop one level of the kit's route instead of leaving
@@ -697,7 +722,13 @@ struct Index {
     // only move if it is re-mounted against a changing clock; `animTick` does
     // exactly that and returns false (doing nothing) on every static screen, so
     // this costs nothing anywhere but the animation demos.
-    setInterval(() => { splash.animTick(); }, 33);
+    // Not while the ArkTS arm owns the slot. animTick calls app::rebuild(),
+    // which re-mounts the Rust tree thirty times a second and takes the
+    // NodeContent straight back -- which is why detaching once did nothing and
+    // the Rust arm kept answering the taps.
+    if (WONDEROUS_ARM !== 'arkts' || START_APP !== 'wonders') {
+      setInterval(() => { splash.animTick(); }, 33);
+    }
     if (START_APP !== '') {
       // Prove the VM works on this build. The ported apps build in Rust and
       // never evaluate a script, so a broken VM would stay hidden until a
@@ -723,7 +754,13 @@ struct Index {
         }
       }
       splash.dslSelfTest();
-      splash.appRender(START_APP);
+      // The Rust arm must not mount at all when the ArkTS one is selected.
+      // Both call set_root on the same NodeContent, and the log showed a
+      // detach followed straight back by a set_root -- appRender here, and
+      // app::rebuild from the animation tick, which is gated above.
+      if (WONDEROUS_ARM !== 'arkts' || START_APP !== 'wonders') {
+        splash.appRender(START_APP);
+      }
       // Off by default; set CATALOG_WALK_MS to re-run the screenshot sweep.
       if (START_APP === 'catalog' && CATALOG_WALK_MS > 0) {
         let k: number = 0;
@@ -901,11 +938,13 @@ struct Index {
       return;
     }
     if (this.waRoot !== null) {
-      this.content.removeFrameNode(this.waRoot);
+      this.waContent.removeFrameNode(this.waRoot);
       this.waRoot.dispose();
     }
-    this.content.addFrameNode(node);
+    this.waContent.addFrameNode(node);
     this.waRoot = node;
+    console.info('SplashOH: wonderous/arkts: mounted screen ' + wa.screen
+      + ' wonder ' + wa.wonder + ', ' + wa.nodes + ' nodes');
   }
 
   private wonderousArkBench(): void {
@@ -968,9 +1007,21 @@ struct Index {
     }
     // Then mount it for real, so the arm is a usable app and not only a
     // timing harness: the same tree, driven by taps, rebuilt on each.
-    this.wa = wa;
-    wa.onTap = () => { this.wonderousArkMount(); };
-    this.wonderousArkMount();
+    if (WONDEROUS_ARM === 'arkts') {
+      // Take the slot off the Rust arm first. Both mount into the same
+      // NodeContent and the Rust app re-mounts on every tap, so without this
+      // it sits in front and answers the taps -- which it silently did, while
+      // screenshots of the two were being compared and looked identical.
+      // The per-screen loop above left the state on whichever screen it timed
+      // last; the app starts at the intro.
+      wa.screen = S_INTRO;
+      wa.wonder = 0;
+      wa.tab = 0;
+      wa.page = 0;
+      this.wa = wa;
+      wa.onTap = () => { this.wonderousArkMount(); };
+      this.wonderousArkMount();
+    }
     console.info('SplashOH: wonderous/arkts: TOTAL ' + totalMs.toFixed(2) + ' ms, '
       + totalNodes + ' nodes');
   }
@@ -1388,7 +1439,16 @@ struct Index {
     // DSL declared. A Stack rather than a Column because the overlay is
     // positioned against the page, not laid out in flow with it.
     Stack({ alignContent: Alignment.TopStart }) {
+      // Two slots, both always declared. See `waContent` for why the arms need
+      // separate ones; they are not wrapped in an `if` because a ContentSlot
+      // binds to its NodeContent when the builder runs, and inside conditional
+      // rendering that binding does not survive -- the tree mounts, addFrameNode
+      // reports success, and nothing paints.
+      //
+      // Only one is ever non-empty: the arm that is not selected is never asked
+      // to mount, so its slot contributes nothing to the layout.
       ContentSlot(this.content)
+      ContentSlot(this.waContent)
 
       // slot = "id|kind|x|y|w|h|url"; kind is 'url' or 'html'.
       ForEach(this.webSlots, (slot: string) => {

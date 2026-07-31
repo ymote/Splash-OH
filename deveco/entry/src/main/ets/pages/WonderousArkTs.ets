@@ -58,21 +58,42 @@ class W {
   col(w: number, h: number, bg: number): typeNode.Column {
     this.count++;
     const n: typeNode.Column = typeNode.createNode(this.ctx, 'Column');
-    n.attribute.width(w).height(h).backgroundColor(bg);
+    n.attribute.width(w).height(h);
+    // A numeric backgroundColor of 0 is opaque black in ArkUI, not the
+    // transparent 0x00000000 the Rust arm's ABGR word means. Setting it
+    // painted every full-frame tap overlay solid black over the screen
+    // behind it, which is why this arm mounted and showed nothing.
+    if (bg !== 0) {
+      n.attribute.backgroundColor(bg);
+    }
     return n;
   }
 
   row(w: number, h: number, bg: number): typeNode.Row {
     this.count++;
     const n: typeNode.Row = typeNode.createNode(this.ctx, 'Row');
-    n.attribute.width(w).height(h).backgroundColor(bg);
+    n.attribute.width(w).height(h);
+    // A numeric backgroundColor of 0 is opaque black in ArkUI, not the
+    // transparent 0x00000000 the Rust arm's ABGR word means. Setting it
+    // painted every full-frame tap overlay solid black over the screen
+    // behind it, which is why this arm mounted and showed nothing.
+    if (bg !== 0) {
+      n.attribute.backgroundColor(bg);
+    }
     return n;
   }
 
   stack(w: number, h: number, bg: number): typeNode.Stack {
     this.count++;
     const n: typeNode.Stack = typeNode.createNode(this.ctx, 'Stack');
-    n.attribute.width(w).height(h).backgroundColor(bg);
+    n.attribute.width(w).height(h);
+    // A numeric backgroundColor of 0 is opaque black in ArkUI, not the
+    // transparent 0x00000000 the Rust arm's ABGR word means. Setting it
+    // painted every full-frame tap overlay solid black over the screen
+    // behind it, which is why this arm mounted and showed nothing.
+    if (bg !== 0) {
+      n.attribute.backgroundColor(bg);
+    }
     return n;
   }
 
@@ -252,57 +273,37 @@ export class WonderousArkTs {
   /**
    * Every tap target on a screen, in one overlay.
    *
-   * The same construction the Rust arm settled on and for the same reasons: a
-   * positioned node is hit-tested where it was laid out rather than where it
-   * draws, one full-frame column per target means only the last one fires, and
-   * a single vertical flow drops any two targets that share a y. So: one
-   * full-frame column, targets grouped into bands by y, laid out left to right
-   * within a band with spacers.
+   * One full-frame Stack aligned top-start, with each target a child offset by
+   * margin. Margin is a layout property, so the cell is hit-tested where it is
+   * drawn -- the reason the Rust arm could not simply position its cells, since
+   * a positioned node there hit-tests where it was laid out instead.
+   *
+   * Laying it out this way rather than as bands of spacers is what makes the
+   * article underneath reachable. The overlay covers the whole frame, so any
+   * spacer standing in for the gaps between targets sat on top of the scrolling
+   * body and swallowed its touches: the collectible badges and the film still
+   * had correct handlers that could never fire. With no spacers, a point that
+   * is not inside a target has no overlay child at all and the hit test falls
+   * through to the article.
    */
   private hits(fw: number, fh: number, targets: number[][]): FrameNode {
-    const sorted: number[][] = targets.slice().sort((a: number[], b: number[]) =>
-      a[1] === b[1] ? a[0] - b[0] : a[1] - b[1]);
-    const column = this.u.col(fw, fh, 0x00000000);
-    column.commonAttribute.hitTestBehavior(HitTestMode.None);
-    let cursor: number = 0;
-    let i: number = 0;
-    while (i < sorted.length) {
-      let bottom: number = sorted[i][1] + sorted[i][3];
-      let j: number = i + 1;
-      while (j < sorted.length && sorted[j][1] < bottom) {
-        bottom = Math.max(bottom, sorted[j][1] + sorted[j][3]);
-        j++;
-      }
-      const top: number = sorted[i][1];
-      if (top > cursor) {
-        const sp = this.u.col(fw, top - cursor, 0x00000000);
-        sp.attribute.hitTestBehavior(HitTestMode.None);
-        column.appendChild(sp);
-      }
-      const line = this.u.row(fw, bottom - top, 0x00000000);
-      line.attribute.hitTestBehavior(HitTestMode.None);
-      let x: number = 0;
-      for (let k = i; k < j; k++) {
-        const t: number[] = sorted[k];
-        if (t[0] + t[2] > fw + 0.5 || t[0] < x) {
-          continue;
-        }
-        if (t[0] > x) {
-          const sp2 = this.u.col(t[0] - x, t[3], 0x00000000);
-          sp2.attribute.hitTestBehavior(HitTestMode.None);
-          line.appendChild(sp2);
-        }
-        const cell = this.u.col(t[2], t[3], 0x00000000);
-        const id: number = t[4];
-        cell.attribute.onClick(() => { this.tap(id); });
-        line.appendChild(cell);
-        x = t[0] + t[2];
-      }
-      column.appendChild(line);
-      cursor = bottom;
-      i = j;
+    const root = this.u.stack(fw, fh, 0);
+    root.attribute.alignContent(Alignment.TopStart);
+    root.attribute.hitTestBehavior(HitTestMode.None);
+    for (let k = 0; k < targets.length; k++) {
+      const t: number[] = targets[k];
+      // 0x01000000, not 0: a fully transparent node is not a hit target in
+      // ArkUI, so a cell with no background never receives the click even
+      // though onClick is registered on it. One step of alpha is invisible
+      // and makes it real.
+      const cell = this.u.col(t[2], t[3], 0x01000000);
+      const id: number = t[4];
+      cell.attribute.margin({ left: t[0], top: t[1] });
+      cell.attribute.hitTestBehavior(HitTestMode.Default);
+      cell.attribute.onClick(() => { this.tap(id); });
+      root.appendChild(cell);
     }
-    return column;
+    return root;
   }
 
   /** The three collectibles a wonder hides, by index into COLLECTIBLES. */
@@ -331,7 +332,10 @@ export class WonderousArkTs {
   }
 
   /** The little icon a lost collectible is drawn as. */
-  private badge(i: number, size: number): FrameNode {
+  // Returns the Stack rather than a bare FrameNode: the caller registers the
+  // tap through `attribute`, which is the typed one and the only one an event
+  // actually binds through.
+  private badge(i: number, size: number): typeNode.Stack {
     const b = this.u.stack(size, size, 0x33F8ECE5);
     b.attribute.borderRadius(size / 2);
     b.appendChild(this.u.img(APP + '/_common/collectibles/' + COLLECTIBLES[i].icon + '.png',
@@ -748,13 +752,21 @@ export class WonderousArkTs {
       // A section arc between the thirds, as the app sets them.
       if (i === 1 || i === 3) {
         const secH: number = w * 0.62 * 0.16 + 70 + 62;
-        const sec = this.u.col(cw, secH, 0x00000000);
+        // One step of alpha on the location section: it is tappable, and a
+        // node with no background at all is not a hit target.
+        const sec = this.u.col(cw, secH, i === 3 ? 0x01000000 : 0x00000000);
         sec.appendChild(this.u.img(
           APP + '/_common/' + (i === 1 ? 'arc-construction.png' : 'arc-location.png'),
           cw * 0.62, cw * 0.62 * 0.16, 0, ImageFit.Contain));
         sec.appendChild(this.u.img(
           APP + '/_common/' + (i === 1 ? 'construction.png' : 'geography.png'),
           48, 48, 0, ImageFit.Contain));
+        // The location section opens the fullscreen map, as the app's inline
+        // map does. Nothing reached S_MAPS before this: the screen was built
+        // and routed but had no entry point anywhere in the article.
+        if (i === 3) {
+          sec.attribute.onClick(() => { this.screen = S_MAPS; this.onTap(0); });
+        }
         body.appendChild(sec);
         bodyH += secH;
       }
@@ -767,7 +779,7 @@ export class WonderousArkTs {
         play.attribute.borderRadius(27);
         play.appendChild(this.u.text('▶', 20, SHEET, 54, 54, undefined, TextAlign.Center));
         frame.appendChild(this.u.at(play, (cw - 54) / 2, (vh - 54) / 2));
-        frame.commonAttribute.onClick(() => { this.screen = S_VIDEO; this.onTap(0); });
+        frame.attribute.onClick(() => { this.screen = S_VIDEO; this.onTap(0); });
         body.appendChild(frame);
         body.appendChild(this.u.text(e.videoCaption, 13, CAPTION_C, cw, 60, BODY_ITALIC));
         bodyH += vh + 70;
@@ -779,7 +791,7 @@ export class WonderousArkTs {
       if (!this.found[hidden[k]]) {
         const id: number = hidden[k];
         const b = this.badge(id, 48);
-        b.commonAttribute.onClick(() => { this.tap(T_COLLECT + id); });
+        b.attribute.onClick(() => { this.tap(T_COLLECT + id); });
         body.appendChild(b);
         bodyH += 64;
       }
@@ -848,7 +860,7 @@ export class WonderousArkTs {
     if (sel === this.galleryCell(wi) && hid.length > 0 && !this.found[hid[0]]) {
       const id: number = hid[0];
       const b = this.badge(id, 56);
-      b.commonAttribute.onClick(() => { this.tap(T_COLLECT + id); });
+      b.attribute.onClick(() => { this.tap(T_COLLECT + id); });
       root.appendChild(this.u.at(b, ox + iw - 76, oy + ih - 76));
     }
     return root;
