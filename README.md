@@ -58,15 +58,15 @@ A page gets only what its surface was granted. Trust is not one bit: each
 surface declares which tools, which directories and which hosts it may reach.
 See [docs/capabilities.md](docs/capabilities.md).
 
-## The crates
+## The layout
 
 ```
-crates/splash-oh-native/       the renderer                rlib
-crates/splash-oh-core/         registry, Args, Responder   rlib
-crates/splash-oh-plugin-demo/  an example plugin           rlib
-crates/splash-oh-cli/          host-side tooling           bin: splash-oh
-crates/splash-oh-webview/     the bridge and the capabilities   cdylib -> libsplash_oh.so
-examples/<app>/               one sample app per folder
+crates/splash-oh-native/       the renderer                      rlib
+crates/splash-oh-core/         registry, Args, Responder         rlib
+crates/splash-oh-webview/      the bridge and the capabilities   cdylib -> libsplash_oh.so
+crates/splash-oh-plugin-demo/  an example plugin                 rlib
+examples/<app>/                one sample app per folder
+tools/splash-oh-cli/           host-side tooling                 bin: splash-oh
 deveco/                        the ArkTS shell
 ```
 
