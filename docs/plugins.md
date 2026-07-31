@@ -76,7 +76,7 @@ you cannot. A tool that takes more than 45 s is timed out regardless.
 Registration is an explicit call at startup, not a link-time trick:
 
 ```rust
-// crates/splash-oh/src/lib.rs, in mount()
+// crates/splash-oh-webview/src/lib.rs, in mount()
 splash_oh_core::with_registry_mut(|r| {
     splash_oh_plugin_demo::register(r);
     my_app_plugin::register(r);          // yours
@@ -101,11 +101,11 @@ Two edits in the Splash-OH checkout, because the `.so` is built there and a
 `cdylib` is a final artifact — only the crate producing it can pull a plugin
 into the binary:
 
-1. `crates/splash-oh/Cargo.toml`
+1. `crates/splash-oh-webview/Cargo.toml`
    ```toml
    my-app-plugin = { path = "../../my-app/plugin" }
    ```
-2. `crates/splash-oh/src/lib.rs`, beside the existing plugin in `mount()`
+2. `crates/splash-oh-webview/src/lib.rs`, beside the existing plugin in `mount()`
    ```rust
    my_app_plugin::register(r);
    ```

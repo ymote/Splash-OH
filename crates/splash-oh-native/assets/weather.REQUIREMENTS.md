@@ -2,7 +2,7 @@
 
 `weather.splash` is **LLM-generated from this spec**, not hand-authored. To
 regenerate or restyle it, hand this document (plus the framework references
-below) to an LLM and have it write `crates/splash-oh/assets/weather.splash`.
+below) to an LLM and have it write `crates/splash-oh-webview/assets/weather.splash`.
 The card is then evaluated by the `makepad-script` VM and walked into native
 OpenHarmony ArkUI widgets by `src/dsl.rs`.
 

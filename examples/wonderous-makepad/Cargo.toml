@@ -1,0 +1,11 @@
+[package]
+name = "wonderous-makepad"
+version = "0.1.0"
+edition = "2021"
+description = "Wonderous, ported from project-robius/makepad_wonderous."
+
+[lib]
+name = "wonderous_makepad"
+
+[dependencies]
+splash-oh-native = { path = "../../crates/splash-oh-native" }

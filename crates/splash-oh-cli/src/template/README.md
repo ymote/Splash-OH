@@ -34,9 +34,9 @@ Two edits in the Splash-OH checkout link it in, because the `.so` is built
 there and only the crate that produces it can pull a plugin into the binary:
 
   * add `my-splash-app-plugin = { path = "../my-app/plugin" }` to
-    `crates/splash-oh/Cargo.toml`
+    `crates/splash-oh-webview/Cargo.toml`
   * add `my_splash_app_plugin::register(r);` beside the existing plugin in
-    `mount()`, in `crates/splash-oh/src/lib.rs`
+    `mount()`, in `crates/splash-oh-webview/src/lib.rs`
 
 That is the part of the story still to be automated: today the shell is a
 checkout you build against rather than a dependency your project owns.

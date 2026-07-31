@@ -65,6 +65,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5baebc0774151f905a1a2cc41989300b1e6fbb29aff0ceffa1064fdd3088d582"
 
 [[package]]
+name = "flutter-catalog"
+version = "0.1.0"
+dependencies = [
+ "splash-oh-native",
+]
+
+[[package]]
 name = "hashbrown"
 version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -183,6 +190,13 @@ version = "1.0.0"
 source = "git+https://github.com/ymote/Splash.git?branch=main#623d57c5c524f062ed5ddf8995cbed5b7b98e380"
 dependencies = [
  "makepad-micro-proc-macro",
+]
+
+[[package]]
+name = "material-catalog"
+version = "0.1.0"
+dependencies = [
+ "splash-oh-native",
 ]
 
 [[package]]
@@ -404,6 +418,8 @@ dependencies = [
 name = "splash-oh-webview"
 version = "0.1.0"
 dependencies = [
+ "flutter-catalog",
+ "material-catalog",
  "napi-derive-ohos",
  "napi-ohos",
  "serde",
@@ -412,6 +428,11 @@ dependencies = [
  "splash-oh-core",
  "splash-oh-native",
  "splash-oh-plugin-demo",
+ "taobao",
+ "tiktok",
+ "wechat",
+ "wonderous",
+ "wonderous-makepad",
 ]
 
 [[package]]
@@ -434,6 +455,20 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
+]
+
+[[package]]
+name = "taobao"
+version = "0.1.0"
+dependencies = [
+ "splash-oh-native",
+]
+
+[[package]]
+name = "tiktok"
+version = "0.1.0"
+dependencies = [
+ "splash-oh-native",
 ]
 
 [[package]]
@@ -490,6 +525,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c6f5d3c3b1bf09027a88a6bc961fc00497d651009560b5463668dc81b0fa87a8"
 
 [[package]]
+name = "wechat"
+version = "0.1.0"
+dependencies = [
+ "splash-oh-native",
+]
+
+[[package]]
 name = "windows-link"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -502,6 +544,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "df79d97927682d2fd8adb29682d1140b343be4ac0f08fd68b7765d9c059d3945"
 dependencies = [
  "memchr",
+]
+
+[[package]]
+name = "wonderous"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "splash-oh-native",
+]
+
+[[package]]
+name = "wonderous-makepad"
+version = "0.1.0"
+dependencies = [
+ "splash-oh-native",
 ]
 
 [[package]]
