@@ -23,6 +23,7 @@
 use splash_oh_arkui::arkui::Node;
 use wonderous::data::{Anchor, WONDERS};
 use wonderous::artifact_data::ARTIFACTS;
+use wonderous::places::{COLLECTIBLES, PLACES};
 use wonderous::details::GALLERY_PHOTOS;
 use wonderous::editorial_data::EDITORIAL;
 use wonderous::screens::INTRO;
@@ -165,6 +166,46 @@ fn prelude(screen: i32, wonder: usize, tab: i32, page: i32, w: f32, h: f32) -> S
         esc(wo.dir)
     ));
     s.push_str("let icon_base = \"resource://RAWFILE/wonders/_common/icons/\"\n");
+
+    // All eight, for the menu, and the twenty-four collectibles for the
+    // collection. Both are short lists that every screen after the home may
+    // need, so they are bound whatever screen is current.
+    s.push_str("let all_wonders = [\n");
+    for w in WONDERS {
+        s.push_str(&format!(
+            "  [\"{}\", \"{}\", {}],\n",
+            esc(w.title),
+            esc(w.region),
+            w.bg
+        ));
+    }
+    s.push_str("]\n");
+    s.push_str("let collectibles = [\n");
+    for (i, c) in COLLECTIBLES.iter().enumerate() {
+        s.push_str(&format!(
+            "  [\"{}\", {}, \"resource://RAWFILE/wonders/_common/collectibles/{}.png\", {}],\n",
+            esc(c.title),
+            c.wonder,
+            esc(c.icon),
+            i32::from(wonderous::collectibles::is_found(i))
+        ));
+    }
+    s.push_str("]\n");
+    s.push_str(&format!("let found_n = {}\n", wonderous::collectibles::found_count()));
+    s.push_str(&format!("let art_sel = {}\n", ART_SEL.load(Relaxed)));
+    s.push_str(&format!("let photo_sel = {}\n", PHOTO_SEL.load(Relaxed)));
+    // The film and the map. YouTube's mobile watch page rather than an embed:
+    // /embed gives the player no page origin and it answers error 153.
+    let (video, lat, lng) = PLACES[wonder % PLACES.len()];
+    s.push_str(&format!(
+        "let video_src = \"https://m.youtube.com/watch?v={}\"\n",
+        esc(video)
+    ));
+    let d = 0.004;
+    s.push_str(&format!(
+        "let map_src = \"https://www.openstreetmap.org/export/embed.html?bbox={},{},{},{}&layer=mapnik&marker={},{}\"\n",
+        lng - d, lat - d, lng + d, lat + d, lat, lng
+    ));
     s
 }
 
@@ -205,6 +246,8 @@ static SCREEN: AtomicI32 = AtomicI32::new(S_INTRO);
 static WONDER: AtomicI32 = AtomicI32::new(0);
 static TAB: AtomicI32 = AtomicI32::new(0);
 static PAGE: AtomicI32 = AtomicI32::new(0);
+static ART_SEL: AtomicI32 = AtomicI32::new(0);
+static PHOTO_SEL: AtomicI32 = AtomicI32::new(0);
 
 /// Tap ids. The same numbers the other two arms use, so a tour written against
 /// one drives all three.
@@ -219,6 +262,30 @@ pub const T_DETAILS: i32 = 7104;
 pub const S_DETAILS: i32 = 2;
 pub const T_TAB: i32 = 7200;
 pub const T_HOME: i32 = 7210;
+pub const S_MENU: i32 = 3;
+pub const S_COLLECTION: i32 = 4;
+pub const S_TIMELINE: i32 = 5;
+pub const S_SEARCH: i32 = 6;
+pub const S_ARTIFACT: i32 = 7;
+pub const S_PHOTO: i32 = 8;
+pub const S_FOUND: i32 = 9;
+pub const T_MENU_CLOSE: i32 = 7310;
+pub const T_MENU_BASE: i32 = 7320;
+pub const T_CLOSE: i32 = 7340;
+pub const T_COLLECTION: i32 = 7341;
+pub const T_TIMELINE: i32 = 7342;
+pub const T_BROWSE: i32 = 7372;
+pub const T_ART_OPEN: i32 = 7373;
+pub const T_PHOTO_OPEN: i32 = 7375;
+pub const T_VIEWER_CLOSE: i32 = 7450;
+pub const T_VIEWER_PREV: i32 = 7451;
+pub const T_VIEWER_NEXT: i32 = 7452;
+pub const T_COLLECT: i32 = 7460;
+pub const T_FOUND_CLOSE: i32 = 7490;
+pub const T_VIDEO: i32 = 7454;
+pub const T_MAPS: i32 = 7453;
+pub const S_VIDEO: i32 = 10;
+pub const S_MAPS: i32 = 11;
 
 const W: f32 = 406.15;
 const H: f32 = 805.23;
@@ -269,6 +336,69 @@ pub fn route(id: i32) -> Option<Node> {
         }
         id if (T_TAB..T_TAB + 4).contains(&id) => {
             TAB.store(id - T_TAB, Relaxed);
+            true
+        }
+        T_MENU => {
+            SCREEN.store(S_MENU, Relaxed);
+            true
+        }
+        T_MENU_CLOSE => {
+            SCREEN.store(S_HOME, Relaxed);
+            true
+        }
+        // Closing a viewer goes back to whatever opened it. The details screen
+        // is the only thing that opens one, so that is where it returns.
+        T_CLOSE | T_VIEWER_CLOSE | T_FOUND_CLOSE => {
+            SCREEN.store(S_DETAILS, Relaxed);
+            true
+        }
+        T_COLLECTION => {
+            SCREEN.store(S_COLLECTION, Relaxed);
+            true
+        }
+        T_TIMELINE => {
+            SCREEN.store(S_TIMELINE, Relaxed);
+            true
+        }
+        T_BROWSE => {
+            SCREEN.store(S_SEARCH, Relaxed);
+            true
+        }
+        T_ART_OPEN => {
+            SCREEN.store(S_ARTIFACT, Relaxed);
+            true
+        }
+        T_PHOTO_OPEN => {
+            SCREEN.store(S_PHOTO, Relaxed);
+            true
+        }
+        T_VIDEO => {
+            SCREEN.store(S_VIDEO, Relaxed);
+            true
+        }
+        T_MAPS => {
+            SCREEN.store(S_MAPS, Relaxed);
+            true
+        }
+        T_VIEWER_PREV => {
+            let n = GALLERY_PHOTOS as i32;
+            PHOTO_SEL.store((PHOTO_SEL.load(Relaxed) + n - 1) % n, Relaxed);
+            true
+        }
+        T_VIEWER_NEXT => {
+            let n = GALLERY_PHOTOS as i32;
+            PHOTO_SEL.store((PHOTO_SEL.load(Relaxed) + 1) % n, Relaxed);
+            true
+        }
+        id if (T_MENU_BASE..T_MENU_BASE + 8).contains(&id) => {
+            WONDER.store(id - T_MENU_BASE, Relaxed);
+            SCREEN.store(S_HOME, Relaxed);
+            true
+        }
+        id if (T_COLLECT..T_COLLECT + 24).contains(&id) => {
+            wonderous::collectibles::discover((id - T_COLLECT) as usize);
+            ART_SEL.store(id - T_COLLECT, Relaxed);
+            SCREEN.store(S_FOUND, Relaxed);
             true
         }
         _ => false,

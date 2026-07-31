@@ -40,6 +40,23 @@ let T_NEXT        = 7102
 let T_DETAILS     = 7104
 let T_TAB         = 7200
 let T_HOME        = 7210
+let T_MENU_CLOSE  = 7310
+let T_MENU_BASE   = 7320
+let T_CLOSE       = 7340
+let T_COLLECTION  = 7341
+let T_TIMELINE    = 7342
+let T_ART_PREV    = 7370
+let T_ART_NEXT    = 7371
+let T_BROWSE      = 7372
+let T_ART_OPEN    = 7373
+let T_PHOTO_OPEN  = 7375
+let T_VIEWER_CLOSE = 7450
+let T_VIEWER_PREV = 7451
+let T_VIEWER_NEXT = 7452
+let T_COLLECT     = 7460
+let T_FOUND_CLOSE = 7490
+let T_VIDEO       = 7454
+let T_MAPS        = 7453
 
 // ---- helpers ------------------------------------------------------------
 fn at(node, x, y) {
@@ -309,6 +326,30 @@ fn editorial_body(bh) {
     }
     i = i + 1
   }
+  // The film still and the location block, both of which open a fullscreen
+  // web surface. Tapping rides on the row itself for the same reason the menu
+  // rows do.
+  kids.push({t: "stack", w: cw, h: cw * 0.56, bg: GREY_STRONG, tap: T_VIDEO,
+             margin: 10,
+             c: [{t: "text", text: "WATCH THE FILM", size: 12, color: SHEET,
+                  font: SERIF_UI, w: cw, h: cw * 0.56, talign: 1,
+                  pad: cw * 0.24}]})
+  total = total + cw * 0.56 + 20
+
+  kids.push({t: "text", text: "LOCATION", size: 13, color: ACCENT,
+             font: SERIF_UI, w: W, h: 40, talign: 1, margin: 8,
+             tap: T_MAPS})
+  total = total + 56
+
+  // The collectible the app hides in the article. A row rather than a cell
+  // pinned over the scroll: pinned cells do not move when the article does,
+  // which is why the first attempt never fired.
+  kids.push({t: "stack", w: 48, h: 48, bg: argb(51, 248, 236, 229), radius: 24,
+             margin: 10, tap: T_COLLECT + wonder * 3,
+             c: [{t: "image", src: collectibles[wonder * 3][2], w: 26, h: 26,
+                  fit: 0}]})
+  total = total + 68
+
   kids.push({t: "column", w: W, h: 40, bg: CLEAR})
   total = total + 40
 
@@ -410,12 +451,244 @@ fn details_screen() {
     kids.push(hit(d + 20 + cell * i, bh, cell, BAR_H, T_TAB + i))
     i = i + 1
   }
+  // What each tab opens: the wall opens a photograph, the artifacts open one
+  // artifact and the browser, and the editorial hides a collectible.
+  if tab == 1 { kids.push(hit(0, bh * 0.3, W, bh * 0.4, T_PHOTO_OPEN)) }
+  if tab == 2 {
+    kids.push(hit(W * 0.2, bh * 0.25, W * 0.6, bh * 0.35, T_ART_OPEN))
+    kids.push(hit(W * 0.14, bh - 66, W * 0.72, 52, T_BROWSE))
+  }
+
   return {t: "stack", w: W, h: H, bg: w_bg, align: 0, c: kids}
 }
 
-// ---- dispatch -----------------------------------------------------------
-if screen == 0 {
-  intro_screen()
-} else {
-  if screen == 2 { details_screen() } else { home_screen() }
+
+// ---- a screen that is a list over the page colour ----------------------
+// The menu, the collection and the timeline all share this frame: a full
+// bleed panel, a title, a close disc top right, and a list.
+fn sheet_screen(title, rows, total, close_id) {
+  let head = 96
+  let kids = [
+    at({t: "text", text: title, size: 13, color: ACCENT, font: SERIF_UI,
+        w: W, h: 30, talign: 1}, 0, H * 0.05),
+    at({t: "scroll", w: W, h: H - head,
+        c: [{t: "column", w: W, h: total, bg: CLEAR, align: 1, c: rows}]},
+       0, head),
+    at({t: "stack", w: 46, h: 46, bg: argb(89, 0, 0, 0), radius: 23,
+        c: [{t: "image", src: icon_base + "icon-close.png", w: 20, h: 20,
+             fit: 0}]}, W - 76, H * 0.025),
+    hit(W - 76, H * 0.02, 66, 66, close_id),
+  ]
+  return {t: "stack", w: W, h: H, bg: GREY_STRONG, align: 0, c: kids}
 }
+
+// ---- menu ---------------------------------------------------------------
+// `wonders_menu.dart`: the eight, then the two collections.
+fn menu_screen() {
+  let rows = []
+  let total = 0
+  let rh = 56
+  let i = 0
+  while i < all_wonders.len() {
+    let tint = argb(153, 248, 236, 229)
+    if i == wonder { tint = SHEET }
+    // The tap rides on the row itself. Absolutely-positioned cells over a
+    // scrolling list drift the moment the list scrolls or the estimated
+    // content height is off by a row -- and it was.
+    rows.push({t: "text", text: all_wonders[i][0], size: 22, color: tint,
+               font: DISPLAY, w: W, h: rh, talign: 1,
+               tap: T_MENU_BASE + i})
+    total = total + rh
+    i = i + 1
+  }
+  rows.push({t: "column", w: W * 0.5, h: 1, bg: argb(60, 248, 236, 229),
+             margin: 12})
+  total = total + 25
+  rows.push({t: "text", text: "COLLECTION", size: 13, color: ACCENT,
+             font: SERIF_UI, w: W, h: rh, talign: 1, tap: T_COLLECTION})
+  rows.push({t: "text", text: "TIMELINE", size: 13, color: ACCENT,
+             font: SERIF_UI, w: W, h: rh, talign: 1, tap: T_TIMELINE})
+  total = total + rh * 2
+
+  return sheet_screen("WONDEROUS", rows, total, T_MENU_CLOSE)
+}
+
+// ---- collection ---------------------------------------------------------
+// `collection_screen.dart`: the twenty-four, the found ones lit.
+fn collection_screen() {
+  let rows = []
+  let total = 0
+  let cols = 4
+  let cell = W / cols
+  let i = 0
+  while i < collectibles.len() {
+    let row_kids = []
+    let k = 0
+    while k < cols {
+      let n = i + k
+      if n < collectibles.len() {
+        let c = collectibles[n]
+        // A lost one is drawn as a dim disc; a found one shows its piece.
+        let disc = argb(30, 248, 236, 229)
+        if c[3] == 1 { disc = argb(60, 228, 147, 93) }
+        row_kids.push({t: "stack", w: cell - 10, h: cell - 10, bg: disc,
+                       radius: (cell - 10) / 2, margin: 5,
+                       c: [{t: "image", src: c[2], w: cell * 0.5,
+                            h: cell * 0.5, fit: 0}]})
+      }
+      k = k + 1
+    }
+    rows.push({t: "row", w: W, h: cell, bg: CLEAR, c: row_kids})
+    total = total + cell
+    i = i + cols
+  }
+  rows.push({t: "text", text: found_n + " of " + collectibles.len() + " found",
+             size: 13, color: argb(153, 248, 236, 229), font: BODY,
+             w: W, h: 40, talign: 1, margin: 12})
+  total = total + 64
+  return sheet_screen("COLLECTION", rows, total, T_CLOSE)
+}
+
+// ---- timeline -----------------------------------------------------------
+fn timeline_screen() {
+  let rows = []
+  let total = 0
+  let i = 0
+  while i < events.len() {
+    let ev = events[i]
+    let year = ev[0] + ""
+    if ev[0] < 0 { year = 0 - ev[0] + " BCE" }
+    rows.push({t: "text", text: year, size: 15, color: ACCENT, font: SERIF_UI,
+               w: W - 56, h: 28, margin: 6})
+    let lines = ev[1].len() / 40 + 1
+    let th = lines * 22 + 8
+    rows.push({t: "text", text: ev[1], size: 14,
+               color: argb(221, 248, 236, 229), font: BODY, w: W - 56, h: th})
+    total = total + 40 + th
+    i = i + 1
+  }
+  return sheet_screen(w_title, rows, total, T_CLOSE)
+}
+
+// ---- search -------------------------------------------------------------
+// `artifact_search_screen.dart`: browse the wonder's artifacts.
+fn search_screen() {
+  let rows = []
+  let total = 0
+  let i = 0
+  while i < artifacts.len() {
+    let a = artifacts[i]
+    rows.push({t: "text", text: a[1], size: 18, color: SHEET, font: DISPLAY,
+               w: W - 56, h: 46, talign: 1, margin: 6, tap: T_ART_OPEN})
+    rows.push({t: "text", text: a[2] + "  |  " + a[3], size: 12,
+               color: argb(153, 248, 236, 229), font: BODY, w: W - 56, h: 24,
+               talign: 1})
+    total = total + 58 + 24
+    i = i + 1
+  }
+  return sheet_screen("BROWSE ARTIFACTS", rows, total, T_VIEWER_CLOSE)
+}
+
+// ---- one artifact -------------------------------------------------------
+fn artifact_screen() {
+  let a = artifacts[art_sel]
+  let kids = [
+    at({t: "text", text: a[1], size: 26, color: SHEET, font: DISPLAY,
+        w: W - 56, h: 90, talign: 1}, 28, H * 0.62),
+    at({t: "text", text: a[2], size: 13, color: ACCENT, font: SERIF_UI,
+        w: W, h: 26, talign: 1}, 0, H * 0.75),
+    at({t: "text", text: a[3], size: 13, color: argb(153, 248, 236, 229),
+        font: BODY, w: W, h: 26, talign: 1}, 0, H * 0.79),
+    at({t: "stack", w: 46, h: 46, bg: argb(89, 0, 0, 0), radius: 23,
+        c: [{t: "image", src: icon_base + "icon-close.png", w: 20, h: 20,
+             fit: 0}]}, 24, H * 0.03),
+    hit(14, H * 0.02, 66, 66, T_VIEWER_CLOSE),
+  ]
+  return {t: "stack", w: W, h: H, bg: GREY_STRONG, align: 0, c: kids}
+}
+
+// ---- the fullscreen photograph -----------------------------------------
+fn photo_screen() {
+  let name = photo_sel + ""
+  if photo_sel < 10 { name = "0" + photo_sel }
+  let d = 52
+  let gap = 16
+  let y = H - d - 40
+  let x0 = (W - d * 2 - gap) / 2
+  let kids = [
+    at({t: "image", src: gallery_base + name + ".jpg", w: W, h: H * 0.72,
+        fit: 0}, 0, H * 0.14),
+    at({t: "text", text: photo_sel + 1 + " / " + gallery_n, size: 12,
+        color: argb(153, 248, 236, 229), font: BODY, w: W, h: 20, talign: 1},
+       0, y - 28),
+    at({t: "stack", w: d, h: d, bg: argb(51, 248, 236, 229), radius: d / 2,
+        c: [{t: "image", src: icon_base + "icon-prev.png", w: 20, h: 20,
+             fit: 0}]}, x0, y),
+    at({t: "stack", w: d, h: d, bg: argb(51, 248, 236, 229), radius: d / 2,
+        c: [{t: "image", src: icon_base + "icon-next-large.png", w: 20, h: 20,
+             fit: 0}]}, x0 + d + gap, y),
+    at({t: "stack", w: 46, h: 46, bg: argb(89, 0, 0, 0), radius: 23,
+        c: [{t: "image", src: icon_base + "icon-close.png", w: 20, h: 20,
+             fit: 0}]}, 24, H * 0.03),
+    hit(14, H * 0.02, 66, 66, T_VIEWER_CLOSE),
+    hit(x0, y, d, d, T_VIEWER_PREV),
+    hit(x0 + d + gap, y, d, d, T_VIEWER_NEXT),
+  ]
+  return {t: "stack", w: W, h: H, bg: argb(255, 0, 0, 0), align: 0, c: kids}
+}
+
+// ---- the collectible you just found -------------------------------------
+fn found_screen() {
+  let c = collectibles[art_sel]
+  let kids = [
+    at({t: "image", src: c[2], w: W * 0.4, h: W * 0.4, fit: 0},
+       W * 0.3, H * 0.2),
+    at({t: "text", text: "COLLECTIBLE FOUND", size: 12, color: ACCENT,
+        font: SERIF_UI, w: W, h: 22, talign: 1}, 0, H * 0.62),
+    at({t: "text", text: c[0], size: 26, color: SHEET, font: DISPLAY,
+        w: W - 56, h: 72, talign: 1}, 28, H * 0.66),
+    at({t: "text", text: found_n + " of " + collectibles.len() + " found",
+        size: 13, color: argb(153, 248, 236, 229), font: BODY, w: W, h: 22,
+        talign: 1}, 0, H * 0.78),
+    at({t: "column", w: W * 0.5, h: 48, bg: GREY_STRONG, radius: 4,
+        c: [{t: "text", text: "CONTINUE", size: 12, color: SHEET,
+             font: SERIF_UI, w: W * 0.5, h: 48, talign: 1, pad: 17}]},
+       W * 0.25, H - 96),
+    hit(W * 0.25, H - 96, W * 0.5, 48, T_FOUND_CLOSE),
+  ]
+  return {t: "stack", w: W, h: H, bg: argb(242, 30, 27, 24), align: 0, c: kids}
+}
+
+// ---- the web viewers ----------------------------------------------------
+// The film and the map are both a composited ArkWeb surface with this chrome
+// over it. `web` reserves the rectangle; the host puts the surface there.
+fn web_screen(src, caption) {
+  let side = W
+  let top = (H - side) / 2
+  let kids = [
+    {t: "web", src: src, x: 0, y: top, w: side, h: side},
+    at({t: "stack", w: 46, h: 46, bg: argb(89, 0, 0, 0), radius: 23,
+        c: [{t: "image", src: icon_base + "icon-close.png", w: 20, h: 20,
+             fit: 0}]}, 24, H * 0.03),
+    hit(14, H * 0.02, 66, 66, T_VIEWER_CLOSE),
+  ]
+  if caption != "" {
+    kids.push(at({t: "text", text: caption, size: 13, color: SHEET,
+                  font: SERIF_UI, w: W, h: 24, talign: 1}, 0, H - 44))
+  }
+  return {t: "stack", w: W, h: H, bg: argb(255, 30, 27, 24), align: 0, c: kids}
+}
+
+// ---- dispatch -----------------------------------------------------------
+if screen == 0 { intro_screen() }
+else { if screen == 1 { home_screen() }
+else { if screen == 2 { details_screen() }
+else { if screen == 3 { menu_screen() }
+else { if screen == 4 { collection_screen() }
+else { if screen == 5 { timeline_screen() }
+else { if screen == 6 { search_screen() }
+else { if screen == 7 { artifact_screen() }
+else { if screen == 8 { photo_screen() }
+else { if screen == 9 { found_screen() }
+else { if screen == 10 { web_screen(video_src, "") }
+else { web_screen(map_src, w_title) }}}}}}}}}}}
