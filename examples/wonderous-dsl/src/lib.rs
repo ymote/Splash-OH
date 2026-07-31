@@ -22,7 +22,11 @@
 
 use splash_oh_arkui::arkui::Node;
 use wonderous::data::{Anchor, WONDERS};
+use wonderous::artifact_data::ARTIFACTS;
+use wonderous::details::GALLERY_PHOTOS;
+use wonderous::editorial_data::EDITORIAL;
 use wonderous::screens::INTRO;
+use wonderous::timeline_data::TIMELINES;
 
 const SRC: &str = include_str!("../assets/wonderous.splash");
 
@@ -114,6 +118,53 @@ fn prelude(screen: i32, wonder: usize, tab: i32, page: i32, w: f32, h: f32) -> S
         ));
     }
     s.push_str("]\n");
+
+    // What the details tabs need. Bound per screen rather than wholesale: the
+    // editorial text alone runs to tens of kilobytes a wonder, and the script
+    // is re-parsed on every build.
+    let e = &EDITORIAL[wonder % EDITORIAL.len()];
+    s.push_str(&format!("let e_sub = \"{}\"\n", esc(e.sub_title)));
+    s.push_str(&format!("let e_region = \"{}\"\n", esc(e.region)));
+    s.push_str("let e_paras = [\n");
+    for para in [
+        e.history1,
+        e.history2,
+        e.construction1,
+        e.construction2,
+        e.location1,
+        e.location2,
+    ] {
+        s.push_str(&format!("  \"{}\",\n", esc(para)));
+    }
+    s.push_str("]\n");
+    s.push_str(&format!("let e_quote = \"{}\"\n", esc(e.quote_top)));
+    s.push_str(&format!("let e_quote2 = \"{}\"\n", esc(e.quote_bottom)));
+    s.push_str(&format!("let e_author = \"{}\"\n", esc(e.quote_author)));
+
+    s.push_str("let artifacts = [\n");
+    for a in ARTIFACTS[wonder % ARTIFACTS.len()] {
+        s.push_str(&format!(
+            "  [\"{}\", \"{}\", \"{}\", \"{}\"],\n",
+            esc(a.id),
+            esc(a.title),
+            esc(a.date),
+            esc(a.culture)
+        ));
+    }
+    s.push_str("]\n");
+
+    s.push_str("let events = [\n");
+    for ev in TIMELINES[wonder % TIMELINES.len()].events {
+        s.push_str(&format!("  [{}, \"{}\"],\n", ev.year, esc(ev.text)));
+    }
+    s.push_str("]\n");
+
+    s.push_str(&format!("let gallery_n = {}\n", GALLERY_PHOTOS));
+    s.push_str(&format!(
+        "let gallery_base = \"resource://RAWFILE/wonders/{}/gallery/\"\n",
+        esc(wo.dir)
+    ));
+    s.push_str("let icon_base = \"resource://RAWFILE/wonders/_common/icons/\"\n");
     s
 }
 
@@ -165,6 +216,9 @@ pub const T_MENU: i32 = 7103;
 pub const T_PREV: i32 = 7101;
 pub const T_NEXT: i32 = 7102;
 pub const T_DETAILS: i32 = 7104;
+pub const S_DETAILS: i32 = 2;
+pub const T_TAB: i32 = 7200;
+pub const T_HOME: i32 = 7210;
 
 const W: f32 = 406.15;
 const H: f32 = 805.23;
@@ -204,6 +258,19 @@ pub fn route(id: i32) -> Option<Node> {
             WONDER.store((WONDER.load(Relaxed) + 1) % n, Relaxed);
             true
         }
+        T_DETAILS => {
+            SCREEN.store(S_DETAILS, Relaxed);
+            TAB.store(0, Relaxed);
+            true
+        }
+        T_HOME => {
+            SCREEN.store(S_HOME, Relaxed);
+            true
+        }
+        id if (T_TAB..T_TAB + 4).contains(&id) => {
+            TAB.store(id - T_TAB, Relaxed);
+            true
+        }
         _ => false,
     };
     if !handled {
@@ -211,8 +278,10 @@ pub fn route(id: i32) -> Option<Node> {
         return None;
     }
     splash_oh_arkui::log(&format!(
-        "wonderous/dsl: tap {id} -> screen {} page {}",
+        "wonderous/dsl: tap {id} -> screen {} wonder {} tab {} page {}",
         SCREEN.load(Relaxed),
+        WONDER.load(Relaxed),
+        TAB.load(Relaxed),
         PAGE.load(Relaxed)
     ));
     current()

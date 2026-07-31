@@ -38,6 +38,8 @@ let T_MENU        = 7103
 let T_PREV        = 7101
 let T_NEXT        = 7102
 let T_DETAILS     = 7104
+let T_TAB         = 7200
+let T_HOME        = 7210
 
 // ---- helpers ------------------------------------------------------------
 fn at(node, x, y) {
@@ -225,5 +227,195 @@ fn home_screen() {
   return {t: "stack", w: W, h: H, bg: w_bg, align: 0, c: kids}
 }
 
+
+// ---- details ------------------------------------------------------------
+// `wonder_details_screen.dart`: four tabs over one wonder -- the editorial,
+// the photo wall, the artifacts, and the timeline -- with the tab bar pinned
+// to the bottom in the wonder's own colour.
+let BAR_H = 80
+
+fn tab_bar() {
+  let icons = ["icon-info.png", "icon-wallpaper.png", "icon-collection.png",
+               "icon-timeline.png"]
+  let d = 52
+  let cell = (W - d - 20) / 4
+  let kids = [
+    // The wonder's own emblem, which returns to the home screen.
+    at({t: "image", src: w_texture, w: d, h: d, fit: 1, radius: d / 2}, 10, 14)
+  ]
+  let i = 0
+  while i < 4 {
+    let tint = FAINT
+    if i == tab { tint = SHEET }
+    kids.push(at({t: "column", w: cell, h: BAR_H, bg: CLEAR,
+                  c: [{t: "image", src: icon_base + icons[i], w: 26, h: 26,
+                       fit: 0, margin: 4}]},
+                 d + 20 + cell * i, 18))
+    // The selected tab carries a short rule beneath it.
+    if i == tab {
+      kids.push(at({t: "column", w: 26, h: 2, bg: ACCENT},
+                   d + 20 + cell * i + (cell - 26) / 2, 54))
+    }
+    i = i + 1
+  }
+  return {t: "stack", w: W, h: BAR_H, bg: w_bg, align: 0, c: kids}
+}
+
+// ---- tab 0: the editorial ----------------------------------------------
+fn editorial_body(bh) {
+  let cw = W - 56
+  // A scroll's content column has to be told its own height. ArkUI will not
+  // measure it from the children, and a column left at zero collapses -- the
+  // article rendered as nothing but its header until this was accumulated.
+  let total = 0
+  let kids = []
+
+  let hero = bh * 0.42
+  kids.push({t: "image", src: w_texture, w: W, h: hero, fit: 1})
+  total = total + hero
+
+  kids.push({t: "text", text: "THE ANCIENT WONDER", size: 12, color: ACCENT,
+             font: SERIF_UI, w: W, h: 30, talign: 1, margin: 10})
+  total = total + 50
+
+  kids.push({t: "text", text: w_title, size: 38, color: GREY_STRONG,
+             font: DISPLAY, w: W, h: 56, talign: 1})
+  total = total + 56
+
+  kids.push({t: "text", text: e_sub, size: 14, color: argb(153, 39, 38, 37),
+             font: BODY, w: W, h: 26, talign: 1})
+  total = total + 26
+
+  kids.push({t: "column", w: W, h: 26, bg: CLEAR})
+  total = total + 26
+
+  let i = 0
+  while i < e_paras.len() {
+    // Height from the text's own length: ArkUI cannot report a laid-out text
+    // node's height, so a box sized by anything else clips or gaps.
+    let lines = e_paras[i].len() / 34 + 1
+    let ph = lines * 26 + 12
+    kids.push({t: "text", text: e_paras[i], size: 16,
+               color: argb(221, 39, 38, 37), font: BODY, w: cw, h: ph,
+               margin: 14})
+    total = total + ph + 28
+    // The pull quote sits after the second paragraph, as it does in the app.
+    if i == 1 {
+      kids.push({t: "text", text: e_quote, size: 22, color: GREY_STRONG,
+                 font: DISPLAY, w: cw, h: 110, talign: 1, margin: 16})
+      kids.push({t: "text", text: e_author, size: 12, color: ACCENT,
+                 font: SERIF_UI, w: cw, h: 28, talign: 1})
+      total = total + 110 + 32 + 28
+    }
+    i = i + 1
+  }
+  kids.push({t: "column", w: W, h: 40, bg: CLEAR})
+  total = total + 40
+
+  return {t: "scroll", w: W, h: bh,
+          c: [{t: "column", w: W, h: total, bg: SHEET, align: 1, c: kids}]}
+}
+
+// ---- tab 1: the photo wall ---------------------------------------------
+fn photos_body(bh) {
+  let cols = 3
+  let cell = W / cols
+  let rows = []
+  let total = 0
+  let i = 0
+  while i < gallery_n {
+    let row_kids = []
+    let k = 0
+    while k < cols {
+      let n = i + k
+      if n < gallery_n {
+        let name = n + ""
+        if n < 10 { name = "0" + n }
+        row_kids.push({t: "image", src: gallery_base + name + ".jpg",
+                       w: cell - 2, h: cell - 2, fit: 1, margin: 1})
+      }
+      k = k + 1
+    }
+    rows.push({t: "row", w: W, h: cell, bg: CLEAR, c: row_kids})
+    total = total + cell
+    i = i + cols
+  }
+  return {t: "scroll", w: W, h: bh, c: [{t: "column", w: W, h: total,
+                                          bg: GREY_STRONG, c: rows}]}
+}
+
+// ---- tab 2: the artifacts ----------------------------------------------
+fn artifacts_body(bh) {
+  let kids = [
+    {t: "text", text: "ARTIFACTS", size: 12, color: ACCENT, font: SERIF_UI,
+     w: W, h: 30, talign: 1, margin: 16},
+  ]
+  let total = 62
+  let i = 0
+  while i < artifacts.len() {
+    let a = artifacts[i]
+    kids.push({t: "text", text: a[1], size: 19, color: SHEET, font: DISPLAY,
+               w: W - 56, h: 52, talign: 1, margin: 8})
+    kids.push({t: "text", text: a[2] + "  |  " + a[3], size: 12,
+               color: argb(153, 248, 236, 229), font: BODY,
+               w: W - 56, h: 24, talign: 1})
+    kids.push({t: "column", w: W - 120, h: 1, bg: argb(40, 248, 236, 229),
+               margin: 14})
+    total = total + 52 + 24 + 29
+    i = i + 1
+  }
+  return {t: "scroll", w: W, h: bh, c: [{t: "column", w: W, h: total,
+                                          bg: GREY_STRONG, align: 1, c: kids}]}
+}
+
+// ---- tab 3: the timeline ------------------------------------------------
+fn events_body(bh) {
+  let kids = [
+    {t: "text", text: "TIMELINE", size: 12, color: ACCENT, font: SERIF_UI,
+     w: W, h: 30, talign: 1, margin: 16},
+  ]
+  let total = 62
+  let i = 0
+  while i < events.len() {
+    let ev = events[i]
+    let year = ev[0] + ""
+    if ev[0] < 0 { year = 0 - ev[0] + " BCE" }
+    kids.push({t: "text", text: year, size: 15, color: ACCENT, font: SERIF_UI,
+               w: W - 56, h: 28, margin: 6})
+    let lines = ev[1].len() / 40 + 1
+    kids.push({t: "text", text: ev[1], size: 14, color: argb(221, 248, 236, 229),
+               font: BODY, w: W - 56, h: lines * 22 + 8})
+    i = i + 1
+  }
+  kids.push({t: "column", w: W, h: 40, bg: CLEAR})
+  return {t: "scroll", w: W, h: bh, c: [{t: "column", w: W, h: total,
+                                          bg: GREY_STRONG, align: 1, c: kids}]}
+}
+
+fn details_screen() {
+  let bh = H - BAR_H
+  let body = editorial_body(bh)
+  if tab == 1 { body = photos_body(bh) }
+  if tab == 2 { body = artifacts_body(bh) }
+  if tab == 3 { body = events_body(bh) }
+
+  let kids = [at(body, 0, 0), at(tab_bar(), 0, bh)]
+
+  // The emblem returns home; the four cells switch tab.
+  let d = 52
+  let cell = (W - d - 20) / 4
+  kids.push(hit(0, bh, d + 20, BAR_H, T_HOME))
+  let i = 0
+  while i < 4 {
+    kids.push(hit(d + 20 + cell * i, bh, cell, BAR_H, T_TAB + i))
+    i = i + 1
+  }
+  return {t: "stack", w: W, h: H, bg: w_bg, align: 0, c: kids}
+}
+
 // ---- dispatch -----------------------------------------------------------
-if screen == 0 { intro_screen() } else { home_screen() }
+if screen == 0 {
+  intro_screen()
+} else {
+  if screen == 2 { details_screen() } else { home_screen() }
+}
