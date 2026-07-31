@@ -58,21 +58,42 @@ class W {
   col(w: number, h: number, bg: number): typeNode.Column {
     this.count++;
     const n: typeNode.Column = typeNode.createNode(this.ctx, 'Column');
-    n.attribute.width(w).height(h).backgroundColor(bg);
+    n.attribute.width(w).height(h);
+    // A numeric backgroundColor of 0 is opaque black in ArkUI, not the
+    // transparent 0x00000000 the Rust arm's ABGR word means. Setting it
+    // painted every full-frame tap overlay solid black over the screen
+    // behind it, which is why this arm mounted and showed nothing.
+    if (bg !== 0) {
+      n.attribute.backgroundColor(bg);
+    }
     return n;
   }
 
   row(w: number, h: number, bg: number): typeNode.Row {
     this.count++;
     const n: typeNode.Row = typeNode.createNode(this.ctx, 'Row');
-    n.attribute.width(w).height(h).backgroundColor(bg);
+    n.attribute.width(w).height(h);
+    // A numeric backgroundColor of 0 is opaque black in ArkUI, not the
+    // transparent 0x00000000 the Rust arm's ABGR word means. Setting it
+    // painted every full-frame tap overlay solid black over the screen
+    // behind it, which is why this arm mounted and showed nothing.
+    if (bg !== 0) {
+      n.attribute.backgroundColor(bg);
+    }
     return n;
   }
 
   stack(w: number, h: number, bg: number): typeNode.Stack {
     this.count++;
     const n: typeNode.Stack = typeNode.createNode(this.ctx, 'Stack');
-    n.attribute.width(w).height(h).backgroundColor(bg);
+    n.attribute.width(w).height(h);
+    // A numeric backgroundColor of 0 is opaque black in ArkUI, not the
+    // transparent 0x00000000 the Rust arm's ABGR word means. Setting it
+    // painted every full-frame tap overlay solid black over the screen
+    // behind it, which is why this arm mounted and showed nothing.
+    if (bg !== 0) {
+      n.attribute.backgroundColor(bg);
+    }
     return n;
   }
 
@@ -263,7 +284,9 @@ export class WonderousArkTs {
     const sorted: number[][] = targets.slice().sort((a: number[], b: number[]) =>
       a[1] === b[1] ? a[0] - b[0] : a[1] - b[1]);
     const column = this.u.col(fw, fh, 0x00000000);
-    column.commonAttribute.hitTestBehavior(HitTestMode.None);
+    // `attribute`, not `commonAttribute`: on a node built by typeNode.createNode
+    // the typed attribute is the one that takes effect.
+    column.attribute.hitTestBehavior(HitTestMode.None);
     let cursor: number = 0;
     let i: number = 0;
     while (i < sorted.length) {
@@ -292,8 +315,13 @@ export class WonderousArkTs {
           sp2.attribute.hitTestBehavior(HitTestMode.None);
           line.appendChild(sp2);
         }
-        const cell = this.u.col(t[2], t[3], 0x00000000);
+        // 0x01000000, not 0: a fully transparent node is not a hit target in
+        // ArkUI, so a cell with no background never receives the click even
+        // though onClick is registered on it. One step of alpha is invisible
+        // and makes it real.
+        const cell = this.u.col(t[2], t[3], 0x01000000);
         const id: number = t[4];
+        cell.attribute.hitTestBehavior(HitTestMode.Default);
         cell.attribute.onClick(() => { this.tap(id); });
         line.appendChild(cell);
         x = t[0] + t[2];
