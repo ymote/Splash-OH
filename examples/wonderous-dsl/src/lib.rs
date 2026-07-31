@@ -343,6 +343,7 @@ pub const T_BROWSE: i32 = 7372;
 pub const T_ART_OPEN: i32 = 7373;
 pub const T_ART_PREV: i32 = 7370;
 pub const T_ART_NEXT: i32 = 7371;
+pub const T_ART_SWIPE: i32 = 7420;
 pub const T_PHOTO_OPEN: i32 = 7375;
 pub const T_VIEWER_CLOSE: i32 = 7450;
 pub const T_VIEWER_PREV: i32 = 7451;
@@ -438,6 +439,17 @@ pub fn route(id: i32) -> Option<Node> {
         T_ART_OPEN => {
             SCREEN.store(S_ARTIFACT, Relaxed);
             true
+        }
+        // The carousel's drag. Left brings the next piece in, as it does in
+        // the app; up and down are ignored, since the arc is horizontal.
+        id if id == T_ART_SWIPE + 1 || id == T_ART_SWIPE + 2 => {
+            let n = ARTIFACTS[WONDER.load(Relaxed) as usize % ARTIFACTS.len()].len() as i32;
+            let step = if id == T_ART_SWIPE + 1 { 1 } else { n - 1 };
+            ART_SEL.store((ART_SEL.load(Relaxed) + step) % n, Relaxed);
+            true
+        }
+        id if id == T_ART_SWIPE + 3 || id == T_ART_SWIPE + 4 => {
+            return None;
         }
         T_ART_PREV => {
             let n = ARTIFACTS[WONDER.load(Relaxed) as usize % ARTIFACTS.len()].len() as i32;
