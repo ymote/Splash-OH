@@ -709,7 +709,13 @@ struct Index {
     // only move if it is re-mounted against a changing clock; `animTick` does
     // exactly that and returns false (doing nothing) on every static screen, so
     // this costs nothing anywhere but the animation demos.
-    setInterval(() => { splash.animTick(); }, 33);
+    // Not while the ArkTS arm owns the slot. animTick calls app::rebuild(),
+    // which re-mounts the Rust tree thirty times a second and takes the
+    // NodeContent straight back -- which is why detaching once did nothing and
+    // the Rust arm kept answering the taps.
+    if (WONDEROUS_ARM !== 'arkts' || START_APP !== 'wonders') {
+      setInterval(() => { splash.animTick(); }, 33);
+    }
     if (START_APP !== '') {
       // Prove the VM works on this build. The ported apps build in Rust and
       // never evaluate a script, so a broken VM would stay hidden until a
