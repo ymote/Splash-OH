@@ -448,24 +448,22 @@ pub fn route(id: i32) -> Option<Node> {
 
 /// Whether the current screen should be re-described on the clock.
 ///
-/// Nothing, for now, and the reason is worth recording rather than leaving as
-/// a puzzle for whoever tries next.
+/// The home screen is: its clouds drift. Everything else is at rest, and
+/// re-describing it would be work with nothing to show for it.
 ///
-/// The DSL has no tween and no controller, so movement means describing the
-/// screen again a moment later -- and *the whole* screen, because there is no
-/// way to say that only one node changed. On the home screen that rebuilds
-/// eight illustration layers thirty times a second, and an ArkUI image node
-/// destroyed and recreated on every frame never survives long enough to
-/// decode: the drifting clouds animated perfectly over a wonder that had
-/// vanished, leaving flat colour.
+/// The DSL has no tween and no way to say that one node changed, so movement
+/// means describing the whole screen again -- illustration layers included.
+/// At 33 ms that is destructive: an ArkUI image node recreated every frame
+/// never lives long enough to decode, and the clouds drifted beautifully over
+/// a wonder that had vanished. At 500 ms the images survive and the drift is
+/// still smooth, because a cloud crossing the frame over half a minute does
+/// not need sixty positions a second.
 ///
-/// So the capability is real and demonstrated -- `t` is bound, the tick
-/// re-evaluates, the clouds moved -- but it is only usable on a screen built
-/// from shapes and text. Animating an illustrated one needs the DSL to be able
-/// to update a node rather than replace a tree, which is a change to the
-/// language.
+/// So the constraint is a rate, not a prohibition, and it is worth stating
+/// exactly: this arm can animate anything whose motion is slow enough that
+/// half a second between descriptions reads as continuous.
 pub fn animates() -> bool {
-    false
+    SCREEN.load(Relaxed) == S_HOME
 }
 
 /// Put the app back at the start, for a fresh mount.

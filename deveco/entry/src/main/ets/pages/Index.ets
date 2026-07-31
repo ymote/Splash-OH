@@ -873,9 +873,10 @@ struct Index {
       setTimeout(() => {
         if (WONDEROUS_ARM === 'dsl') {
           splash.wonderousDslScreen(0, 0, 0, 0);
-          // The tick exists and is wired, but `animates()` returns false --
-          // see the note there for what re-describing an illustrated screen
-          // costs, and what is still unresolved about it.
+          // 500 ms, not 33. The DSL re-describes the whole screen to move
+          // anything on it, and at frame rate that recreates the illustration's
+          // image nodes faster than they can decode -- the wonder disappears
+          // and only the clouds remain. See `animates()` for the measurement.
           setInterval(() => { splash.wonderousDslTick(); }, 500);
           return;
         }

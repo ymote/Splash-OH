@@ -1212,8 +1212,23 @@ pub fn wonderous_dsl_tick() {
     // Only the screens that actually move. Rebuilding a static screen thirty
     // times a second is work with nothing to show for it, and it would fight
     // the scroll on the article.
-    if !wonderous_dsl::animates() {
+    // Instrumented: two earlier readings of why this does not move were both
+    // wrong, and both were guesses from a screenshot.
+    static TICKS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    let n = TICKS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let anim = wonderous_dsl::animates();
+    if n % 20 == 0 {
+        crate::log(&format!("wonderous/dsl: tick {n}, animates={anim}"));
+    }
+    if !anim {
         return;
     }
-    app::set_root(wonderous_dsl::current());
+    let node = wonderous_dsl::current();
+    if n % 20 == 0 {
+        crate::log(&format!(
+            "wonderous/dsl: tick {n} rebuilt -> {}",
+            if node.is_some() { "some" } else { "NONE" }
+        ));
+    }
+    app::set_root(node);
 }
