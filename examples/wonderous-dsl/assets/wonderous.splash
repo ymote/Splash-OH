@@ -59,6 +59,7 @@ let T_VIDEO       = 7454
 let T_MAPS        = 7453
 let T_HOME_SWIPE  = 7150
 let T_SCROLLED    = 7160
+let T_PHOTO_SWIPE = 7170
 
 // ---- helpers ------------------------------------------------------------
 fn at(node, x, y) {
@@ -429,32 +430,57 @@ fn editorial_body(bh) {
 }
 
 // ---- tab 1: the photo wall ---------------------------------------------
+// `photo_gallery.dart`: a 5x5 wall of twenty-five cells with one selected.
+//
+// The wall slides so the selected cell sits in the middle rather than the
+// selection moving across a static grid, and everything except that cell is
+// under a scrim -- `_AnimatedCutoutOverlay`, which ArkUI has no cut-out shape
+// for, so it is the four rectangles the hole would leave behind. Swiping moves
+// the selection; tapping the lit cell opens it full screen.
 fn photos_body(bh) {
-  let cols = 3
-  let cell = W / cols
-  let rows = []
-  let total = 0
+  let grid = 5
+  let iw = W * 0.66
+  let ih = bh * 0.5
+  let pad = 24
+  let sx = iw + pad
+  let sy = ih + pad
+  let ox = (W - iw) / 2
+  let oy = (bh - ih) / 2
+  let sel = photo_sel % (grid * grid)
+
+  // All twenty-five are built, not just the nine that can be seen: a cell has
+  // to exist to be slid into view.
+  let kids = []
   let i = 0
-  while i < gallery_n {
-    let row_kids = []
-    let k = 0
-    while k < cols {
-      let n = i + k
-      if n < gallery_n {
-        let name = n + ""
-        if n < 10 { name = "0" + n }
-        row_kids.push({t: "image", src: gallery_base + name + ".jpg",
-                       w: cell - 2, h: cell - 2, fit: 1, margin: 1})
-      }
-      k = k + 1
-    }
-    rows.push({t: "row", w: W, h: cell, bg: CLEAR, c: row_kids})
-    total = total + cell
-    i = i + cols
+  while i < grid * grid {
+    let cx = ox + (i % grid) * sx - (sel % grid) * sx
+    let cy = oy + (i / grid) * sy - (sel / grid) * sy
+    let n = i % gallery_n
+    let name = n + ""
+    if n < 10 { name = "0" + n }
+    kids.push(at({t: "image", src: gallery_base + name + ".jpg",
+                  w: iw, h: ih, fit: 1}, cx, cy))
+    i = i + 1
   }
-  if total < bh { total = bh }
-  return {t: "scroll", w: W, h: bh, c: [{t: "column", w: W, h: total,
-                                          bg: GREY_STRONG, c: rows}]}
+
+  // The scrim, as the four rectangles around the lit cell.
+  let dim = argb(179, 0, 0, 0)
+  kids.push(at({t: "column", w: W, h: oy, bg: dim}, 0, 0))
+  kids.push(at({t: "column", w: W, h: bh - oy - ih, bg: dim}, 0, oy + ih))
+  kids.push(at({t: "column", w: ox, h: ih, bg: dim}, 0, oy))
+  kids.push(at({t: "column", w: W - ox - iw, h: ih, bg: dim}, ox + iw, oy))
+
+  // Where in the wall you are.
+  kids.push(at({t: "text", text: sel + 1 + " / " + (grid * grid), size: 12,
+                color: argb(153, 248, 236, 229), font: BODY, w: W, h: 20,
+                talign: 1}, 0, bh - 34))
+
+  // The lit cell opens; a drag anywhere moves the selection.
+  return {t: "stack", w: W, h: bh, bg: w_bg, align: 0, clip: 1,
+          swipe: T_PHOTO_SWIPE,
+          c: [{t: "stack", w: W, h: bh, bg: CLEAR, align: 0, c: kids},
+              at({t: "stack", w: iw, h: ih, bg: argb(1, 0, 0, 0),
+                  tap: T_PHOTO_OPEN}, ox, oy)]}
 }
 
 // ---- tab 2: the artifacts ----------------------------------------------
@@ -527,7 +553,6 @@ fn details_screen() {
   }
   // What each tab opens: the wall opens a photograph, the artifacts open one
   // artifact and the browser, and the editorial hides a collectible.
-  if tab == 1 { kids.push(hit(0, bh * 0.3, W, bh * 0.4, T_PHOTO_OPEN)) }
   if tab == 2 {
     kids.push(hit(W * 0.2, bh * 0.25, W * 0.6, bh * 0.35, T_ART_OPEN))
     kids.push(hit(W * 0.14, bh - 66, W * 0.72, 52, T_BROWSE))

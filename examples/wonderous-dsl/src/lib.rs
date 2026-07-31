@@ -263,7 +263,8 @@ static WONDER: AtomicI32 = AtomicI32::new(0);
 static TAB: AtomicI32 = AtomicI32::new(0);
 static PAGE: AtomicI32 = AtomicI32::new(0);
 static ART_SEL: AtomicI32 = AtomicI32::new(0);
-static PHOTO_SEL: AtomicI32 = AtomicI32::new(0);
+/// The middle of the 5x5 wall, which is where the app opens it.
+static PHOTO_SEL: AtomicI32 = AtomicI32::new(13);
 
 /// Tap ids. The same numbers the other two arms use, so a tour written against
 /// one drives all three.
@@ -302,6 +303,7 @@ pub const T_VIDEO: i32 = 7454;
 pub const T_MAPS: i32 = 7453;
 pub const T_HOME_SWIPE: i32 = 7150;
 pub const T_SCROLLED: i32 = 7160;
+pub const T_PHOTO_SWIPE: i32 = 7170;
 pub const S_VIDEO: i32 = 10;
 pub const S_MAPS: i32 = 11;
 
@@ -401,6 +403,23 @@ pub fn route(id: i32) -> Option<Node> {
         // The article moved. Nothing is rebuilt: the hero's translate is set
         // straight on the mounted node, so this runs at whatever rate the
         // scroll reports rather than at a rebuild's.
+        // The wall: a drag moves the selection one cell, and the wall slides
+        // so the new one is centred. left/right step by one, up/down by a row.
+        id if id > T_PHOTO_SWIPE && id <= T_PHOTO_SWIPE + 4 => {
+            const GRID: i32 = 5;
+            let n = GRID * GRID;
+            let d = id - T_PHOTO_SWIPE;
+            let sel = PHOTO_SEL.load(Relaxed);
+            let (col, row) = (sel % GRID, sel / GRID);
+            let (nc, nr) = match d {
+                1 => ((col + 1).min(GRID - 1), row),
+                2 => ((col - 1).max(0), row),
+                3 => (col, (row + 1).min(GRID - 1)),
+                _ => (col, (row - 1).max(0)),
+            };
+            PHOTO_SEL.store((nr * GRID + nc).rem_euclid(n), Relaxed);
+            true
+        }
         T_SCROLLED => {
             unsafe { splash_oh_arkui::dsl::apply_parallax() };
             return None;
@@ -502,4 +521,5 @@ pub fn reset() {
     WONDER.store(0, Relaxed);
     TAB.store(0, Relaxed);
     PAGE.store(0, Relaxed);
+    PHOTO_SEL.store(13, Relaxed);
 }
