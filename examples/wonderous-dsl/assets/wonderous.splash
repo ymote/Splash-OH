@@ -561,14 +561,20 @@ fn artifacts_body(bh) {
                 talign: 1}, 0, bh * 0.78))
 
   // Browse, and the sides that step through the arc.
+  // The tap rides on the button itself rather than a cell positioned over it.
+  // A separate cell has to be placed to agree with what is drawn, and when it
+  // does not the button is simply dead -- the same failure the menu rows had
+  // before they carried their own id.
   kids.push(at({t: "column", w: W * 0.72, h: 52, bg: GREY_STRONG, radius: 26,
+                tap: T_BROWSE,
                 c: [{t: "text", text: "BROWSE ALL", size: 12, color: SHEET,
                      font: SERIF_UI, w: W * 0.72, h: 52, talign: 1, pad: 18}]},
                W * 0.14, bh - 66))
   // A hit area larger than the button it sits under. The pill is 52 tall and
   // the thumb aiming at it is not that precise; a near-miss landing on nothing
   // reads as a dead button, which is exactly how this was reported.
-  kids.push(hit(W * 0.08, bh - 78, W * 0.84, 76, T_BROWSE))
+  // Stepping the arc: the two side thirds and the tall piece in the middle.
+  // These sit above the button, so they cannot swallow it.
   kids.push(hit(0, ay, cx, tall, T_ART_PREV))
   kids.push(hit(cx, ay, iw, tall, T_ART_OPEN))
   kids.push(hit(cx + iw, ay, W - cx - iw, tall, T_ART_NEXT))
