@@ -484,28 +484,92 @@ fn photos_body(bh) {
 }
 
 // ---- tab 2: the artifacts ----------------------------------------------
+// `artifact_carousel.dart`: the pieces as a carousel, not a list.
+//
+// The selected piece stands tall in a capsule frame; its neighbours are round
+// and dropped progressively lower, so the row reads as an arc. Behind it, the
+// piece's own photograph blown up and blurred under a black wash -- the screen
+// takes its colour from the object on it rather than from the wonder -- and a
+// very shallow pale dome across the middle, which is a 2000-wide disc pushed
+// down by half its size.
 fn artifacts_body(bh) {
+  let n = artifacts.len()
+  let sel = art_sel % n
+  let bottom_h = bh / 2.75
+  let item_h = bh - 200 - bottom_h
+  if item_h < 250 { item_h = 250 }
+  if item_h > 400 { item_h = 400 }
+  let iw = item_h * 0.666
+  let tall = iw * 1.5
+  let ay = (bh - tall) / 2 - tall * 0.25
+  let cx = (W - iw) / 2
+
+  // The selected piece's own photograph, blown up and blurred.
   let kids = [
-    {t: "text", text: "ARTIFACTS", size: 12, color: ACCENT, font: SERIF_UI,
-     w: W, h: 30, talign: 1, margin: 16},
+    at({t: "image", src: art_base + artifacts[sel][0] + ".jpg",
+        w: W * 1.25, h: bh * 1.25, fit: 1}, 0 - W * 0.125, 0 - bh * 0.05),
+    at({t: "column", w: W, h: bh, bg: argb(153, 0, 0, 0)}, 0, 0),
   ]
-  let total = 62
-  let i = 0
-  while i < artifacts.len() {
-    let a = artifacts[i]
-    kids.push({t: "text", text: a[1], size: 19, color: SHEET, font: DISPLAY,
-               w: W - 56, h: 52, talign: 1, margin: 8})
-    kids.push({t: "text", text: a[2] + "  |  " + a[3], size: 12,
-               color: argb(153, 248, 236, 229), font: BODY,
-               w: W - 56, h: 24, talign: 1})
-    kids.push({t: "column", w: W - 120, h: 1, bg: argb(40, 248, 236, 229),
-               margin: 14})
-    total = total + 52 + 24 + 29
-    i = i + 1
+
+  // The dome: only the top corners rounded on a very tall box is the same
+  // shape as a huge disc pushed off the bottom of the screen.
+  let dome = 2000
+  kids.push(at({t: "column", w: dome, h: dome, bg: argb(204, 248, 236, 229),
+                radius: dome / 2}, (W - dome) / 2, bh * 0.5))
+
+  // Furthest from the selection first, so the selected piece ends up on top.
+  let d = 3
+  while d >= 0 {
+    let k = 0 - d
+    while k <= d {
+      if k * k == d * d {
+        let i = (sel + k + n * 2) % n
+        // How far each neighbour is dropped below the tall one.
+        let drop = iw
+        if d == 0 { drop = 0 }
+        if d == 1 { drop = iw * 0.5 }
+        if d == 2 { drop = iw * 0.825 }
+        let ih = iw
+        if k == 0 { ih = tall }
+        let x = cx + k * iw
+        let y = ay + (tall - ih) / 2 + drop
+        let inset = iw * 0.1
+        if k == 0 { inset = 8 }
+        // `_DoubleBorderImage`: a capsule outlined in off-white with the piece
+        // inset inside it, clipped to the same capsule.
+        kids.push(at({t: "column", w: iw, h: ih, bg: CLEAR, radius: iw / 2,
+                      border: 1, bordercolor: SHEET}, x, y))
+        kids.push(at({t: "image", src: art_base + artifacts[i][0] + ".jpg",
+                      w: iw - inset * 2, h: ih - inset * 2, fit: 1,
+                      radius: (iw - inset * 2) / 2},
+                     x + inset, y + inset))
+      }
+      k = k + 1
+    }
+    d = d - 1
   }
-  if total < bh { total = bh }
-  return {t: "scroll", w: W, h: bh, c: [{t: "column", w: W, h: total,
-                                          bg: GREY_STRONG, align: 1, c: kids}]}
+
+  // The piece's own caption, under the arc.
+  let a = artifacts[sel]
+  kids.push(at({t: "text", text: "ARTIFACTS", size: 13, color: ACCENT,
+                font: SERIF_UI, w: W, h: 30, talign: 1}, 0, bh * 0.06))
+  kids.push(at({t: "text", text: a[1], size: 21, color: GREY_STRONG,
+                font: DISPLAY, w: W - 56, h: 72, talign: 1}, 28, bh * 0.66))
+  kids.push(at({t: "text", text: a[2] + "  |  " + a[3], size: 12,
+                color: argb(153, 39, 38, 37), font: BODY, w: W, h: 24,
+                talign: 1}, 0, bh * 0.78))
+
+  // Browse, and the sides that step through the arc.
+  kids.push(at({t: "column", w: W * 0.72, h: 52, bg: GREY_STRONG, radius: 26,
+                c: [{t: "text", text: "BROWSE ALL", size: 12, color: SHEET,
+                     font: SERIF_UI, w: W * 0.72, h: 52, talign: 1, pad: 18}]},
+               W * 0.14, bh - 66))
+  kids.push(hit(W * 0.14, bh - 66, W * 0.72, 52, T_BROWSE))
+  kids.push(hit(0, ay, cx, tall, T_ART_PREV))
+  kids.push(hit(cx, ay, iw, tall, T_ART_OPEN))
+  kids.push(hit(cx + iw, ay, W - cx - iw, tall, T_ART_NEXT))
+
+  return {t: "stack", w: W, h: bh, bg: w_bg, align: 0, clip: 1, c: kids}
 }
 
 // ---- tab 3: the timeline ------------------------------------------------
@@ -649,24 +713,62 @@ fn collection_screen() {
 }
 
 // ---- timeline -----------------------------------------------------------
+// `timeline_screen.dart`: not the wonder's own events, but all eight on one
+// scale, so you can see which overlapped. A row each -- portrait, name, and a
+// bar spanning that wonder's years across a shared track.
+fn year_label(y) {
+  if y < 0 { return 0 - y + " BCE" }
+  return y + " CE"
+}
+
 fn timeline_screen() {
-  let rows = []
-  let total = 0
+  let span = era_hi - era_lo
+  if span < 1 { span = 1 }
+  let top = H * 0.16
+  let row_h = 68
+  let track_x = 96
+  let track_w = W - track_x - 24
+
+  let kids = [
+    at({t: "text", text: "TIMELINE", size: 13, color: ACCENT, font: SERIF_UI,
+        w: W, h: 26, talign: 1}, 0, H * 0.055),
+    at({t: "text", text: year_label(era_lo) + "  —  " + year_label(era_hi),
+        size: 13, color: argb(153, 248, 236, 229), font: BODY, w: W, h: 24,
+        talign: 1}, 0, H * 0.095),
+  ]
+
   let i = 0
-  while i < events.len() {
-    let ev = events[i]
-    let year = ev[0] + ""
-    if ev[0] < 0 { year = 0 - ev[0] + " BCE" }
-    rows.push({t: "text", text: year, size: 15, color: ACCENT, font: SERIF_UI,
-               w: W - 56, h: 28, margin: 6})
-    let lines = ev[1].len() / 40 + 1
-    let th = lines * 22 + 8
-    rows.push({t: "text", text: ev[1], size: 14,
-               color: argb(221, 248, 236, 229), font: BODY, w: W - 56, h: th})
-    total = total + 40 + th
+  while i < spans.len() {
+    let sp = spans[i]
+    let y = top + row_h * i
+    let x0 = track_x + (sp[1] - era_lo) * track_w / span
+    let x1 = track_x + (sp[2] - era_lo) * track_w / span
+    let bar_w = x1 - x0
+    if bar_w < 3 { bar_w = 3 }
+    let tint = argb(153, 248, 236, 229)
+    let bar = argb(120, 228, 147, 93)
+    if i == wonder { tint = SHEET  bar = ACCENT }
+
+    kids.push(at({t: "image", src: sp[3], w: 34, h: 34, fit: 1, radius: 17},
+                 20, y + 6))
+    kids.push(at({t: "text", text: sp[0], size: 11, color: tint, font: SERIF_UI,
+                  w: track_x - 26, h: 18}, 20, y + 44))
+    // The track it sits on, then its own span over it.
+    kids.push(at({t: "column", w: track_w, h: 2,
+                  bg: argb(40, 248, 236, 229)}, track_x, y + 22))
+    kids.push(at({t: "column", w: bar_w, h: 6, bg: bar, radius: 3}, x0, y + 20))
+    kids.push(at({t: "text", text: year_label(sp[1]), size: 10,
+                  color: argb(120, 248, 236, 229), font: BODY, w: 90, h: 16},
+                 x0, y + 32))
     i = i + 1
   }
-  return sheet_screen(w_title, rows, total, T_CLOSE)
+
+  kids.push(at({t: "stack", w: 46, h: 46, bg: argb(89, 0, 0, 0), radius: 23,
+                c: [{t: "image", src: icon_base + "icon-close.png", w: 20,
+                     h: 20, fit: 0}]}, W - 76, H * 0.025))
+  kids.push(hit(W - 76, H * 0.02, 66, 66, T_CLOSE))
+
+  return {t: "stack", w: W, h: H, bg: GREY_STRONG, align: 0, c: kids}
 }
 
 // ---- search -------------------------------------------------------------

@@ -174,6 +174,7 @@ fn prelude(screen: i32, wonder: usize, tab: i32, page: i32, w: f32, h: f32) -> S
         esc(wo.dir)
     ));
     s.push_str("let icon_base = \"resource://RAWFILE/wonders/_common/icons/\"\n");
+    s.push_str("let art_base = \"resource://RAWFILE/wonders/artifacts/\"\n");
 
     // All eight, for the menu, and the twenty-four collectibles for the
     // collection. Both are short lists that every screen after the home may
@@ -196,6 +197,22 @@ fn prelude(screen: i32, wonder: usize, tab: i32, page: i32, w: f32, h: f32) -> S
             c.wonder,
             esc(c.icon),
             i32::from(wonderous::collectibles::is_found(i))
+        ));
+    }
+    s.push_str("]\n");
+    // The comparative timeline: every wonder's span on one shared scale, so
+    // the screen can show how they overlap.
+    let lo = TIMELINES.iter().map(|t| t.start_yr).min().unwrap_or(-2600);
+    let hi = TIMELINES.iter().map(|t| t.end_yr).max().unwrap_or(2000);
+    s.push_str(&format!("let era_lo = {lo}\nlet era_hi = {hi}\n"));
+    s.push_str("let spans = [\n");
+    for (i, t) in TIMELINES.iter().enumerate() {
+        s.push_str(&format!(
+            "  [\"{}\", {}, {}, \"resource://RAWFILE/wonders/{}/button.png\"],\n",
+            esc(WONDERS[i].title),
+            t.start_yr,
+            t.end_yr,
+            esc(WONDERS[i].dir)
         ));
     }
     s.push_str("]\n");
@@ -293,6 +310,8 @@ pub const T_COLLECTION: i32 = 7341;
 pub const T_TIMELINE: i32 = 7342;
 pub const T_BROWSE: i32 = 7372;
 pub const T_ART_OPEN: i32 = 7373;
+pub const T_ART_PREV: i32 = 7370;
+pub const T_ART_NEXT: i32 = 7371;
 pub const T_PHOTO_OPEN: i32 = 7375;
 pub const T_VIEWER_CLOSE: i32 = 7450;
 pub const T_VIEWER_PREV: i32 = 7451;
@@ -386,6 +405,16 @@ pub fn route(id: i32) -> Option<Node> {
         }
         T_ART_OPEN => {
             SCREEN.store(S_ARTIFACT, Relaxed);
+            true
+        }
+        T_ART_PREV => {
+            let n = ARTIFACTS[WONDER.load(Relaxed) as usize % ARTIFACTS.len()].len() as i32;
+            ART_SEL.store((ART_SEL.load(Relaxed) + n - 1) % n, Relaxed);
+            true
+        }
+        T_ART_NEXT => {
+            let n = ARTIFACTS[WONDER.load(Relaxed) as usize % ARTIFACTS.len()].len() as i32;
+            ART_SEL.store((ART_SEL.load(Relaxed) + 1) % n, Relaxed);
             true
         }
         T_PHOTO_OPEN => {
