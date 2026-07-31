@@ -596,6 +596,16 @@ pub fn wonders_bench() {
     ));
 }
 
+/// Give up the mounted tree, so another owner can use the slot.
+///
+/// The ArkTS Wonderous needs this: both arms mount into the same NodeContent
+/// and the Rust app re-mounts on every tap, so without handing the slot over it
+/// sits in front and answers the input.
+#[napi(js_name = "appDetach")]
+pub fn app_detach() {
+    app::detach_root();
+}
+
 /// Build every screen once and keep them all alive, for the memory arm.
 #[napi(js_name = "wechatKeepAll")]
 pub fn wechat_keep_all() -> u32 {

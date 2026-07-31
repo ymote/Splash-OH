@@ -24,6 +24,18 @@ import { dataIsWellFormed } from './WonderousData';
 /** Start in the browser card, which is the app that exercises the web overlay.
  *  Empty string starts in the benchmark harness instead. */
 const START_APP: string = 'wonders';
+
+/**
+ * Which Wonderous is driveable: 'rust' or 'arkts'.
+ *
+ * They cannot both be, and the reason is worth stating. Both mount into the
+ * same NodeContent, and the Rust app re-mounts on every tap, so it ends up in
+ * front and takes the input -- which is exactly what happened, silently, while
+ * screenshots of the two were being compared. They render almost identically
+ * by design, so nothing looked wrong. The arms are mutually exclusive now, and
+ * the Rust arm's `wonders/hits` log line tells you which one answered a tap.
+ */
+const WONDEROUS_ARM: string = 'rust';
 /**
  * Milliseconds per screen for the catalog screenshot sweep, or 0 to leave the
  * catalog interactive.
@@ -968,9 +980,16 @@ struct Index {
     }
     // Then mount it for real, so the arm is a usable app and not only a
     // timing harness: the same tree, driven by taps, rebuilt on each.
-    this.wa = wa;
-    wa.onTap = () => { this.wonderousArkMount(); };
-    this.wonderousArkMount();
+    if (WONDEROUS_ARM === 'arkts') {
+      // Take the slot off the Rust arm first. Both mount into the same
+      // NodeContent and the Rust app re-mounts on every tap, so without this
+      // it sits in front and answers the taps -- which it silently did, while
+      // screenshots of the two were being compared and looked identical.
+      splash.appDetach();
+      this.wa = wa;
+      wa.onTap = () => { this.wonderousArkMount(); };
+      this.wonderousArkMount();
+    }
     console.info('SplashOH: wonderous/arkts: TOTAL ' + totalMs.toFixed(2) + ' ms, '
       + totalNodes + ' nodes');
   }
