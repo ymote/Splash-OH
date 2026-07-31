@@ -32,7 +32,7 @@
 //! arrive rounded. octos-one learned this one the hard way; the ids are
 //! stringified on both sides.
 
-use splash_oh_native::net;
+use splash_oh_arkui::net;
 use std::collections::VecDeque;
 use std::sync::Mutex;
 

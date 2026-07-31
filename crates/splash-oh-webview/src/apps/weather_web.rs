@@ -17,9 +17,9 @@
 //! second, invisible network path with its own failure modes.
 
 use crate::webslot::{web, web_html};
-use splash_oh_native::arkui::Node;
-use splash_oh_native::net;
-use splash_oh_native::ui::*;
+use splash_oh_arkui::arkui::Node;
+use splash_oh_arkui::net;
+use splash_oh_arkui::ui::*;
 use std::sync::Mutex;
 
 const CHROME: u32 = 0xFF1C1C2E;

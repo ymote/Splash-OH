@@ -24,7 +24,7 @@
 pub mod db;
 
 use db::*;
-use splash_oh_native::arkui::{attr, event, ty, Node};
+use splash_oh_arkui::arkui::{attr, event, ty, Node};
 use std::cell::RefCell;
 use std::time::Instant;
 

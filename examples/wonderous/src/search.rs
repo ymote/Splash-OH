@@ -11,8 +11,8 @@
 use super::artifact_data::ARTIFACTS;
 use super::data::WONDERS;
 use super::search_data::SUGGESTIONS;
-use splash_oh_native::arkui::{attr, Node};
-use splash_oh_native::ui::*;
+use splash_oh_arkui::arkui::{attr, Node};
+use splash_oh_arkui::ui::*;
 
 const APP: &str = "wonders";
 const SHEET: u32 = 0xFFF8ECE5;
@@ -68,7 +68,7 @@ pub fn read_range() -> bool {
     }
     let get = |n: usize| unsafe {
         Node::get_f32(
-            n as splash_oh_native::arkui::NodeHandle,
+            n as splash_oh_arkui::arkui::NodeHandle,
             attr::slider_value(),
             0,
         )
@@ -89,7 +89,7 @@ pub fn read_range() -> bool {
             if n != 0 {
                 unsafe {
                     Node::set_string_raw(
-                        n as splash_oh_native::arkui::NodeHandle,
+                        n as splash_oh_arkui::arkui::NodeHandle,
                         attr::text_content(),
                         t,
                     )
@@ -149,12 +149,12 @@ fn apply_filter() {
         let vis = if i < hits.len().min(GRID_MAX) { 0 } else { 2 };
         unsafe {
             Node::set_i32_raw(
-                tile as splash_oh_native::arkui::NodeHandle,
+                tile as splash_oh_arkui::arkui::NodeHandle,
                 attr::visibility(),
                 vis,
             );
             Node::set_i32_raw(
-                label as splash_oh_native::arkui::NodeHandle,
+                label as splash_oh_arkui::arkui::NodeHandle,
                 attr::visibility(),
                 vis,
             );
@@ -165,22 +165,22 @@ fn apply_filter() {
         let y = grid.origin.1 + grid.step.1 * gy as f32;
         unsafe {
             Node::set_string_raw(
-                tile as splash_oh_native::arkui::NodeHandle,
+                tile as splash_oh_arkui::arkui::NodeHandle,
                 attr::image_src(),
                 &super::corpus::thumb_url(found.id),
             );
             Node::set_f32v_raw(
-                tile as splash_oh_native::arkui::NodeHandle,
+                tile as splash_oh_arkui::arkui::NodeHandle,
                 attr::position(),
                 &[x, y],
             );
             Node::set_string_raw(
-                label as splash_oh_native::arkui::NodeHandle,
+                label as splash_oh_arkui::arkui::NodeHandle,
                 attr::text_content(),
                 found.title,
             );
             Node::set_f32v_raw(
-                label as splash_oh_native::arkui::NodeHandle,
+                label as splash_oh_arkui::arkui::NodeHandle,
                 attr::position(),
                 &[x, y + grid.cell + 3.0],
             );
@@ -189,7 +189,7 @@ fn apply_filter() {
     if grid.count != 0 {
         unsafe {
             Node::set_string_raw(
-                grid.count as splash_oh_native::arkui::NodeHandle,
+                grid.count as splash_oh_arkui::arkui::NodeHandle,
                 attr::text_content(),
                 &format!("{} artifact(s)", hits.len()),
             )
@@ -215,8 +215,8 @@ pub fn read_typed() -> bool {
         return false;
     }
     let Some(v) = (unsafe {
-        splash_oh_native::arkui::Node::get_string(
-            node as splash_oh_native::arkui::NodeHandle,
+        splash_oh_arkui::arkui::Node::get_string(
+            node as splash_oh_arkui::arkui::NodeHandle,
             attr::input_text(),
         )
     }) else {
@@ -333,7 +333,7 @@ pub fn build(index: usize, chip: Option<usize>, w: f32, h: f32) -> Option<Node> 
 
     // The field, as `_SearchInput` has it: a real one. Tapping a chip fills it
     // in, and typing filters as you go.
-    let field = Node::new(splash_oh_native::arkui::ty::input())?
+    let field = Node::new(splash_oh_arkui::arkui::ty::input())?
         .width(w - 48.0)
         .height(46.0)
         .bg(0x1AF8ECE5)
@@ -345,7 +345,7 @@ pub fn build(index: usize, chip: Option<usize>, w: f32, h: f32) -> Option<Node> 
         .string_attr(attr::input_text(), term.unwrap_or(&typed()))
         .f32v_attr(attr::padding(), &[0.0, 22.0, 0.0, 22.0])
         .f32v_attr(attr::position(), &[24.0, h * 0.15])
-        .on_event(splash_oh_native::arkui::event::input_change(), SEARCH_TYPED);
+        .on_event(splash_oh_arkui::arkui::event::input_change(), SEARCH_TYPED);
     if let Ok(mut g) = FIELD.lock() {
         *g = field.raw() as usize;
     }
@@ -408,7 +408,7 @@ pub fn build(index: usize, chip: Option<usize>, w: f32, h: f32) -> Option<Node> 
         let y = gtop + step.1 * gy as f32;
         let hit = found.get(i);
         let vis = if hit.is_some() { 0 } else { 2 };
-        let tile = Node::new(splash_oh_native::arkui::ty::image())?
+        let tile = Node::new(splash_oh_arkui::arkui::ty::image())?
             .width(gw)
             .height(gw)
             .radius(6.0)
@@ -496,7 +496,7 @@ pub fn build(index: usize, chip: Option<usize>, w: f32, h: f32) -> Option<Node> 
                     .string_attr(attr::font_family(), SERIF_UI)
                     .f32v_attr(attr::position(), &[20.0, row_y + 8.0]),
             );
-            let sl = Node::new(splash_oh_native::arkui::ty::slider())?
+            let sl = Node::new(splash_oh_arkui::arkui::ty::slider())?
                 .width(panel_w - 150.0)
                 .height(32.0)
                 .f32_attr(attr::slider_min(), dlo as f32)
@@ -506,7 +506,7 @@ pub fn build(index: usize, chip: Option<usize>, w: f32, h: f32) -> Option<Node> 
                 .u32_attr(attr::slider_block(), SHEET)
                 .u32_attr(attr::slider_track(), 0x33F8ECE5)
                 .f32v_attr(attr::position(), &[58.0, row_y])
-                .on_event(splash_oh_native::arkui::event::slider_change(), *id);
+                .on_event(splash_oh_arkui::arkui::event::slider_change(), *id);
             if k == 0 {
                 handles.0 = sl.raw() as usize;
             } else {

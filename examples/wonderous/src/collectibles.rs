@@ -11,8 +11,8 @@
 //! than a session.
 
 use super::places::COLLECTIBLES;
-use splash_oh_native::arkui::{attr, Node};
-use splash_oh_native::ui::*;
+use splash_oh_arkui::arkui::{attr, Node};
+use splash_oh_arkui::ui::*;
 use std::sync::Mutex;
 
 const APP: &str = "wonders";
@@ -55,10 +55,10 @@ pub fn load() {
                 g[i] = c == '1';
             }
         }
-        splash_oh_native::log(&format!("wonders/collectibles: loaded from {path}"));
+        splash_oh_arkui::log(&format!("wonders/collectibles: loaded from {path}"));
         return;
     }
-    splash_oh_native::log("wonders/collectibles: nothing stored yet");
+    splash_oh_arkui::log("wonders/collectibles: nothing stored yet");
 }
 
 fn save() {
@@ -74,10 +74,10 @@ fn save() {
         }
         match std::fs::write(path, &bits) {
             Ok(()) => {
-                splash_oh_native::log(&format!("wonders/collectibles: saved to {path}"));
+                splash_oh_arkui::log(&format!("wonders/collectibles: saved to {path}"));
                 return;
             }
-            Err(e) => splash_oh_native::log(&format!("wonders/collectibles: {path}: {e}")),
+            Err(e) => splash_oh_arkui::log(&format!("wonders/collectibles: {path}: {e}")),
         }
     }
 }
@@ -146,7 +146,7 @@ pub fn badge(i: usize, size: f32) -> Option<Node> {
                 size * 0.55,
             )?)
             .on_event(
-                splash_oh_native::arkui::event::click(),
+                splash_oh_arkui::arkui::event::click(),
                 COLLECT_BASE + i as i32,
             ),
     )
@@ -161,7 +161,7 @@ pub fn found_screen(w: f32, h: f32) -> Option<Node> {
 
     let ih = h * 0.42;
     root = root.child(
-        Node::new(splash_oh_native::arkui::ty::image())?
+        Node::new(splash_oh_arkui::arkui::ty::image())?
             .width(w * 0.62)
             .height(ih)
             .radius(8.0)

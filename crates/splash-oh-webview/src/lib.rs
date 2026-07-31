@@ -2,21 +2,21 @@
 //!
 //! This crate is the one ArkTS loads. It owns the napi surface, the web slots,
 //! the capability gate and the 45 tools a page can call — and it depends on
-//! `splash-oh-native` for the widget tree those pages sit in.
+//! `splash-oh-arkui` for the widget tree those pages sit in.
 //!
 //! # Why the split runs this way
 //!
 //! The dependency is one-directional and that is the whole reason it was worth
-//! separating. Nothing in `splash-oh-native` mentions the bridge, a web slot,
+//! separating. Nothing in `splash-oh-arkui` mentions the bridge, a web slot,
 //! an XComponent or ArkWeb. Every card here, by contrast, builds real ArkUI
 //! chrome out of that crate's widgets — the browser's tab strip, the file
 //! card's roots, the capability dashboard's header are native nodes with a web
 //! surface positioned into the hole they leave.
 //!
-//! So: `splash-oh-native` renders; this crate exposes the phone to a page.
+//! So: `splash-oh-arkui` renders; this crate exposes the phone to a page.
 //! One `.so` still comes out, because ArkTS loads exactly one.
 
-pub use splash_oh_native::{app, arkui, bench, dsl, log, mem, net};
+pub use splash_oh_arkui::{app, arkui, bench, dsl, log, mem, net};
 // The sample apps now live under examples/ as crates of their own. Aliased
 // back to their old module names so the call sites here read unchanged.
 pub use material_catalog as catalog;
@@ -44,7 +44,7 @@ use napi_ohos::threadsafe_function::{
     ErrorStrategy, ThreadsafeFunction, ThreadsafeFunctionCallMode,
 };
 use napi_ohos::{Env, JsFunction, JsObject, NapiRaw};
-use splash_oh_native::arkui::NodeContentHandle;
+use splash_oh_arkui::arkui::NodeContentHandle;
 use std::sync::{Condvar, Mutex, OnceLock};
 use wechat;
 
@@ -63,7 +63,7 @@ extern "C" {
 #[napi(js_name = "mount")]
 pub fn mount(env: Env, content: JsObject) -> napi_ohos::Result<()> {
     // Tell the renderer how to route a tap. It deliberately does not know:
-    // splash-oh-native has no idea what an app is, and wiring this here is what
+    // splash-oh-arkui has no idea what an app is, and wiring this here is what
     // keeps the dependency pointing one way.
     app::set_router(|target| {
         if apps::handle(target) {
@@ -115,16 +115,16 @@ pub fn mount(env: Env, content: JsObject) -> napi_ohos::Result<()> {
     // a 440vp display that left a bare strip down the right edge of every
     // screen.
     flutter_catalog::set_page_width(device::width_vp());
-    splash_oh_native::set_web_reset(webslot::reset);
-    splash_oh_native::set_web_declare(|src, x, y, w, h| {
+    splash_oh_arkui::set_web_reset(webslot::reset);
+    splash_oh_arkui::set_web_declare(|src, x, y, w, h| {
         if let Some(path) = src.strip_prefix("app:") {
             webslot::declare_app(path, x, y, w, h)
         } else {
             webslot::declare(src, x, y, w, h)
         }
     });
-    splash_oh_native::set_web_declare_html(webslot::declare_html);
-    splash_oh_native::set_host_invoke(|tool| match tool {
+    splash_oh_arkui::set_web_declare_html(webslot::declare_html);
+    splash_oh_arkui::set_host_invoke(|tool| match tool {
         "device.info" => device::info(0),
         "device.display" => device::display(),
         "device.battery" => device::battery(),
@@ -174,7 +174,7 @@ pub fn mount(env: Env, content: JsObject) -> napi_ohos::Result<()> {
             )
         }
         // add_to_app: facts about this very embed.
-        "embed.nodes" => format!("{}", splash_oh_native::ui::last_total()),
+        "embed.nodes" => format!("{}", splash_oh_arkui::ui::last_total()),
         // platform_view_swift: a real native rendering surface composited into
         // the same tree, which is what that sample is about.
         "surface.state" => xcomp::state(),
@@ -285,7 +285,7 @@ pub fn wechat_render() -> Vec<f64> {
     // DEMO: the ArkTS entry page (Index.ets) hardwires this call as its mount
     // path. Show the LLM-generated weather card (native ArkUI, evaluated from
     // the Splash DSL in assets/weather.splash) instead of the WeChat benchmark.
-    let node = splash_oh_native::dsl::build_weather();
+    let node = splash_oh_arkui::dsl::build_weather();
     app::set_root(node);
     vec![0.0, 0.0]
 }
@@ -485,7 +485,7 @@ pub fn web_slot_html(id: u32) -> String {
 /// shell and the Web is laid out beneath it.
 #[napi(js_name = "youtubeRender")]
 pub fn youtube_render() {
-    let node = splash_oh_native::dsl::build_youtube();
+    let node = splash_oh_arkui::dsl::build_youtube();
     app::set_root(node);
 }
 
@@ -555,7 +555,7 @@ pub fn wonders_bench() {
         runs.push(t.elapsed().as_micros());
     }
     runs.sort_unstable();
-    splash_oh_native::log(&format!(
+    splash_oh_arkui::log(&format!(
         "wonderous/rust: MEDIAN {:.2} ms over 5 runs ({:.2}-{:.2})",
         runs[2] as f64 / 1000.0,
         runs[0] as f64 / 1000.0,
@@ -565,7 +565,7 @@ pub fn wonders_bench() {
     let mut total_us = 0u128;
     let mut total_nodes = 0usize;
     for (i, name) in names.iter().enumerate() {
-        let before = splash_oh_native::ui::count();
+        let before = splash_oh_arkui::ui::count();
         let t0 = std::time::Instant::now();
         let node = match i {
             0 => wonders::screens::intro(0, W, H),
@@ -581,16 +581,16 @@ pub fn wonders_bench() {
             _ => wonders::screens::artifact(0, W, H),
         };
         let us = t0.elapsed().as_micros();
-        let nodes = splash_oh_native::ui::count().saturating_sub(before);
+        let nodes = splash_oh_arkui::ui::count().saturating_sub(before);
         total_us += us;
         total_nodes += nodes;
-        splash_oh_native::log(&format!(
+        splash_oh_arkui::log(&format!(
             "wonderous/rust: {name} {:.2} ms, {nodes} nodes",
             us as f64 / 1000.0
         ));
         drop(node);
     }
-    splash_oh_native::log(&format!(
+    splash_oh_arkui::log(&format!(
         "wonderous/rust: TOTAL {:.2} ms, {total_nodes} nodes",
         total_us as f64 / 1000.0
     ));
@@ -694,7 +694,7 @@ pub fn go_back() -> bool {
         None => "index".to_string(),
     };
     app::set_screen_quiet(parent.clone());
-    let node = splash_oh_native::dsl::build_flutter(&parent, false);
+    let node = splash_oh_arkui::dsl::build_flutter(&parent, false);
     app::set_root(node);
     true
 }
@@ -725,9 +725,9 @@ pub fn catalog_screen(name: String) -> u32 {
     };
     // Record it, or the animation tick cannot tell what is on screen.
     app::set_screen_quiet(route.to_string());
-    let node = splash_oh_native::dsl::build_flutter(route, false);
-    let n = splash_oh_native::ui::count();
-    splash_oh_native::ui::record_total(n);
+    let node = splash_oh_arkui::dsl::build_flutter(route, false);
+    let n = splash_oh_arkui::ui::count();
+    splash_oh_arkui::ui::record_total(n);
     app::set_root(node);
     n as u32
 }

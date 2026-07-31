@@ -8,4 +8,4 @@ description = "The Taobao demo: a dense commerce grid."
 name = "taobao"
 
 [dependencies]
-splash-oh-native = { path = "../../crates/splash-oh-native" }
+splash-oh-arkui = { path = "../../crates/splash-oh-arkui" }

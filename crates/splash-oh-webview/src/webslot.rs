@@ -389,8 +389,8 @@ pub fn html_for(id: u32) -> String {
 // separated from one.
 // ---------------------------------------------------------------------------
 
-use splash_oh_native::arkui::Node;
-use splash_oh_native::ui::col;
+use splash_oh_arkui::arkui::Node;
+use splash_oh_arkui::ui::col;
 
 /// A web surface at an absolute page position.
 ///

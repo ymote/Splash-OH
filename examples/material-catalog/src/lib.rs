@@ -8,7 +8,7 @@
 
 include!(concat!(env!("OUT_DIR"), "/catalog_screens.rs"));
 
-use splash_oh_native::arkui::{attr, event, ty, Node};
+use splash_oh_arkui::arkui::{attr, event, ty, Node};
 
 // Apple-ish neutral palette, ARGB.
 const INK: u32 = 0xFF11_1418;

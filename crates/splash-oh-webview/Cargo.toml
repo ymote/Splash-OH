@@ -12,7 +12,7 @@ name = "splash_oh"
 crate-type = ["cdylib"]
 
 [dependencies]
-splash-oh-native = { path = "../splash-oh-native" }
+splash-oh-arkui = { path = "../splash-oh-arkui" }
 # The sample apps. Each is its own crate under examples/ and depends on the
 # renderer; the cdylib is what links them into the module the device loads.
 wechat = { path = "../../examples/wechat" }

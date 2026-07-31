@@ -12,8 +12,8 @@
 
 use super::data::WONDERS;
 use super::places::PLACES;
-use splash_oh_native::arkui::{attr, Node};
-use splash_oh_native::ui::*;
+use splash_oh_arkui::arkui::{attr, Node};
+use splash_oh_arkui::ui::*;
 
 const APP: &str = "wonders";
 const SHEET: u32 = 0xFFF8ECE5;
@@ -117,7 +117,7 @@ pub fn video_viewer(wonder: usize, w: f32, h: f32) -> Option<Node> {
     // hosting the iframe in generated markup gives it `https://localhost/`,
     // which it also refuses. The watch page has no such requirement, and it is
     // the same film.
-    splash_oh_native::web_declare(
+    splash_oh_arkui::web_declare(
         &format!("https://m.youtube.com/watch?v={video_id}"),
         0.0,
         top,
@@ -149,7 +149,7 @@ pub fn maps_viewer(wonder: usize, w: f32, h: f32) -> Option<Node> {
     // A tenth of a degree either side is roughly the app's zoom 17 at this
     // size; the marker is the point itself.
     let d = 0.004;
-    splash_oh_native::web_declare(
+    splash_oh_arkui::web_declare(
         &format!(
             "https://www.openstreetmap.org/export/embed.html?bbox={},{},{},{}&layer=mapnik&marker={lat},{lng}",
             lng - d,
@@ -219,7 +219,7 @@ pub fn map_block(wonder: usize, w: f32) -> Option<Node> {
             if x > w || y > h || x + t < 0.0 || y + t < 0.0 {
                 continue;
             }
-            if let Some(n) = Node::new(splash_oh_native::arkui::ty::image()) {
+            if let Some(n) = Node::new(splash_oh_arkui::arkui::ty::image()) {
                 root = root.child(
                     n.width(t)
                         .height(t)
@@ -240,5 +240,5 @@ pub fn map_block(wonder: usize, w: f32) -> Option<Node> {
             .u32_attr(attr::border_color(), SHEET)
             .f32v_attr(attr::position(), &[w / 2.0 - 7.0, h / 2.0 - 7.0]),
     );
-    Some(root.on_event(splash_oh_native::arkui::event::click(), MAP_TAP))
+    Some(root.on_event(splash_oh_arkui::arkui::event::click(), MAP_TAP))
 }

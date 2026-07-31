@@ -7,8 +7,8 @@
 
 use super::data::WONDERS;
 use super::editorial_data::EDITORIAL;
-use splash_oh_native::arkui::{attr, ty, Node};
-use splash_oh_native::ui::*;
+use splash_oh_arkui::arkui::{attr, ty, Node};
+use splash_oh_arkui::ui::*;
 
 const APP: &str = "wonders";
 const SHEET: u32 = 0xFFF8ECE5;

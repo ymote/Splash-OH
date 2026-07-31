@@ -6,7 +6,7 @@
 //! broken. The Pura X is 1320×2120 px where the Mate 70 is 1320×2760, so the
 //! page has to come from the display rather than from a constant.
 
-use splash_oh_native::arkui::Node;
+use splash_oh_arkui::arkui::Node;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 use wonderous as wonders;
@@ -47,7 +47,7 @@ pub fn page() -> (f32, f32) {
     if ok && pw > 0 && ph > 0 && ratio > 0.1 {
         (pw as f32 / ratio, ph as f32 / ratio - FIRST_GUESS_INSET_VP)
     } else {
-        (splash_oh_native::ui::W, splash_oh_native::ui::PAGE_H)
+        (splash_oh_arkui::ui::W, splash_oh_arkui::ui::PAGE_H)
     }
 }
 
@@ -69,7 +69,7 @@ fn measure_root(root: usize) -> bool {
         return false;
     }
     let Some((w_px, h_px)) = (unsafe {
-        splash_oh_native::arkui::layout_size(root as splash_oh_native::arkui::NodeHandle)
+        splash_oh_arkui::arkui::layout_size(root as splash_oh_arkui::arkui::NodeHandle)
     }) else {
         return false;
     };
@@ -79,7 +79,7 @@ fn measure_root(root: usize) -> bool {
     if (got.0 - was.0).abs() < 1.0 && (got.1 - was.1).abs() < 1.0 {
         return false;
     }
-    splash_oh_native::log(&format!(
+    splash_oh_arkui::log(&format!(
         "wonders: content area measured {:.1}x{:.1} vp (built at {:.1}x{:.1})",
         got.0, got.1, was.0, was.1
     ));
@@ -432,14 +432,14 @@ fn fade_in_screen() {
     if root == 0 {
         return;
     }
-    let n = root as splash_oh_native::arkui::NodeHandle;
+    let n = root as splash_oh_arkui::arkui::NodeHandle;
     unsafe {
-        splash_oh_native::arkui::animate(
+        splash_oh_arkui::arkui::animate(
             n,
             SCREEN_FADE_MS,
-            splash_oh_native::arkui::CURVE_EASE_OUT,
+            splash_oh_arkui::arkui::CURVE_EASE_OUT,
             move || unsafe {
-                Node::set_f32_attr_raw(n, splash_oh_native::arkui::attr::opacity(), 1.0)
+                Node::set_f32_attr_raw(n, splash_oh_arkui::arkui::attr::opacity(), 1.0)
             },
         )
     };
@@ -460,8 +460,8 @@ pub fn build() -> Option<Node> {
     // when arriving from somewhere else -- which is exactly when a route fade
     // is wanted.
     let node = node
-        .f32_attr(splash_oh_native::arkui::attr::opacity(), 0.0)
-        .on_event(splash_oh_native::arkui::event::appear(), SCREEN_APPEAR);
+        .f32_attr(splash_oh_arkui::arkui::attr::opacity(), 0.0)
+        .on_event(splash_oh_arkui::arkui::event::appear(), SCREEN_APPEAR);
     SCREEN_ROOT.store(node.raw() as usize, Ordering::Relaxed);
     Some(node)
 }

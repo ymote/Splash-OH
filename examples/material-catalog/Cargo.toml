@@ -8,4 +8,4 @@ description = "A Material component catalog written in the Splash DSL."
 name = "material_catalog"
 
 [dependencies]
-splash-oh-native = { path = "../../crates/splash-oh-native" }
+splash-oh-arkui = { path = "../../crates/splash-oh-arkui" }

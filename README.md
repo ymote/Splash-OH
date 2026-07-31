@@ -61,7 +61,7 @@ See [docs/capabilities.md](docs/capabilities.md).
 ## The layout
 
 ```
-crates/splash-oh-native/       the renderer                      rlib
+crates/splash-oh-arkui/       the renderer                      rlib
 crates/splash-oh-core/         registry, Args, Responder         rlib
 crates/splash-oh-webview/      the bridge and the capabilities   cdylib -> libsplash_oh.so
 crates/splash-oh-plugin-demo/  an example plugin                 rlib
@@ -71,14 +71,14 @@ deveco/                        the ArkTS shell
 ```
 
 The dependencies run one way, and that is what makes plugins possible.
-`splash-oh-native` does not know webviews exist. `splash-oh-core` does not know
+`splash-oh-arkui` does not know webviews exist. `splash-oh-core` does not know
 the bridge exists — which is why a plugin can depend on it without depending on
 the app. `splash-oh` is a `cdylib`, a final artifact nothing links against, so it
 is the crate that decides which plugins are in a build.
 
 One `.so` comes out, because ArkTS loads exactly one.
 
-### splash-oh-native
+### splash-oh-arkui
 
 Renders a UI tree to native ArkUI widgets from Rust. ArkTS hands over one
 `NodeContent` at startup; after that every widget is created, configured, laid

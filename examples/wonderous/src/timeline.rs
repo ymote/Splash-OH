@@ -6,8 +6,8 @@
 
 use super::data::WONDERS;
 use super::timeline_data::TIMELINES;
-use splash_oh_native::arkui::{attr, Node};
-use splash_oh_native::ui::*;
+use splash_oh_arkui::arkui::{attr, Node};
+use splash_oh_arkui::ui::*;
 
 const APP: &str = "wonders";
 const SHEET: u32 = 0xFFF8ECE5;
@@ -164,7 +164,7 @@ pub fn events(index: usize, w: f32, h: f32) -> Option<Node> {
     }
 
     let inner = inner.height(total);
-    let mut s = Node::new(splash_oh_native::arkui::ty::scroll())?
+    let mut s = Node::new(splash_oh_arkui::arkui::ty::scroll())?
         .width(w)
         .height(h)
         .i32_attr(attr::alignment(), 1);

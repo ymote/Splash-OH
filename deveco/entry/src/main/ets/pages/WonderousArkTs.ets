@@ -1,7 +1,7 @@
 /*
  * Wonderous, built in ArkTS through the imperative ArkUI node API.
  *
- * The other arm of the comparison. `crates/splash-oh-native/src/wonders/` builds
+ * The other arm of the comparison. `crates/splash-oh-arkui/src/wonders/` builds
  * the same screens from Rust through the NDK; this builds them from ArkTS
  * through `typeNode`. Both end up at the same C++ patterns inside libace, so
  * everything downstream — measure, layout, paint — is identical native code and

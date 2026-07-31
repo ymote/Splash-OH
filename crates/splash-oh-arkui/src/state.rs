@@ -2,7 +2,7 @@
 //!
 //! Deliberately a second copy of `splash-render/src/state.rs`, not a shared
 //! dependency. The two backends do not share a VM: this crate walks the kit on
-//! splash-core's, the makepad backend on splash-render's, and splash-oh-native
+//! splash-core's, the makepad backend on splash-render's, and splash-oh-arkui
 //! has no path to splash-render at all. Making one appear would mean a
 //! cross-repo dependency from the ArkUI renderer onto the makepad one, which is
 //! exactly the coupling the two-crate split exists to prevent.

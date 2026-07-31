@@ -8,4 +8,4 @@ description = "The WeChat demo, ported screen for screen."
 name = "wechat"
 
 [dependencies]
-splash-oh-native = { path = "../../crates/splash-oh-native" }
+splash-oh-arkui = { path = "../../crates/splash-oh-arkui" }

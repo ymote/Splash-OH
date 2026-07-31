@@ -1,6 +1,6 @@
 # Wonderous: ArkTS vs Rust, measured
 
-Two implementations of the same app. `crates/splash-oh-native/src/wonders/`
+Two implementations of the same app. `crates/splash-oh-arkui/src/wonders/`
 constructs the tree from Rust through the ArkUI NDK;
 `deveco/entry/src/main/ets/pages/WonderousArkTs.ets` constructs it from ArkTS
 through `typeNode`. Both land on the same C++ patterns inside libace, so

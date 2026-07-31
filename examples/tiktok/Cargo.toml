@@ -8,4 +8,4 @@ description = "The TikTok demo: few nodes, one full-bleed video frame."
 name = "tiktok"
 
 [dependencies]
-splash-oh-native = { path = "../../crates/splash-oh-native" }
+splash-oh-arkui = { path = "../../crates/splash-oh-arkui" }

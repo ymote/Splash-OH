@@ -8,4 +8,4 @@ description = "Wonderous, ported from project-robius/makepad_wonderous."
 name = "wonderous_makepad"
 
 [dependencies]
-splash-oh-native = { path = "../../crates/splash-oh-native" }
+splash-oh-arkui = { path = "../../crates/splash-oh-arkui" }
