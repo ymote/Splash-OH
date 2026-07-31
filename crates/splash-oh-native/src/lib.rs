@@ -20,18 +20,11 @@
 pub mod app;
 pub mod arkui;
 pub mod bench;
-pub mod catalog;
 pub mod dsl;
-pub mod flutter;
 pub mod mem;
 pub mod net;
 pub mod state;
-pub mod taobao;
-pub mod tiktok;
 pub mod ui;
-pub mod wechat;
-pub mod wonderous;
-pub mod wonders;
 
 /// hilog, so this is debuggable on device without stdout (an OHOS app has none).
 ///

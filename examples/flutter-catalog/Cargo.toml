@@ -1,0 +1,11 @@
+[package]
+name = "flutter-catalog"
+version = "0.1.0"
+edition = "2021"
+description = "The Flutter samples kit, rendered to native ArkUI."
+
+[lib]
+name = "flutter_catalog"
+
+[dependencies]
+splash-oh-native = { path = "../../crates/splash-oh-native" }

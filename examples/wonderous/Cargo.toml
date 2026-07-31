@@ -1,0 +1,12 @@
+[package]
+name = "wonderous"
+version = "0.1.0"
+edition = "2021"
+description = "Wonderous, ported from gskinnerTeam/flutter-wonderous-app."
+
+[lib]
+name = "wonderous"
+
+[dependencies]
+serde_json = "1"
+splash-oh-native = { path = "../../crates/splash-oh-native" }

@@ -1,0 +1,493 @@
+//! Wonderous, sized to the screen it is actually on.
+//!
+//! The other apps here are laid out against a fixed 402×780 vp page, which is
+//! close enough for a benchmark and wrong for this: Wonderous is full-bleed
+//! artwork, and a frame that does not reach the edges reads immediately as
+//! broken. The Pura X is 1320×2120 px where the Mate 70 is 1320×2760, so the
+//! page has to come from the display rather than from a constant.
+
+use splash_oh_native::arkui::Node;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Mutex;
+use wonderous as wonders;
+
+extern "C" {
+    fn OH_NativeDisplayManager_GetDefaultDisplayWidth(w: *mut i32) -> i32;
+    fn OH_NativeDisplayManager_GetDefaultDisplayHeight(h: *mut i32) -> i32;
+    fn OH_NativeDisplayManager_GetDefaultDisplayVirtualPixelRatio(r: *mut f32) -> i32;
+}
+
+/// The content area, in vp.
+///
+/// Not the display. The system keeps a strip at the top for the status bar and
+/// one at the bottom for the navigation gesture, and what ArkUI hands the page
+/// is what is left. Those strips differ per device -- the numbers this used to
+/// subtract were measured on one phone and were simply wrong on another -- so
+/// the page is measured instead: once a root has been mounted, ArkUI will say
+/// how big it actually is, and that answer is used from then on.
+///
+/// The very first build has nothing to measure, so it falls back to the
+/// display less a typical inset, and corrects itself on the first `appear`.
+static MEASURED: Mutex<Option<(f32, f32)>> = Mutex::new(None);
+
+/// A plausible total inset for the first frame only. Being wrong here costs one
+/// extra build, not a wrong layout.
+const FIRST_GUESS_INSET_VP: f32 = 44.0;
+
+pub fn page() -> (f32, f32) {
+    if let Some(m) = MEASURED.lock().ok().and_then(|g| *g) {
+        return m;
+    }
+    let (mut pw, mut ph, mut ratio) = (0i32, 0i32, 0f32);
+    let ok = unsafe {
+        OH_NativeDisplayManager_GetDefaultDisplayWidth(&mut pw) == 0
+            && OH_NativeDisplayManager_GetDefaultDisplayHeight(&mut ph) == 0
+            && OH_NativeDisplayManager_GetDefaultDisplayVirtualPixelRatio(&mut ratio) == 0
+    };
+    if ok && pw > 0 && ph > 0 && ratio > 0.1 {
+        (pw as f32 / ratio, ph as f32 / ratio - FIRST_GUESS_INSET_VP)
+    } else {
+        (splash_oh_native::ui::W, splash_oh_native::ui::PAGE_H)
+    }
+}
+
+/// The pixel ratio, for turning a measured size back into vp.
+fn ratio() -> f32 {
+    let mut r = 0f32;
+    if unsafe { OH_NativeDisplayManager_GetDefaultDisplayVirtualPixelRatio(&mut r) } == 0 && r > 0.1
+    {
+        r
+    } else {
+        3.0
+    }
+}
+
+/// Ask the mounted root how big it is. `true` if that differs from what the
+/// page was built at, so the caller knows to build it again.
+fn measure_root(root: usize) -> bool {
+    if root == 0 {
+        return false;
+    }
+    let Some((w_px, h_px)) = (unsafe {
+        splash_oh_native::arkui::layout_size(root as splash_oh_native::arkui::NodeHandle)
+    }) else {
+        return false;
+    };
+    let r = ratio();
+    let got = (w_px as f32 / r, h_px as f32 / r);
+    let was = page();
+    if (got.0 - was.0).abs() < 1.0 && (got.1 - was.1).abs() < 1.0 {
+        return false;
+    }
+    splash_oh_native::log(&format!(
+        "wonders: content area measured {:.1}x{:.1} vp (built at {:.1}x{:.1})",
+        got.0, got.1, was.0, was.1
+    ));
+    if let Ok(mut g) = MEASURED.lock() {
+        *g = Some(got);
+    }
+    true
+}
+
+/// Which screen is showing.
+///
+/// The app opens on the intro, goes to the home pager, and from there into a
+/// wonder's details, the menu, the collection or one artifact.
+#[derive(Clone, Copy, PartialEq)]
+enum Screen {
+    Intro(usize),
+    Home,
+    Details(usize),
+    Menu,
+    Collection,
+    Artifact,
+    Timeline,
+    Search(Option<usize>),
+    /// The three fullscreen viewers, each remembering the details tab it was
+    /// opened from so closing returns there.
+    Photo(usize),
+    Video,
+    Maps,
+    /// The screen that shows off a collectible the moment it is found.
+    Found,
+}
+
+static SCREEN: Mutex<Screen> = Mutex::new(Screen::Intro(0));
+
+fn screen() -> Screen {
+    *SCREEN.lock().unwrap_or_else(|e| e.into_inner())
+}
+fn go(s: Screen) {
+    if let Ok(mut g) = SCREEN.lock() {
+        *g = s;
+    }
+}
+
+/// Kept so the details screens can ask which tab is up.
+static TAB: AtomicUsize = AtomicUsize::new(usize::MAX);
+
+fn tab() -> Option<usize> {
+    match TAB.load(Ordering::Relaxed) {
+        usize::MAX => None,
+        t => Some(t),
+    }
+}
+
+/// The four directions the shim reports, as offsets from a swipe base.
+const SWIPE_LEFT: i32 = 1;
+const SWIPE_RIGHT: i32 = 2;
+const SWIPE_UP: i32 = 3;
+const SWIPE_DOWN: i32 = 4;
+
+/// `Some(direction)` if `target` is a swipe on `base`.
+fn swipe_of(target: i32, base: i32) -> Option<i32> {
+    match target - base {
+        d @ SWIPE_LEFT..=SWIPE_DOWN => Some(d),
+        _ => None,
+    }
+}
+
+/// Move the home pager, wrapping. Only meaningful on the home screen.
+///
+/// Returns false: all eight wonders are already mounted, so the page change is
+/// a cross-fade over the tree that is there rather than a new one.
+fn step(d: i32) -> bool {
+    if screen() != Screen::Home {
+        return false;
+    }
+    let n = wonders::data::WONDERS.len();
+    let next = ((current() + n) as i32 + d) as usize % n;
+    set(next);
+    wonders::home::fade_to(next);
+    false
+}
+
+/// Move the artifact carousel, wrapping as the app's `PageView` does.
+fn step_artifact(d: i32) -> bool {
+    let list = wonders::artifact_data::ARTIFACTS[current() % 8];
+    if list.is_empty() {
+        return false;
+    }
+    let n = list.len();
+    let cur = wonders::details::artifact_sel() % n;
+    let next = ((cur + n) as i32 + d) as usize % n;
+    wonders::details::set_artifact_sel(next);
+    // Every piece is already mounted, so this collapses the carousel around
+    // the new one rather than rebuilding the screen.
+    wonders::details::collapse_carousel(next);
+    false
+}
+
+/// Handle a tap. `true` if it was ours and the tree should be rebuilt.
+pub fn handle(target: i32) -> bool {
+    // Events that write through a stored node handle are only honoured while
+    // the screen that published that handle is up.
+    //
+    // Without this an event still in flight when you navigate away -- an
+    // inertial scroll, the tail of a swipe -- reached a handle whose node
+    // `set_root` had already dropped.
+    let on_details = matches!(screen(), Screen::Details(_));
+    let on_search = matches!(screen(), Screen::Search(_));
+
+    // A scroll tick moves the hero directly and does not rebuild: the tree is
+    // unchanged, only two attributes on nodes that are already mounted.
+    if target == wonders::details::SCROLL_TICK {
+        if on_details {
+            wonders::details::apply_scroll();
+        }
+        return false;
+    }
+    // A keystroke in the search field: read the text back and redraw the
+    // results if it actually changed.
+    if target == wonders::search::SEARCH_TYPED {
+        return on_search && wonders::search::read_typed();
+    }
+    if target == wonders::search::RANGE_START || target == wonders::search::RANGE_END {
+        return on_search && wonders::search::read_range();
+    }
+    if target == SCREEN_APPEAR {
+        fade_in_screen();
+        // The first mount is also the first chance to learn how much room the
+        // system actually gave us; if it is not what the page assumed, build
+        // once more at the real size.
+        return measure_root(SCREEN_ROOT.load(Ordering::Relaxed));
+    }
+    let n = wonders::data::WONDERS.len();
+    // Menu rows pick a wonder and return to its home page.
+    if target >= wonders::screens::MENU_BASE && target < wonders::screens::MENU_BASE + n as i32 {
+        set((target - wonders::screens::MENU_BASE) as usize);
+        go(Screen::Home);
+        return true;
+    }
+    if target >= wonders::tabbar::TAB_BASE
+        && target < wonders::tabbar::TAB_BASE + wonders::tabbar::TABS.len() as i32
+    {
+        TAB.store(
+            (target - wonders::tabbar::TAB_BASE) as usize,
+            Ordering::Relaxed,
+        );
+        return true;
+    }
+    // Finding one: mark it, then show it off.
+    if target >= wonders::collectibles::COLLECT_BASE
+        && target < wonders::collectibles::COLLECT_BASE + 24
+    {
+        wonders::collectibles::discover((target - wonders::collectibles::COLLECT_BASE) as usize);
+        go(Screen::Found);
+        return true;
+    }
+    if target >= wonders::search::CHIP_BASE
+        && target < wonders::search::CHIP_BASE + wonders::search::CHIPS as i32
+    {
+        let i = (target - wonders::search::CHIP_BASE) as usize;
+        let words = wonders::search_data::SUGGESTIONS[current() % 8];
+        if let Some(word) = words.get(i) {
+            wonders::search::set_term(word);
+        }
+        go(Screen::Search(Some(i)));
+        return true;
+    }
+    // Swipes. The shim measures the drag and reports base + 1..4 for left,
+    // right, up and down; each of these is the same move as the tap next to it.
+    if let Some(d) = swipe_of(target, wonders::home::HOME_SWIPE) {
+        // `step` cross-fades the mounted tree and returns false on purpose.
+        // Forcing `true` here rebuilt Home a frame after handing its nodes to
+        // animateTo, so the swipe fell back to a route fade.
+        return match d {
+            SWIPE_LEFT => step(1),
+            SWIPE_RIGHT => step(-1),
+            _ => false,
+        };
+    }
+    if let Some(d) = swipe_of(target, wonders::details::PHOTO_SWIPE) {
+        if !on_details {
+            return false;
+        }
+        // `_handleSwipe`: a horizontal swipe moves one cell against the drag,
+        // a vertical one moves a whole row.
+        let (dx, dy) = match d {
+            SWIPE_LEFT => (1, 0),
+            SWIPE_RIGHT => (-1, 0),
+            SWIPE_UP => (0, 1),
+            _ => (0, -1),
+        };
+        return wonders::details::move_photo_sel(dx, dy);
+    }
+    if let Some(d) = swipe_of(target, wonders::details::ARTIFACT_SWIPE) {
+        if !on_details {
+            return false;
+        }
+        return match d {
+            SWIPE_LEFT => step_artifact(1),
+            SWIPE_RIGHT => step_artifact(-1),
+            _ => false,
+        };
+    }
+    match target {
+        // Tapping a peeking edge of the photo wall pans it one cell, the same
+        // move the app makes on a swipe in that direction.
+        wonders::details::PHOTO_UP
+        | wonders::details::PHOTO_DOWN
+        | wonders::details::PHOTO_LEFT
+        | wonders::details::PHOTO_RIGHT
+            if on_details =>
+        {
+            let (dx, dy) = match target {
+                wonders::details::PHOTO_UP => (0, -1),
+                wonders::details::PHOTO_DOWN => (0, 1),
+                wonders::details::PHOTO_LEFT => (-1, 0),
+                _ => (1, 0),
+            };
+            wonders::details::move_photo_sel(dx, dy)
+        }
+        // The three viewers, and the taps that open them.
+        wonders::details::PHOTO_OPEN if on_details => {
+            go(Screen::Photo(wonders::details::photo_sel()));
+            true
+        }
+        wonders::details::VIDEO_TAP if on_details => {
+            go(Screen::Video);
+            true
+        }
+        wonders::viewers::MAP_TAP if on_details => {
+            go(Screen::Maps);
+            true
+        }
+        wonders::collectibles::FOUND_CLOSE => {
+            // Back to where it was found.
+            let t = tab().unwrap_or(0);
+            go(Screen::Details(t));
+            true
+        }
+        wonders::viewers::VIEWER_CLOSE => {
+            // Back to the tab it was opened from.
+            let tab = match screen() {
+                Screen::Photo(_) => 1,
+                Screen::Maps | Screen::Video => 0,
+                _ => 0,
+            };
+            TAB.store(tab, Ordering::Relaxed);
+            go(Screen::Details(tab));
+            true
+        }
+        wonders::viewers::VIEWER_PREV | wonders::viewers::VIEWER_NEXT => {
+            if let Screen::Photo(i) = screen() {
+                let n = wonders::details::GALLERY_PHOTOS;
+                let d = if target == wonders::viewers::VIEWER_NEXT {
+                    1
+                } else {
+                    n - 1
+                };
+                go(Screen::Photo((i + d) % n));
+                return true;
+            }
+            false
+        }
+        wonders::details::ARTIFACT_OPEN => {
+            go(Screen::Artifact);
+            true
+        }
+        wonders::details::BROWSE_TAP => {
+            go(Screen::Search(None));
+            true
+        }
+        wonders::search::RANGE_TOGGLE => wonders::search::toggle_range(),
+        wonders::search::SEARCH_CLOSE => {
+            wonders::search::reset_query();
+            go(Screen::Details(2));
+            true
+        }
+        wonders::details::ARTIFACT_NEXT => step_artifact(1),
+        wonders::details::ARTIFACT_PREV => step_artifact(-1),
+        wonders::screens::INTRO_NEXT => {
+            if let Screen::Intro(p) = screen() {
+                go(Screen::Intro(
+                    (p + 1).min(wonders::screens::INTRO.len() - 1),
+                ));
+            }
+            true
+        }
+        wonders::screens::INTRO_ENTER => {
+            go(Screen::Home);
+            true
+        }
+        wonders::home::MENU_TAP => {
+            go(Screen::Menu);
+            true
+        }
+        wonders::screens::MENU_CLOSE => {
+            go(Screen::Home);
+            true
+        }
+        wonders::screens::MENU_COLLECTION => {
+            go(Screen::Collection);
+            true
+        }
+        wonders::screens::MENU_TIMELINE => {
+            go(Screen::Timeline);
+            true
+        }
+        wonders::timeline::TIMELINE_CLOSE => {
+            go(Screen::Home);
+            true
+        }
+        wonders::screens::COLLECTION_CLOSE => {
+            go(Screen::Home);
+            true
+        }
+        // Closing an artifact goes back to the carousel it was opened from,
+        // not to the home screen.
+        wonders::screens::ARTIFACT_CLOSE => {
+            go(Screen::Details(2));
+            true
+        }
+        wonders::tabbar::HOME_TAP => {
+            TAB.store(usize::MAX, Ordering::Relaxed);
+            go(Screen::Home);
+            true
+        }
+        // The chevron and the title both open the details, as they do in the app.
+        wonders::home::DETAILS_TAP => {
+            wonders::details::reset_selection();
+            TAB.store(0, Ordering::Relaxed);
+            go(Screen::Details(0));
+            true
+        }
+        wonders::home::NEXT_TAP => step(1),
+        wonders::home::PREV_TAP => step(-1),
+        _ => false,
+    }
+}
+
+use wonders::SCREEN_APPEAR;
+/// `$styles.times.fast`, the app's route transition.
+const SCREEN_FADE_MS: i32 = 200;
+/// The newest screen root. An appear from an older tree would find this
+/// pointing at the tree that is actually on screen, which is the one that
+/// should be opaque, so there is nothing to guard against.
+static SCREEN_ROOT: AtomicUsize = AtomicUsize::new(0);
+
+fn fade_in_screen() {
+    let root = SCREEN_ROOT.load(Ordering::Relaxed);
+    if root == 0 {
+        return;
+    }
+    let n = root as splash_oh_native::arkui::NodeHandle;
+    unsafe {
+        splash_oh_native::arkui::animate(
+            n,
+            SCREEN_FADE_MS,
+            splash_oh_native::arkui::CURVE_EASE_OUT,
+            move || unsafe {
+                Node::set_f32_attr_raw(n, splash_oh_native::arkui::attr::opacity(), 1.0)
+            },
+        )
+    };
+}
+
+pub fn build() -> Option<Node> {
+    let (w, h) = page();
+    // Whatever tree is about to replace the mounted one, the handles the old
+    // screen published are now worthless: `set_root` drops that tree. Forget
+    // them before building, so a half-built screen cannot leave a live handle
+    // behind either.
+    wonders::details::forget_nodes();
+    wonders::search::forget_nodes();
+    wonders::home::forget_nodes();
+    let node = build_screen(w, h)?;
+    // Every screen fades in, including home: home changes wonder by
+    // cross-fading in place rather than rebuilding, so it only ever appears
+    // when arriving from somewhere else -- which is exactly when a route fade
+    // is wanted.
+    let node = node
+        .f32_attr(splash_oh_native::arkui::attr::opacity(), 0.0)
+        .on_event(splash_oh_native::arkui::event::appear(), SCREEN_APPEAR);
+    SCREEN_ROOT.store(node.raw() as usize, Ordering::Relaxed);
+    Some(node)
+}
+
+fn build_screen(w: f32, h: f32) -> Option<Node> {
+    match screen() {
+        Screen::Intro(p) => wonders::screens::intro(p, w, h),
+        Screen::Menu => wonders::screens::menu(current(), w, h),
+        Screen::Collection => wonders::screens::collection(w, h),
+        Screen::Timeline => wonders::timeline::build(current(), w, h),
+        Screen::Search(c) => wonders::search::build(current(), c, w, h),
+        Screen::Artifact => wonders::screens::artifact(current(), w, h),
+        Screen::Details(_) => wonders::details::build(current(), tab().unwrap_or(0), w, h),
+        Screen::Home => wonders::home::build(current(), w, h),
+        Screen::Photo(i) => wonders::viewers::photo_viewer(current(), i, w, h),
+        Screen::Video => wonders::viewers::video_viewer(current(), w, h),
+        Screen::Maps => wonders::viewers::maps_viewer(current(), w, h),
+        Screen::Found => wonders::collectibles::found_screen(w, h),
+    }
+}
+
+static INDEX: AtomicUsize = AtomicUsize::new(0);
+
+pub fn current() -> usize {
+    INDEX.load(Ordering::Relaxed)
+}
+pub fn set(i: usize) {
+    INDEX.store(i, Ordering::Relaxed);
+}

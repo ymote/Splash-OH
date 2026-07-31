@@ -65,7 +65,8 @@ crates/splash-oh-native/       the renderer                rlib
 crates/splash-oh-core/         registry, Args, Responder   rlib
 crates/splash-oh-plugin-demo/  an example plugin           rlib
 crates/splash-oh-cli/          host-side tooling           bin: splash-oh
-crates/splash-oh/              the bridge and the app      cdylib -> libsplash_oh.so
+crates/splash-oh-webview/     the bridge and the capabilities   cdylib -> libsplash_oh.so
+examples/<app>/               one sample app per folder
 deveco/                        the ArkTS shell
 ```
 
@@ -110,7 +111,7 @@ sweep that found them.
 
 `OH_NativeArkWeb_RunJavaScript` resolves on device but the controller's web tag
 never binds, so bridge traffic still relays through ArkTS. Measured, not
-assumed — see `crates/splash-oh/src/arkweb.rs`.
+assumed — see `crates/splash-oh-webview/src/arkweb.rs`.
 
 ## Honest status
 

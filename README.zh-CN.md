@@ -62,7 +62,7 @@ crates/splash-oh-native/       渲染器                        rlib
 crates/splash-oh-core/         注册表、Args、Responder        rlib
 crates/splash-oh-plugin-demo/  插件示例                      rlib
 crates/splash-oh-cli/          宿主机侧工具                   bin: splash-oh
-crates/splash-oh/              桥接层与应用本体               cdylib -> libsplash_oh.so
+crates/splash-oh-webview/              桥接层与应用本体               cdylib -> libsplash_oh.so
 deveco/                        ArkTS 外壳
 ```
 
@@ -103,7 +103,7 @@ deveco/                        ArkTS 外壳
 
 `OH_NativeArkWeb_RunJavaScript` 在真机上能解析到符号，但 controller 的 web tag
 始终绑不上，所以桥接流量仍然经由 ArkTS 中转。这是实测结论，不是推断——见
-`crates/splash-oh/src/arkweb.rs`。
+`crates/splash-oh-webview/src/arkweb.rs`。
 
 ## 老实说的现状
 

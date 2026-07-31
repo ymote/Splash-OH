@@ -1,0 +1,11 @@
+[package]
+name = "wechat"
+version = "0.1.0"
+edition = "2021"
+description = "The WeChat demo, ported screen for screen."
+
+[lib]
+name = "wechat"
+
+[dependencies]
+splash-oh-native = { path = "../../crates/splash-oh-native" }

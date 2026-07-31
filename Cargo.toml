@@ -5,7 +5,14 @@ members = [
     "crates/splash-oh-core",
     "crates/splash-oh-cli",
     "crates/splash-oh-plugin-demo",
-    "crates/splash-oh",
+    "crates/splash-oh-webview",
+    "examples/wechat",
+    "examples/taobao",
+    "examples/tiktok",
+    "examples/wonderous",
+    "examples/wonderous-makepad",
+    "examples/material-catalog",
+    "examples/flutter-catalog",
 ]
 
 [profile.release]
