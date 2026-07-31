@@ -741,7 +741,13 @@ struct Index {
         }
       }
       splash.dslSelfTest();
-      splash.appRender(START_APP);
+      // The Rust arm must not mount at all when the ArkTS one is selected.
+      // Both call set_root on the same NodeContent, and the log showed a
+      // detach followed straight back by a set_root -- appRender here, and
+      // app::rebuild from the animation tick, which is gated above.
+      if (WONDEROUS_ARM !== 'arkts' || START_APP !== 'wonders') {
+        splash.appRender(START_APP);
+      }
       // Off by default; set CATALOG_WALK_MS to re-run the screenshot sweep.
       if (START_APP === 'catalog' && CATALOG_WALK_MS > 0) {
         let k: number = 0;
@@ -991,7 +997,6 @@ struct Index {
       // NodeContent and the Rust app re-mounts on every tap, so without this
       // it sits in front and answers the taps -- which it silently did, while
       // screenshots of the two were being compared and looked identical.
-      splash.appDetach();
       this.wa = wa;
       wa.onTap = () => { this.wonderousArkMount(); };
       this.wonderousArkMount();
