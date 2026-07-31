@@ -301,6 +301,7 @@ pub const T_FOUND_CLOSE: i32 = 7490;
 pub const T_VIDEO: i32 = 7454;
 pub const T_MAPS: i32 = 7453;
 pub const T_HOME_SWIPE: i32 = 7150;
+pub const T_SCROLLED: i32 = 7160;
 pub const S_VIDEO: i32 = 10;
 pub const S_MAPS: i32 = 11;
 
@@ -396,6 +397,13 @@ pub fn route(id: i32) -> Option<Node> {
         T_MAPS => {
             SCREEN.store(S_MAPS, Relaxed);
             true
+        }
+        // The article moved. Nothing is rebuilt: the hero's translate is set
+        // straight on the mounted node, so this runs at whatever rate the
+        // scroll reports rather than at a rebuild's.
+        T_SCROLLED => {
+            unsafe { splash_oh_arkui::dsl::apply_parallax() };
+            return None;
         }
         // The shim reports a drag as base + 1..4: left, right, up, down.
         // Swiping left brings the next wonder in, as it does in the app.

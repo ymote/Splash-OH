@@ -58,6 +58,7 @@ let T_FOUND_CLOSE = 7490
 let T_VIDEO       = 7454
 let T_MAPS        = 7453
 let T_HOME_SWIPE  = 7150
+let T_SCROLLED    = 7160
 
 // ---- helpers ------------------------------------------------------------
 fn at(node, x, y) {
@@ -351,7 +352,10 @@ fn editorial_body(bh) {
   // The illustration heads the article, as the app's collapsing header does --
   // the layered scene, not the bare texture it is painted on.
   let hero = bh * 0.42
-  kids.push({t: "stack", w: W, h: hero, bg: w_fg, clip: 1,
+  // The hero rides up at half the reader's speed. `parallax` is a function of
+  // where the scroll is, not of the clock, which is why drift cannot express
+  // it -- the illustration has to be somewhere specific for a given offset.
+  kids.push({t: "stack", w: W, h: hero, bg: w_fg, clip: 1, parallax: 0.5,
              c: hero_layers(hero)})
   total = total + hero
 
@@ -420,7 +424,7 @@ fn editorial_body(bh) {
   // At least the viewport: a column shorter than the scroll leaves the page
   // colour showing above it, which read as a gap on every short tab.
   if total < bh { total = bh }
-  return {t: "scroll", w: W, h: bh,
+  return {t: "scroll", w: W, h: bh, tap: T_SCROLLED,
           c: [{t: "column", w: W, h: total, bg: SHEET, align: 1, c: kids}]}
 }
 

@@ -138,6 +138,11 @@ thread_local! {
     /// tree is walked, drained by the host once it is mounted.
     static DRIFTS: std::cell::RefCell<Vec<(crate::arkui::NodeHandle, f32, f32, i32)>> =
         const { std::cell::RefCell::new(Vec::new()) };
+    /// Nodes that move against the scroll, with how fast relative to it.
+    /// A factor of 0.5 moves the node half as far as the content, which is
+    /// what reads as depth.
+    static PARALLAX: std::cell::RefCell<Vec<(crate::arkui::NodeHandle, f32)>> =
+        const { std::cell::RefCell::new(Vec::new()) };
     static FLUTTER_ROUTES: std::cell::RefCell<Vec<String>> =
         const { std::cell::RefCell::new(Vec::new()) };
     /// The first `scroll` node of the tree currently mounted.
@@ -250,6 +255,41 @@ pub unsafe fn start_drifts() -> usize {
     n
 }
 
+/// Move every parallax node to match where the scroll is now.
+///
+/// Called from the scroll event. The offset is read from the Scroll itself
+/// rather than accumulated from the deltas the event carries -- the sum runs
+/// ahead of the real position within a single drag, which pins a hero at the
+/// end of its travel almost immediately.
+///
+/// # Safety
+/// Must be called while the tree those handles came from is mounted.
+pub unsafe fn apply_parallax() -> usize {
+    let scroll = scroll_node();
+    if scroll.is_null() {
+        return 0;
+    }
+    let Some(y) = crate::arkui::Node::get_f32(scroll, attr::scroll_offset(), 1) else {
+        return 0;
+    };
+    PARALLAX.with(|p| {
+        let list = p.borrow();
+        for (h, factor) in list.iter() {
+            // Positive, against the scroll. The node is already carried up by
+            // the content; translating it further up makes it faster, which is
+            // the opposite of depth. Holding it back by a fraction is what
+            // leaves it behind -- net travel of (1 - factor) times the scroll.
+            crate::arkui::Node::set_translate(*h, 0.0, y * factor);
+        }
+        list.len()
+    })
+}
+
+/// How many parallax nodes the last build declared.
+pub fn parallax_count() -> usize {
+    PARALLAX.with(|p| p.borrow().len())
+}
+
 /// How many drifts the last build declared.
 pub fn drift_count() -> usize {
     DRIFTS.with(|d| d.borrow().len())
@@ -258,6 +298,7 @@ pub fn drift_count() -> usize {
 /// Forget the drifts from a previous build.
 pub fn clear_drifts() {
     DRIFTS.with(|d| d.borrow_mut().clear());
+    PARALLAX.with(|p| p.borrow_mut().clear());
 }
 
 pub fn build(src: &str) -> Option<Node> {
@@ -749,7 +790,15 @@ fn walk(vm: &mut ScriptVm, value: ScriptValue, depth: usize, parent: &str) -> Op
 
     // `tap: <id>` wires a click straight back to Rust.
     if let Some(v) = num_prop(vm, value, id!(tap)) {
-        node = node.on_event(event::click(), v as i32);
+        // A Scroll does not get clicked. On one, the id means "tell me when
+        // this moved" -- which is what a screen wants it for, and it saves a
+        // second key that would only ever appear on scrolls.
+        let e = if tag == "scroll" {
+            event::did_scroll()
+        } else {
+            event::click()
+        };
+        node = node.on_event(e, v as i32);
     }
     // A drag, as four ids. The shim measures the gesture on the node that
     // receives it and reports `base + 1..4` -- left, right, up, down -- so a
@@ -769,6 +818,13 @@ fn walk(vm: &mut ScriptVm, value: ScriptValue, depth: usize, parent: &str) -> Op
     //
     // The handle is recorded rather than animated here: the node is not mounted
     // yet, and `animate` needs a live one to read a context from.
+    // `parallax: f` -- move this node f times the scroll offset, against it.
+    //
+    // Constant-velocity drift cannot express this: the whole point is that the
+    // position is a function of where the reader is, not of the clock.
+    if let Some(v) = num_prop(vm, value, id!(parallax)) {
+        PARALLAX.with(|p| p.borrow_mut().push((node.raw(), v as f32)));
+    }
     if let Some(arr) = prop(vm, value, id!(drift)).and_then(|v| v.as_array()) {
         if let ScriptArrayStorage::ScriptValue(vals) = vm.bx.heap.array_storage(arr) {
             let n: Vec<f64> = vals.iter().filter_map(|v| v.as_number()).collect();
