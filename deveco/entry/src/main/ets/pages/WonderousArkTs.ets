@@ -359,7 +359,10 @@ export class WonderousArkTs {
   }
 
   /** The little icon a lost collectible is drawn as. */
-  private badge(i: number, size: number): FrameNode {
+  // Returns the Stack rather than a bare FrameNode: the caller registers the
+  // tap through `attribute`, which is the typed one and the only one an event
+  // actually binds through.
+  private badge(i: number, size: number): typeNode.Stack {
     const b = this.u.stack(size, size, 0x33F8ECE5);
     b.attribute.borderRadius(size / 2);
     b.appendChild(this.u.img(APP + '/_common/collectibles/' + COLLECTIBLES[i].icon + '.png',
@@ -795,7 +798,7 @@ export class WonderousArkTs {
         play.attribute.borderRadius(27);
         play.appendChild(this.u.text('▶', 20, SHEET, 54, 54, undefined, TextAlign.Center));
         frame.appendChild(this.u.at(play, (cw - 54) / 2, (vh - 54) / 2));
-        frame.commonAttribute.onClick(() => { this.screen = S_VIDEO; this.onTap(0); });
+        frame.attribute.onClick(() => { this.screen = S_VIDEO; this.onTap(0); });
         body.appendChild(frame);
         body.appendChild(this.u.text(e.videoCaption, 13, CAPTION_C, cw, 60, BODY_ITALIC));
         bodyH += vh + 70;
@@ -807,7 +810,7 @@ export class WonderousArkTs {
       if (!this.found[hidden[k]]) {
         const id: number = hidden[k];
         const b = this.badge(id, 48);
-        b.commonAttribute.onClick(() => { this.tap(T_COLLECT + id); });
+        b.attribute.onClick(() => { this.tap(T_COLLECT + id); });
         body.appendChild(b);
         bodyH += 64;
       }
@@ -876,7 +879,7 @@ export class WonderousArkTs {
     if (sel === this.galleryCell(wi) && hid.length > 0 && !this.found[hid[0]]) {
       const id: number = hid[0];
       const b = this.badge(id, 56);
-      b.commonAttribute.onClick(() => { this.tap(T_COLLECT + id); });
+      b.attribute.onClick(() => { this.tap(T_COLLECT + id); });
       root.appendChild(this.u.at(b, ox + iw - 76, oy + ih - 76));
     }
     return root;
