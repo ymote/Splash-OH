@@ -565,7 +565,10 @@ fn artifacts_body(bh) {
                 c: [{t: "text", text: "BROWSE ALL", size: 12, color: SHEET,
                      font: SERIF_UI, w: W * 0.72, h: 52, talign: 1, pad: 18}]},
                W * 0.14, bh - 66))
-  kids.push(hit(W * 0.14, bh - 66, W * 0.72, 52, T_BROWSE))
+  // A hit area larger than the button it sits under. The pill is 52 tall and
+  // the thumb aiming at it is not that precise; a near-miss landing on nothing
+  // reads as a dead button, which is exactly how this was reported.
+  kids.push(hit(W * 0.08, bh - 78, W * 0.84, 76, T_BROWSE))
   kids.push(hit(0, ay, cx, tall, T_ART_PREV))
   kids.push(hit(cx, ay, iw, tall, T_ART_OPEN))
   kids.push(hit(cx + iw, ay, W - cx - iw, tall, T_ART_NEXT))
