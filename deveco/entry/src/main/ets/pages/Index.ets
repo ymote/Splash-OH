@@ -36,8 +36,6 @@ const START_APP: string = 'wonders';
  * the Rust arm's `wonders/hits` log line tells you which one answered a tap.
  */
 const WONDEROUS_ARM: string = 'arkts';
-/** Temporary: mount a plain red box instead of the Wonderous tree. */
-const WA_PROBE: boolean = false;
 /**
  * Milliseconds per screen for the catalog screenshot sweep, or 0 to leave the
  * catalog interactive.
@@ -933,24 +931,6 @@ struct Index {
   private wonderousArkMount(): void {
     const wa = this.wa;
     if (wa === null) {
-      return;
-    }
-    // PROBE: a node that cannot be wrong, into the same slot. If this does not
-    // paint, the slot is the fault; if it does, the Wonderous tree is.
-    if (WA_PROBE) {
-      const t = wa.build(wa.screen, wa.wonder, wa.tab, wa.page, 406.15, 805.23);
-      if (t === null) {
-        console.info('SplashOH: wonderous/arkts: probe build returned null');
-        return;
-      }
-      console.info('SplashOH: wonderous/arkts: probe root kids=' + t.getChildrenCount());
-      this.waContent.addFrameNode(t);
-      setTimeout(() => {
-        const s = t.getUserConfigSize();
-        const p = t.getPositionToParent();
-        console.info('SplashOH: wonderous/arkts: probe laid out w=' + s.width
-          + ' h=' + s.height + ' x=' + p.x + ' y=' + p.y);
-      }, 1200);
       return;
     }
     const node = wa.build(wa.screen, wa.wonder, wa.tab, wa.page, 406.15, 805.23);
